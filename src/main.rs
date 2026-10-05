@@ -5,11 +5,10 @@ mod discover;
 mod exec;
 mod inspect;
 mod pathenv;
+mod platform;
 mod pool;
 mod progress;
-mod registry;
 mod report;
-mod spawn;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -23,7 +22,8 @@ use regex::Regex;
 use discover::Tool;
 use exec::Outcome;
 use inspect::Kind;
-use pathenv::{PathIndex, path_key};
+use pathenv::PathIndex;
+use platform::path_key;
 use report::{EntryIssue, Report, ToolResult, Verdict};
 
 /// Installers and uninstallers can act on `--help`, so they are never run.
@@ -33,9 +33,14 @@ static INSTALLER_NAME: LazyLock<Regex> =
 #[derive(Parser)]
 #[command(version, about = "Find broken paths: PATH entries, launchers, shims, and tools whose --help fails")]
 struct Cli {
-    /// Also check the persisted (registry) PATH and App Paths registrations
+    /// Also check the saved (registry) PATH and App Paths registrations
+    #[cfg(windows)]
     #[arg(long)]
     registry: bool,
+    /// Also check the distro's own folders (/usr/bin, /bin, /usr/sbin, /sbin)
+    #[cfg(unix)]
+    #[arg(long)]
+    system: bool,
     /// Print the report as JSON
     #[arg(long)]
     json: bool,
@@ -89,7 +94,9 @@ fn prepare(tool: Tool, ctx: &Ctx) -> Prepared {
         ms: 0,
     };
 
-    let skip_why = if ctx.skip.contains(&res.name.to_lowercase()) {
+    let skip_why = if let Some(why) = platform::never_run(&res.path) {
+        Some(why)
+    } else if ctx.skip.contains(&res.name.to_lowercase()) {
         Some("not run: --skip")
     } else if matches!(res.kind, Kind::AppAlias { .. }) {
         Some("not run: app execution alias (starts a packaged app)")
@@ -153,6 +160,25 @@ fn cost_rank(p: &Prepared) -> u8 {
     }
 }
 
+#[cfg(windows)]
+fn check_registry(cli: &Cli) -> bool {
+    cli.registry
+}
+#[cfg(unix)]
+fn check_registry(_: &Cli) -> bool {
+    false
+}
+
+/// Windows' own folder is never run; on Linux `--system` opts the distro folders in.
+#[cfg(windows)]
+fn include_system(_: &Cli) -> bool {
+    false
+}
+#[cfg(unix)]
+fn include_system(cli: &Cli) -> bool {
+    cli.system
+}
+
 fn entry_issues(entries: &[pathenv::PathEntry]) -> Vec<EntryIssue> {
     pathenv::check_entries(entries)
         .into_iter()
@@ -162,7 +188,13 @@ fn entry_issues(entries: &[pathenv::PathEntry]) -> Vec<EntryIssue> {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    spawn::init();
+    platform::init();
+    // Ctrl+C: stop every running tool and give the cursor back before exiting.
+    let _ = ctrlc::set_handler(|| {
+        platform::kill_children();
+        platform::cursor_visible(true);
+        std::process::exit(130);
+    });
     let jobs = cli.jobs.unwrap_or_else(|| pool::default_jobs(JOBS_PER_CORE, MAX_JOBS)).max(1);
 
     let entries = pathenv::process_path();
@@ -177,30 +209,30 @@ fn main() -> ExitCode {
     // terminal started before PATH was changed.
     let session: HashSet<String> = entries.iter().map(|e| path_key(&e.dir)).collect();
     let mut reported = HashSet::new();
-    for e in registry::persisted_path() {
+    for e in platform::persisted_path() {
         let key = path_key(&e.dir);
         if e.dir.is_dir() && !session.contains(&key) && reported.insert(key) {
             path_problems.push(EntryIssue { entry: e, problem: pathenv::EntryProblem::NotInSession });
         }
     }
     let mut app_paths = Vec::new();
-    if cli.registry {
+    if check_registry(&cli) {
         // Report persisted problems the process PATH doesn't already show.
         let known: HashSet<(String, String)> = path_problems
             .iter()
             .map(|p| (path_key(&p.entry.dir), p.problem.to_string()))
             .collect();
         path_problems.extend(
-            entry_issues(&registry::persisted_path())
+            entry_issues(&platform::persisted_path())
                 .into_iter()
                 .filter(|p| !known.contains(&(path_key(&p.entry.dir), p.problem.to_string()))),
         );
-        app_paths = registry::broken_app_paths();
+        app_paths = platform::broken_app_paths();
     }
 
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
-    let index = PathIndex::build(&dirs, &pathenv::pathext());
-    let tools = discover::discover(&entries, &index);
+    let index = PathIndex::build(&dirs);
+    let tools = discover::discover(&entries, &index, include_system(&cli));
     eprintln!("pathsok: checking {} tools...", tools.len());
 
     let ctx = Ctx {
@@ -251,7 +283,7 @@ fn main() -> ExitCode {
         }
     }
 
-    spawn::cleanup();
+    platform::cleanup();
     let report = Report { path_problems, app_paths, tools };
     if cli.json {
         match serde_json::to_string_pretty(&report) {

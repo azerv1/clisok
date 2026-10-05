@@ -5,32 +5,10 @@ use std::io::{self, IsTerminal, Write};
 use std::sync::Mutex;
 use std::time::Instant;
 
-use windows_sys::core::BOOL;
-use windows_sys::Win32::System::Console::{
-    CONSOLE_CURSOR_INFO, GetConsoleCursorInfo, GetStdHandle, STD_ERROR_HANDLE, SetConsoleCtrlHandler,
-    SetConsoleCursorInfo,
-};
+use crate::platform::cursor_visible;
 
 const BAR_WIDTH: usize = 30;
 const NAME_WIDTH: usize = 28;
-
-fn set_cursor_visible(visible: bool) {
-    // SAFETY: plain console calls on our own stderr handle with a valid out-pointer.
-    unsafe {
-        let h = GetStdHandle(STD_ERROR_HANDLE);
-        let mut info: CONSOLE_CURSOR_INFO = std::mem::zeroed();
-        if GetConsoleCursorInfo(h, &mut info) != 0 {
-            info.bVisible = BOOL::from(visible);
-            SetConsoleCursorInfo(h, &info);
-        }
-    }
-}
-
-/// Ctrl+C / Ctrl+Break: bring the cursor back, then let the default handler exit.
-unsafe extern "system" fn restore_on_ctrl(_event: u32) -> BOOL {
-    set_cursor_visible(true);
-    0
-}
 
 pub struct Progress {
     total: usize,
@@ -43,9 +21,7 @@ impl Progress {
     pub fn new(total: usize) -> Self {
         let done = io::stderr().is_terminal().then(|| Mutex::new(0));
         if done.is_some() {
-            // SAFETY: registers a handler that only touches the console cursor.
-            unsafe { SetConsoleCtrlHandler(Some(restore_on_ctrl), 1) };
-            set_cursor_visible(false);
+            cursor_visible(false);
         }
         Progress { total, done, start: Instant::now() }
     }
@@ -77,7 +53,7 @@ impl Progress {
         if self.done.is_some() {
             let width = BAR_WIDTH + NAME_WIDTH + 30;
             eprint!("\r{}\r", " ".repeat(width));
-            set_cursor_visible(true);
+            cursor_visible(true);
         }
     }
 }
@@ -86,7 +62,7 @@ impl Drop for Progress {
     /// Also covers panics: never leave the user's cursor hidden.
     fn drop(&mut self) {
         if self.done.is_some() {
-            set_cursor_visible(true);
+            cursor_visible(true);
         }
     }
 }

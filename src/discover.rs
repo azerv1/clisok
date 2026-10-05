@@ -1,5 +1,5 @@
 //! Find the command-line tools to check: every program reachable through
-//! PATH, outside the Windows directory.
+//! PATH, outside the operating system's own folders.
 
 use std::collections::HashSet;
 use std::fs;
@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::pathenv::{PathEntry, PathIndex, path_key};
+use crate::pathenv::{PathEntry, PathIndex};
+use crate::platform::{self, path_key};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Tool {
@@ -18,57 +19,52 @@ pub struct Tool {
     pub shadowed: Vec<PathBuf>,
 }
 
-/// Only these extensions are discovered and run; PATHEXT also lists .js/.vbs/.py etc.
-const SCAN_EXTS: &[&str] = &["exe", "com", "cmd", "bat"];
-
-fn has_scan_ext(p: &Path) -> bool {
-    p.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| SCAN_EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
-}
-
-/// Windows' own programs are maintained by Windows and never run.
-fn in_windows_dir(p: &Path, win_key: &str) -> bool {
+/// Whether `p` is inside one of the (already keyed) folders.
+fn inside(p: &Path, dir_keys: &[String]) -> bool {
     let key = path_key(p);
-    key == win_key || key.starts_with(&format!("{win_key}\\"))
+    dir_keys.iter().any(|d| key == *d || key.starts_with(&format!("{d}{}", std::path::MAIN_SEPARATOR)))
 }
 
 fn list_tools(dir: &Path) -> Vec<PathBuf> {
     let Ok(rd) = fs::read_dir(dir) else { return Vec::new() };
-    let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| has_scan_ext(p)).collect();
+    let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| platform::is_runnable(p)).collect();
     files.sort();
     files
 }
 
-pub fn discover(path: &[PathEntry], index: &PathIndex) -> Vec<Tool> {
-    let windir = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
-    let win_key = path_key(&windir);
+/// `include_system`: also check the OS's own folders (see `platform::system_dirs`).
+pub fn discover(path: &[PathEntry], index: &PathIndex, include_system: bool) -> Vec<Tool> {
+    let system: Vec<String> =
+        if include_system { Vec::new() } else { platform::system_dirs().iter().map(|d| path_key(d)).collect() };
 
     let mut seen_dirs = HashSet::new();
     let mut seen_names = HashSet::new();
     let mut tools = Vec::new();
     for entry in path {
-        if in_windows_dir(&entry.dir, &win_key) || !seen_dirs.insert(path_key(&entry.dir)) {
+        if platform::never_scan(&entry.dir)
+            || inside(&entry.dir, &system)
+            || !seen_dirs.insert(path_key(&entry.dir))
+        {
             continue;
         }
         for file in list_tools(&entry.dir) {
-            let Some(stem) = file.file_stem().and_then(|s| s.to_str()) else { continue };
-            if !seen_names.insert(stem.to_lowercase()) {
+            let Some(name) = platform::command_name(&file) else { continue };
+            if !seen_names.insert(platform::lookup_key(&name)) {
                 continue;
             }
             // Test what actually runs when the name is typed, not just this copy.
-            let hits = index.lookup(stem);
+            let hits = index.lookup(&name);
             let Some(active) = hits.first() else { continue };
-            if !has_scan_ext(active) || in_windows_dir(active, &win_key) {
+            if !platform::is_runnable(active) || inside(active, &system) {
                 continue;
             }
-            tools.push(Tool { name: stem.to_string(), path: active.clone(), shadowed: hits[1..].to_vec() });
+            tools.push(Tool { name, path: active.clone(), shadowed: hits[1..].to_vec() });
         }
     }
     tools
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
     use crate::pathenv::PathOrigin;
@@ -86,11 +82,36 @@ mod tests {
             .map(|d| PathEntry { raw: d.display().to_string(), dir: d.to_path_buf(), origin: PathOrigin::Process })
             .collect();
         let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
-        let ext = vec![".com".into(), ".exe".into(), ".bat".into(), ".cmd".into()];
-        let tools = discover(&entries, &PathIndex::build(&dirs, &ext));
+        let tools = discover(&entries, &PathIndex::build(&dirs), false);
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, ["tool", "other"]);
         assert!(tools[0].path.ends_with("tool.exe"));
         assert_eq!(tools[0].shadowed.len(), 1);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod unix_tests {
+    use super::*;
+    use crate::inspect::{self, Reason};
+    use crate::pathenv::PathOrigin;
+
+    #[test]
+    fn dangling_symlink_is_discovered_and_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("gone");
+        std::os::unix::fs::symlink(dir.path().join("deleted-target"), &link).unwrap();
+        let entries = vec![PathEntry {
+            raw: dir.path().display().to_string(),
+            dir: dir.path().to_path_buf(),
+            origin: PathOrigin::Process,
+        }];
+        let dirs = vec![dir.path().to_path_buf()];
+        let index = PathIndex::build(&dirs);
+        let tools = discover(&entries, &index, false);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "gone");
+        let insp = inspect::inspect(&tools[0].path, &index, &dirs);
+        assert!(matches!(insp.reasons.as_slice(), [Reason::MissingTarget { .. }]));
     }
 }
