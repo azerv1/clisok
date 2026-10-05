@@ -9,7 +9,26 @@ use regex::{Regex, RegexSet};
 use serde::Serialize;
 
 use crate::inspect::Reason;
-use crate::spawn;
+use crate::platform;
+
+/// Set for every tool run: no colors, no prompts, no GUI backends.
+pub const HEADLESS_ENV: &[(&str, &str)] = &[
+    ("PYTHONUTF8", "1"),
+    ("PYTHONIOENCODING", "utf-8"),
+    ("NO_COLOR", "1"),
+    ("CI", "1"),
+    ("TERM", "dumb"),
+    ("GIT_TERMINAL_PROMPT", "0"),
+    ("QT_QPA_PLATFORM", "offscreen"),
+    ("SDL_VIDEODRIVER", "dummy"),
+    ("MPLBACKEND", "Agg"),
+];
+/// Removed for every tool run, so GUI programs fail fast instead of opening:
+/// X11, Wayland (including the default socket under XDG_RUNTIME_DIR, which
+/// WSLg and desktop sessions provide) and the D-Bus session that could ask
+/// a running desktop service to open a window.
+pub const HEADLESS_ENV_REMOVE: &[&str] =
+    &["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"];
 
 /// Kept in the report for failed runs.
 const MAX_OUTPUT: usize = 4000;
@@ -64,12 +83,15 @@ static HELP_TEXT: LazyLock<RegexSet> = LazyLock::new(|| {
 /// A line documenting a flag, e.g. `  -v, --verbose  ...`.
 static FLAG_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*-{1,2}[A-Za-z0-9]").unwrap());
 
-/// Interactive programs that refuse to start without a real console.
+/// Interactive programs that refuse to start without a real console, or GUI
+/// programs that need a display (headless runs have neither).
 static NEEDS_CONSOLE: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r"(?i)\bnot a (tty|terminal|console)\b",
         r"(?i)\bno (windows )?(tty|terminal|console) (found|available|attached)\b",
         r"(?i)\b(requires?|needs?|expecting) an? (interactive |windows )?(tty|terminal|console)\b",
+        r"(?i)\b(cannot|can't|could not|couldn't|unable to|failed to) (open|connect to) (the )?(x )?display\b",
+        r"(?i)\bno display\b",
     ])
     .unwrap()
 });
@@ -100,7 +122,7 @@ pub enum Judgement {
 /// Run a program headlessly (see `spawn`), capturing stdout+stderr.
 pub fn run_capture(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Attempt> {
     let start = Instant::now();
-    let out = spawn::run(program, args, timeout)?;
+    let out = platform::run_headless(program, args, timeout)?;
     Ok(Attempt {
         arg: args.join(" "),
         exit: out.exit,
@@ -159,7 +181,7 @@ pub enum Outcome {
     ToolError(String),
 }
 
-const CONSOLE_NOTE: &str = "not run: needs an interactive console";
+const CONSOLE_NOTE: &str = "not run: needs an interactive console or a display";
 
 /// `--help`, then `-h`, then `--version`, stopping at the first conclusive answer.
 pub fn run_help(path: &Path, timeout: Duration) -> (Outcome, Vec<Attempt>) {
@@ -317,6 +339,9 @@ operable program or batch file."#))));
         assert_eq!(judge(&run(1, "error: stdin is not a tty\n")), Judgement::NeedsConsole);
         assert_eq!(judge(&run(1, "ScreenBufferError: No Windows console found. Are you running cmd.exe?\n")), Judgement::NeedsConsole);
         assert_eq!(judge(&run(1, "This program requires an interactive terminal.\n")), Judgement::NeedsConsole);
+        assert_eq!(judge(&run(1, "Error: Can't open display: \n")), Judgement::NeedsConsole);
+        assert_eq!(judge(&run(1, "qt.qpa.xcb: could not connect to display\n")), Judgement::NeedsConsole);
+        assert_eq!(judge(&run(1, "Gtk-WARNING **: cannot open display: :0\n")), Judgement::NeedsConsole);
     }
 
     #[test]
@@ -326,11 +351,13 @@ operable program or batch file."#))));
         assert_eq!(judge(&run(1, "SyntaxError: Invalid regular expression\n")), Judgement::Fail);
     }
 
+    #[cfg(windows)]
     fn system32(exe: &str) -> std::path::PathBuf {
         let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
         std::path::PathBuf::from(root).join("System32").join(exe)
     }
 
+    #[cfg(windows)]
     #[test]
     fn runs_real_process() {
         let a = run_capture(&system32("cmd.exe"), &["/d", "/c", "echo hi"], Duration::from_secs(10)).unwrap();
@@ -338,6 +365,7 @@ operable program or batch file."#))));
         assert!(a.output.contains("hi"));
     }
 
+    #[cfg(windows)]
     #[test]
     fn times_out_and_kills() {
         let start = Instant::now();
