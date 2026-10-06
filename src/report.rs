@@ -8,7 +8,7 @@ use serde::Serialize;
 use crate::exec::Attempt;
 use crate::inspect::{Kind, Reason};
 use crate::pathenv::{EntryProblem, PathEntry};
-use crate::registry::AppPath;
+use crate::platform::AppPath;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "kebab-case")]
