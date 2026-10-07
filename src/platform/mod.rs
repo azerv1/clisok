@@ -7,7 +7,7 @@
 //!   `is_runnable`, `command_name`, `unexpanded_var`, `is_os_dir`, `never_scan`
 //! - running tools: `init`, `cleanup`, `run_headless`, `kill_children`, `never_run`
 //! - static checks: `inspect`
-//! - saved configuration: `persisted_path`, `broken_app_paths`, `AppPath`
+//! - saved configuration: `persisted_path`, `truncated_saved_paths`, `broken_app_paths`, `AppPath`
 //! - terminal: `cursor_visible`
 
 #[cfg(windows)]

@@ -119,6 +119,10 @@ pub fn persisted_path() -> Vec<PathEntry> {
     Vec::new()
 }
 
+pub fn truncated_saved_paths() -> Vec<PathEntry> {
+    Vec::new()
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AppPath {
     pub key: String,

@@ -50,6 +50,9 @@ pub enum EntryProblem {
     Duplicate,
     /// Saved in the registry but missing from this process (stale terminal).
     NotInSession,
+    /// The last entry of a saved PATH that a length limit cut off; the
+    /// entries after it are gone.
+    Truncated,
 }
 
 impl EntryProblem {
@@ -70,6 +73,9 @@ impl fmt::Display for EntryProblem {
             EntryProblem::Whitespace => "has leading/trailing whitespace",
             EntryProblem::Duplicate => "duplicate entry",
             EntryProblem::NotInSession => "saved in PATH but missing from this terminal; open a new one",
+            EntryProblem::Truncated => {
+                "saved PATH looks cut off here by a length limit; entries that came after it were lost"
+            }
         })
     }
 }

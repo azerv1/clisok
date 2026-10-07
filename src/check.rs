@@ -12,7 +12,7 @@ use regex::Regex;
 use crate::discover::{self, PathCommand, Tool};
 use crate::exec::{self, Outcome};
 use crate::inspect::{self, Kind};
-use crate::pathenv::{self, PathIndex};
+use crate::pathenv::{self, EntryProblem, PathIndex};
 use crate::platform::{self, path_key};
 use crate::report::{EntryIssue, Report, SCHEMA_VERSION, ToolResult, Verdict, print_stdout};
 use crate::{pool, progress};
@@ -227,7 +227,7 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     for e in platform::persisted_path() {
         let key = path_key(&e.dir);
         if e.dir.is_dir() && !session.contains(&key) && reported.insert(key) {
-            path_problems.push(EntryIssue { entry: e, problem: pathenv::EntryProblem::NotInSession });
+            path_problems.push(EntryIssue { entry: e, problem: EntryProblem::NotInSession });
         }
     }
     let mut app_paths = Vec::new();
@@ -244,6 +244,14 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         );
         app_paths = platform::broken_app_paths();
     }
+
+    // A saved PATH cut off by a length limit lost every entry after the cut,
+    // and nothing else shows that. Its stub is reported as the cut, not as a
+    // plain missing folder.
+    let cut = platform::truncated_saved_paths();
+    let cut_keys: HashSet<String> = cut.iter().map(|e| path_key(&e.dir)).collect();
+    path_problems.retain(|p| !(p.problem == EntryProblem::Missing && cut_keys.contains(&path_key(&p.entry.dir))));
+    path_problems.extend(cut.into_iter().map(|entry| EntryIssue { entry, problem: EntryProblem::Truncated }));
 
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
     let index = PathIndex::build(&dirs);
