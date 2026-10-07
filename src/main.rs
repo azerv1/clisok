@@ -37,7 +37,8 @@ struct Cli {
     #[cfg(windows)]
     #[arg(long)]
     registry: bool,
-    /// Also check the distro's own folders (/usr/bin, /bin, /usr/sbin, /sbin)
+    /// Also check the distro's own folders (/usr/bin, /bin, /usr/sbin, /sbin);
+    /// static checks only, nothing there is run
     #[cfg(unix)]
     #[arg(long)]
     system: bool,

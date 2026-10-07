@@ -21,8 +21,23 @@ pub use spawn::{cleanup, init, kill_children, run as run_headless};
 
 pub const PATH_SEPARATOR: char = ':';
 
-/// Folders owned by the distro's package manager; skipped unless `--system`.
+/// Folders owned by the distro's package manager; skipped unless `--system`,
+/// and never run even then.
 const SYSTEM_DIRS: &[&str] = &["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+
+/// `SYSTEM_DIRS` with symlinks resolved (merged /usr links them all to /usr/bin).
+static REAL_SYSTEM_DIRS: LazyLock<Vec<PathBuf>> =
+    LazyLock::new(|| SYSTEM_DIRS.iter().map(|d| fs::canonicalize(d).unwrap_or_else(|_| PathBuf::from(d))).collect());
+
+fn in_system_dir(real: &Path) -> bool {
+    REAL_SYSTEM_DIRS.iter().any(|d| real.starts_with(d))
+}
+
+/// The folder `path` sits in, with symlinks resolved, but not the file itself:
+/// `/bin/go -> /usr/lib/go/bin/go` is still a system program.
+fn real_parent(path: &Path) -> Option<PathBuf> {
+    fs::canonicalize(path.parent()?).ok()
+}
 
 /// `$HOME/bin` or `~/bin` written into PATH without the shell expanding it.
 static VAR_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|^~").unwrap());
@@ -85,6 +100,8 @@ pub fn never_run(path: &Path) -> Option<&'static str> {
     let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if on_windows_drive(&real) || is_windows_program(&real) {
         Some("not run: Windows program (would open on the Windows desktop)")
+    } else if in_system_dir(&real) || real_parent(path).is_some_and(|p| in_system_dir(&p)) {
+        Some("not run: system program (static checks only)")
     } else {
         None
     }
@@ -162,5 +179,14 @@ mod tests {
         fs::write(&script, "#!/bin/sh\n").unwrap();
         assert!(never_run(&exe).is_some());
         assert!(never_run(&script).is_none());
+    }
+
+    #[test]
+    fn system_programs_are_never_run() {
+        assert!(never_run(Path::new("/bin/sh")).is_some());
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("sh");
+        std::os::unix::fs::symlink("/bin/sh", &link).unwrap();
+        assert!(never_run(&link).is_some());
     }
 }
