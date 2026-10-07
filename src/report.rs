@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use crate::discover::PathCommand;
 use crate::exec::Attempt;
 use crate::inspect::{Kind, Reason};
 use crate::pathenv::{EntryProblem, PathEntry};
@@ -143,6 +144,42 @@ impl Report {
             self.path_problems.len() - warns,
             warns,
             self.app_paths.len(),
+        );
+        s
+    }
+}
+
+/// `pathsok list`: every command on PATH and the copies it shadows.
+#[derive(Debug, Serialize)]
+pub struct ListReport {
+    /// `SCHEMA_VERSION`.
+    pub schema: u32,
+    /// The subcommand that produced the report.
+    pub command: &'static str,
+    pub commands: Vec<PathCommand>,
+}
+
+fn os_tag(os: bool) -> &'static str {
+    if os { "  [OS]" } else { "" }
+}
+
+impl ListReport {
+    pub fn to_text(&self) -> String {
+        let mut s = String::new();
+        for c in &self.commands {
+            let _ = writeln!(s, "{}  {}{}", c.name, c.active().path.display(), os_tag(c.active().os));
+            for sh in c.shadowed() {
+                let _ = writeln!(s, "    shadows {}{}", sh.path.display(), os_tag(sh.os));
+            }
+        }
+        let shadowing = self.commands.iter().filter(|c| !c.shadowed().is_empty()).count();
+        let hidden = self.commands.iter().filter(|c| c.hidden_by_os().is_some()).count();
+        let _ = writeln!(
+            s,
+            "\nSummary: {} commands; {} shadow other copies; {} run an OS copy instead of yours.",
+            self.commands.len(),
+            shadowing,
+            hidden,
         );
         s
     }

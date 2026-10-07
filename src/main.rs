@@ -5,6 +5,7 @@ mod check;
 mod discover;
 mod exec;
 mod inspect;
+mod list;
 mod pathenv;
 mod platform;
 mod pool;
@@ -26,12 +27,15 @@ struct Cli {
 enum Command {
     /// Check PATH entries and every tool on PATH, running --help where it is safe
     Check(check::CheckArgs),
+    /// List every command on PATH and the copies it shadows, without running anything
+    List(list::ListArgs),
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         Some(Command::Check(args)) => check::check(&args),
+        Some(Command::List(args)) => list::list(&args),
         // Nothing to do yet: say what there is to do, and succeed.
         None => {
             let _ = Cli::command().print_help();
@@ -59,5 +63,12 @@ mod tests {
         let cli = Cli::try_parse_from(["pathsok", "check", "--json", "-v", "--skip", "a", "--skip", "b"]).unwrap();
         assert!(matches!(cli.command, Some(Command::Check(_))));
         assert!(Cli::try_parse_from(["pathsok", "--json"]).is_err());
+    }
+
+    #[test]
+    fn list_takes_system_and_json_only() {
+        let cli = Cli::try_parse_from(["pathsok", "list", "--system", "--json"]).unwrap();
+        assert!(matches!(cli.command, Some(Command::List(_))));
+        assert!(Cli::try_parse_from(["pathsok", "list", "--verbose"]).is_err());
     }
 }

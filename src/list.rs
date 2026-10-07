@@ -1,0 +1,87 @@
+//! `pathsok list`: every command on PATH and the copies it shadows. Nothing is run.
+
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+use crate::discover::{self, PathCommand};
+use crate::pathenv::{self, PathIndex};
+use crate::report::{ListReport, SCHEMA_VERSION};
+
+#[derive(clap::Args)]
+pub struct ListArgs {
+    #[cfg_attr(windows, doc = "Also list commands found only in Windows' own folder (%SystemRoot%)")]
+    #[cfg_attr(unix, doc = "Also list commands found only in the distro's own folders (/usr/bin, /bin, /usr/sbin, /sbin)")]
+    #[arg(long)]
+    system: bool,
+    /// Print the list as JSON
+    #[arg(long)]
+    json: bool,
+}
+
+/// Alphabetical, ignoring case; names that differ only in case (Unix) keep a fixed order.
+fn sort_by_name(commands: &mut [PathCommand]) {
+    commands.sort_by(|a, b| (a.name.to_lowercase(), &a.name).cmp(&(b.name.to_lowercase(), &b.name)));
+}
+
+pub fn list(args: &ListArgs) -> ExitCode {
+    let entries = pathenv::process_path();
+    if entries.is_empty() {
+        eprintln!("pathsok: PATH is empty");
+        return ExitCode::from(2);
+    }
+    let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
+    let mut commands = discover::inventory(&entries, &PathIndex::build(&dirs), args.system);
+    sort_by_name(&mut commands);
+
+    let report = ListReport { schema: SCHEMA_VERSION, command: "list", commands };
+    if args.json {
+        match serde_json::to_string_pretty(&report) {
+            Ok(j) => println!("{j}"),
+            Err(e) => {
+                eprintln!("pathsok: {e}");
+                return ExitCode::from(2);
+            }
+        }
+    } else {
+        print!("{}", report.to_text());
+    }
+    ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::discover::FileCopy;
+
+    fn command(name: &str, copies: &[(&str, bool)]) -> PathCommand {
+        PathCommand {
+            name: name.into(),
+            copies: copies.iter().map(|(p, os)| FileCopy { path: PathBuf::from(p), os: *os }).collect(),
+        }
+    }
+
+    #[test]
+    fn sorts_alphabetically_ignoring_case() {
+        let mut commands = vec![command("zip", &[("a", false)]), command("Git", &[("b", false)]), command("curl", &[("c", false)])];
+        sort_by_name(&mut commands);
+        let names: Vec<&str> = commands.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["curl", "Git", "zip"]);
+    }
+
+    #[test]
+    fn text_marks_os_copies_and_counts_hidden_ones() {
+        let report = ListReport {
+            schema: SCHEMA_VERSION,
+            command: "list",
+            commands: vec![
+                command("curl", &[("/os/curl", true), ("/home/me/bin/curl", false)]),
+                command("git", &[("/home/me/bin/git", false)]),
+            ],
+        };
+        let text = report.to_text();
+        let os_path = PathBuf::from("/os/curl").display().to_string();
+        let mine = PathBuf::from("/home/me/bin/curl").display().to_string();
+        assert!(text.contains(&format!("curl  {os_path}  [OS]\n    shadows {mine}\n")));
+        assert!(text.contains("Summary: 2 commands; 1 shadow other copies; 1 run an OS copy instead of yours."));
+    }
+}

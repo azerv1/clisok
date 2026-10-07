@@ -34,6 +34,11 @@ impl PathCommand {
     pub fn shadowed(&self) -> &[FileCopy] {
         &self.copies[1..]
     }
+
+    /// When an OS copy runs, the first non-OS copy it hides.
+    pub fn hidden_by_os(&self) -> Option<&FileCopy> {
+        if self.active().os { self.shadowed().iter().find(|c| !c.os) } else { None }
+    }
 }
 
 /// The copy of a command that `check` inspects, and maybe runs.
