@@ -81,11 +81,14 @@ fn prepare(tool: Tool, ctx: &Ctx) -> Prepared {
         reasons: insp.reasons,
         note: None,
         shadowed: tool.shadowed,
+        hidden_by: tool.hidden_by,
         attempts: Vec::new(),
         ms: 0,
     };
 
-    let skip_why = if let Some(why) = platform::never_run(&res.path) {
+    let skip_why = if res.hidden_by.is_some() {
+        Some("not run: an OS copy runs instead")
+    } else if let Some(why) = platform::never_run(&res.path) {
         Some(why)
     } else if ctx.skip.contains(&res.name.to_lowercase()) {
         Some("not run: --skip")
@@ -108,6 +111,13 @@ fn prepare(tool: Tool, ctx: &Ctx) -> Prepared {
 /// Run `--help` (unless skipped) and settle the verdict.
 fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
     let mut res = p.res;
+    // Typing the name never reaches this copy, so it can't fail the run;
+    // its static findings are still listed.
+    if let Some(os_copy) = &res.hidden_by {
+        res.note = Some(format!("hidden behind {}, which runs instead", os_copy.display()));
+        res.verdict = Verdict::Warn;
+        return res;
+    }
     let outcome = match p.skip_why {
         Some(why) => Outcome::Skip(why.to_string()),
         None => {
@@ -161,17 +171,28 @@ fn check_registry(_: &CheckArgs) -> bool {
 }
 
 /// For each command, the copy that runs. OS copies only with --system, and
-/// even then they are never run (`platform::never_run`).
+/// even then they are never run (`platform::never_run`). When an OS copy runs,
+/// the user's copy it hides is added too, for static checks only.
 fn tools_to_check(commands: &[PathCommand], include_system: bool) -> Vec<Tool> {
-    commands
-        .iter()
-        .filter(|c| platform::is_runnable(&c.active().path) && (include_system || !c.active().os))
-        .map(|c| Tool {
-            name: c.name.clone(),
-            path: c.active().path.clone(),
-            shadowed: c.shadowed().iter().map(|s| s.path.clone()).collect(),
-        })
-        .collect()
+    let mut tools = Vec::new();
+    for c in commands {
+        let active = c.active();
+        let paths_after = |i: usize| c.copies[i + 1..].iter().map(|s| s.path.clone()).collect();
+        if platform::is_runnable(&active.path) && (include_system || !active.os) {
+            tools.push(Tool { name: c.name.clone(), path: active.path.clone(), shadowed: paths_after(0), hidden_by: None });
+        }
+        if let Some(i) = c.hidden_by_os()
+            && platform::is_runnable(&c.copies[i].path)
+        {
+            tools.push(Tool {
+                name: c.name.clone(),
+                path: c.copies[i].path.clone(),
+                shadowed: paths_after(i),
+                hidden_by: Some(active.path.clone()),
+            });
+        }
+    }
+    tools
 }
 
 fn entry_issues(entries: &[pathenv::PathEntry]) -> Vec<EntryIssue> {
@@ -266,7 +287,12 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         let progress = progress::Progress::new(timed_out.len());
         let rechecked = pool::run_in_order(timed_out.clone(), jobs, |i| {
             let t = &tools[i];
-            let tool = Tool { name: t.name.clone(), path: t.path.clone(), shadowed: t.shadowed.clone() };
+            let tool = Tool {
+                name: t.name.clone(),
+                path: t.path.clone(),
+                shadowed: t.shadowed.clone(),
+                hidden_by: t.hidden_by.clone(),
+            };
             let res = run(prepare(tool, &retry), &retry);
             progress.tick(&res.name);
             res
@@ -291,4 +317,73 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         print_stdout(&report.to_text(args.verbose));
     }
     ExitCode::from(report.exit_code())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::Path;
+
+    use super::*;
+    use crate::discover::FileCopy;
+
+    /// An empty file the platform counts as a program named `tool`.
+    fn program(dir: &Path) -> PathBuf {
+        let path = dir.join(if cfg!(windows) { "tool.exe" } else { "tool" });
+        fs::write(&path, "").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        path
+    }
+
+    /// `tool` where the copy in `os_dir` is marked as the OS's and runs first.
+    fn hidden_by_os(os_dir: &Path, user_dir: &Path) -> PathCommand {
+        PathCommand {
+            name: "tool".into(),
+            copies: vec![
+                FileCopy { path: program(os_dir), os: true },
+                FileCopy { path: program(user_dir), os: false },
+            ],
+        }
+    }
+
+    #[test]
+    fn os_copy_hiding_a_user_copy_checks_the_user_copy() {
+        let (os_dir, user_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let command = hidden_by_os(os_dir.path(), user_dir.path());
+
+        let tools = tools_to_check(std::slice::from_ref(&command), false);
+        assert_eq!(tools.len(), 1);
+        assert!(tools[0].path.starts_with(user_dir.path()));
+        assert_eq!(tools[0].hidden_by.as_deref(), Some(command.copies[0].path.as_path()));
+
+        // With --system the OS copy is checked as well, ahead of the hidden one.
+        let tools = tools_to_check(std::slice::from_ref(&command), true);
+        assert_eq!(tools.len(), 2);
+        assert!(tools[0].hidden_by.is_none() && tools[0].path.starts_with(os_dir.path()));
+        assert_eq!(tools[0].shadowed, [command.copies[1].path.clone()]);
+    }
+
+    #[test]
+    fn hidden_copy_warns_without_running_or_failing() {
+        let (os_dir, user_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let command = hidden_by_os(os_dir.path(), user_dir.path());
+        let dirs = vec![os_dir.path().to_path_buf(), user_dir.path().to_path_buf()];
+        let index = PathIndex::build(&dirs);
+        let ctx = Ctx { index: &index, dirs: &dirs, skip: HashSet::new(), timeout: Duration::from_secs(1) };
+
+        let tool = tools_to_check(&[command], false).remove(0);
+        let res = run(prepare(tool, &ctx), &ctx);
+        assert_eq!(res.verdict, Verdict::Warn);
+        assert!(res.attempts.is_empty() && res.ms == 0);
+        assert!(res.note.as_deref().unwrap().starts_with("hidden behind "));
+
+        let report =
+            Report { schema: SCHEMA_VERSION, command: "check", path_problems: vec![], app_paths: vec![], tools: vec![res] };
+        assert_eq!(report.exit_code(), 0);
+        assert!(report.to_text(false).contains("[WARN]   tool  "));
+    }
 }

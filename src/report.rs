@@ -16,6 +16,8 @@ use crate::platform::AppPath;
 pub enum Verdict {
     Broken,
     ToolError,
+    /// Worth knowing, but doesn't fail the run: a copy hidden behind an OS copy.
+    Warn,
     Pass,
     Skip,
 }
@@ -25,6 +27,7 @@ impl Verdict {
         match self {
             Verdict::Broken => "[BROKEN]",
             Verdict::ToolError => "[ERROR] ",
+            Verdict::Warn => "[WARN]  ",
             Verdict::Pass => "[PASS]  ",
             Verdict::Skip => "[SKIP]  ",
         }
@@ -41,6 +44,9 @@ pub struct ToolResult {
     /// Why it was skipped, or the tool's own error.
     pub note: Option<String>,
     pub shadowed: Vec<PathBuf>,
+    /// The OS copy that runs instead of this one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hidden_by: Option<PathBuf>,
     pub attempts: Vec<Attempt>,
     /// Total time spent running this tool, kept even when `attempts` is dropped.
     pub ms: u64,
@@ -142,10 +148,11 @@ impl Report {
         let warns = self.path_problems.iter().filter(|p| !p.problem.is_error()).count();
         let _ = writeln!(
             s,
-            "\nSummary: {} passed, {} broken, {} tool errors, {} skipped ({} tools); {} PATH problems, {} PATH warnings, {} broken App Paths.",
+            "\nSummary: {} passed, {} broken, {} tool errors, {} warnings, {} skipped ({} tools); {} PATH problems, {} PATH warnings, {} broken App Paths.",
             self.count(Verdict::Pass),
             self.count(Verdict::Broken),
             self.count(Verdict::ToolError),
+            self.count(Verdict::Warn),
             self.count(Verdict::Skip),
             self.tools.len(),
             self.path_problems.len() - warns,

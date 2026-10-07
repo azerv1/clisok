@@ -35,9 +35,9 @@ impl PathCommand {
         &self.copies[1..]
     }
 
-    /// When an OS copy runs, the first non-OS copy it hides.
-    pub fn hidden_by_os(&self) -> Option<&FileCopy> {
-        if self.active().os { self.shadowed().iter().find(|c| !c.os) } else { None }
+    /// When an OS copy runs, where the first non-OS copy it hides sits in `copies`.
+    pub fn hidden_by_os(&self) -> Option<usize> {
+        if self.active().os { self.copies.iter().position(|c| !c.os) } else { None }
     }
 }
 
@@ -48,6 +48,9 @@ pub struct Tool {
     pub path: PathBuf,
     /// Later PATH matches hidden behind `path`.
     pub shadowed: Vec<PathBuf>,
+    /// Set when `path` is a non-OS copy hidden behind this OS copy; then it is
+    /// inspected but never run.
+    pub hidden_by: Option<PathBuf>,
 }
 
 fn list_tools(dir: &Path) -> Vec<PathBuf> {
