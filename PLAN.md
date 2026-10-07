@@ -79,7 +79,8 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 - **FreeBSD** — ELF inspection using FreeBSD loader hints and defaults, plus base-system directory rules.
 
 - **Windows** — retain PE, DLL, and App Execution Alias behavior; add user-registry PATH backup and repair.
-  - **Value type** — read the Path value's type. A `REG_SZ` value containing `%VAR%` is a new PATH problem, because Windows expands only `REG_EXPAND_SZ`. `persisted_path()` (`src/platform/windows/registry.rs:17`) currently expands regardless of type. `--fix-paths` reports this but never changes the type.
+  - **Value type** — read the Path value's type. A `REG_SZ` value containing `%VAR%` is a new PATH problem, because Windows expands only `REG_EXPAND_SZ`. `persisted_path()` (`src/platform/windows/registry.rs`) currently expands regardless of type. `--fix-paths` reports this but never changes the type.
+  - **Truncation** (done) — a saved PATH at a known cut length (setx 1024; NSIS 1023, 4095, 8191; old dialogs 2047) or ending mid-name is reported as cut off, because every entry after the cut is lost silently. The lost entries can't be recovered from the value itself, so `--fix-paths` only reports it; never treat the cut-off stub as an ordinary dead entry to remove.
 
 - **System tools** — never execute OS-owned tools, even when `--system` includes them for static inspection or listing. On Windows the OS-owned directory is `%SystemRoot%`.
 
