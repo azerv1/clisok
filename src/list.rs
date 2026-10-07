@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use crate::discover::{self, PathCommand};
 use crate::pathenv::{self, PathIndex};
-use crate::report::{ListReport, SCHEMA_VERSION};
+use crate::report::{ListReport, SCHEMA_VERSION, print_stdout};
 
 #[derive(clap::Args)]
 pub struct ListArgs {
@@ -36,14 +36,14 @@ pub fn list(args: &ListArgs) -> ExitCode {
     let report = ListReport { schema: SCHEMA_VERSION, command: "list", commands };
     if args.json {
         match serde_json::to_string_pretty(&report) {
-            Ok(j) => println!("{j}"),
+            Ok(j) => print_stdout(&format!("{j}\n")),
             Err(e) => {
                 eprintln!("pathsok: {e}");
                 return ExitCode::from(2);
             }
         }
     } else {
-        print!("{}", report.to_text());
+        print_stdout(&report.to_text());
     }
     ExitCode::SUCCESS
 }

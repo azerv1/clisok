@@ -14,7 +14,7 @@ use crate::exec::{self, Outcome};
 use crate::inspect::{self, Kind};
 use crate::pathenv::{self, PathIndex};
 use crate::platform::{self, path_key};
-use crate::report::{EntryIssue, Report, SCHEMA_VERSION, ToolResult, Verdict};
+use crate::report::{EntryIssue, Report, SCHEMA_VERSION, ToolResult, Verdict, print_stdout};
 use crate::{pool, progress};
 
 /// Installers and uninstallers can act on `--help`, so they are never run.
@@ -281,14 +281,14 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     let report = Report { schema: SCHEMA_VERSION, command: "check", path_problems, app_paths, tools };
     if args.json {
         match serde_json::to_string_pretty(&report) {
-            Ok(j) => println!("{j}"),
+            Ok(j) => print_stdout(&format!("{j}\n")),
             Err(e) => {
                 eprintln!("pathsok: {e}");
                 return ExitCode::from(2);
             }
         }
     } else {
-        print!("{}", report.to_text(args.verbose));
+        print_stdout(&report.to_text(args.verbose));
     }
     ExitCode::from(report.exit_code())
 }

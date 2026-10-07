@@ -52,6 +52,13 @@ pub struct EntryIssue {
     pub problem: EntryProblem,
 }
 
+/// Print to stdout. A reader that stops early (`pathsok list | head`) is not
+/// an error; `print!` would panic on the closed pipe.
+pub fn print_stdout(text: &str) {
+    use std::io::Write as _;
+    let _ = std::io::stdout().lock().write_all(text.as_bytes());
+}
+
 /// Version of the JSON output's shape. Bumped when a field is removed or
 /// changes meaning; new fields don't bump it.
 pub const SCHEMA_VERSION: u32 = 1;
