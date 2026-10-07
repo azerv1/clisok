@@ -107,8 +107,10 @@ pub fn never_run(path: &Path) -> Option<&'static str> {
     }
 }
 
-pub fn system_dirs() -> Vec<PathBuf> {
-    SYSTEM_DIRS.iter().map(PathBuf::from).collect()
+/// One of the distro's own folders, with symlinks resolved (merged /usr's
+/// `/bin` counts).
+pub fn is_os_dir(dir: &Path) -> bool {
+    in_system_dir(&fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()))
 }
 
 /// There is no saved PATH to compare against (shell profiles can't be

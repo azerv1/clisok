@@ -82,9 +82,14 @@ pub fn command_name(path: &Path) -> Option<String> {
     Some(path.file_stem()?.to_str()?.to_string())
 }
 
-/// Windows' own programs are maintained by Windows and never run.
-pub fn system_dirs() -> Vec<PathBuf> {
-    vec![std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from)]
+/// Windows' own folder (`%SystemRoot%` and everything under it): maintained by
+/// Windows, skipped unless --system, and never run.
+pub fn is_os_dir(dir: &Path) -> bool {
+    static ROOT: LazyLock<String> = LazyLock::new(|| {
+        path_key(&std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from))
+    });
+    let key = path_key(dir);
+    key == *ROOT || key.starts_with(&format!("{}\\", *ROOT))
 }
 
 /// Folders that are never scanned, even with --system. None on Windows.
@@ -92,10 +97,10 @@ pub fn never_scan(_dir: &Path) -> bool {
     false
 }
 
-/// Files that are never run, whatever else is true about them. None on Windows:
-/// the hidden desktop, job objects and GUI checks already cover every program.
-pub fn never_run(_path: &Path) -> Option<&'static str> {
-    None
+/// Files that are never run, whatever else is true about them: Windows' own
+/// programs. The hidden desktop, job objects and GUI checks cover the rest.
+pub fn never_run(path: &Path) -> Option<&'static str> {
+    path.parent().is_some_and(is_os_dir).then_some("not run: Windows' own program (static checks only)")
 }
 
 /// Child processes live in job objects that close with pathsok, so there is

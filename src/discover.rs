@@ -1,5 +1,5 @@
-//! Find the command-line tools to check: every program reachable through
-//! PATH, outside the operating system's own folders.
+//! Find the commands on PATH: every name reachable through PATH and every file
+//! it resolves to, with the copies that belong to the operating system marked.
 
 use std::collections::HashSet;
 use std::fs;
@@ -10,19 +10,39 @@ use serde::Serialize;
 use crate::pathenv::{PathEntry, PathIndex};
 use crate::platform::{self, path_key};
 
+/// One file a command name resolves to.
+#[derive(Debug, Clone, Serialize)]
+pub struct FileCopy {
+    pub path: PathBuf,
+    /// Sits in one of the OS's own folders (`platform::is_os_dir`); never run.
+    pub os: bool,
+}
+
+/// A command name and every file it resolves to, in the order the shell tries them.
+#[derive(Debug, Clone, Serialize)]
+pub struct PathCommand {
+    pub name: String,
+    /// `copies[0]` runs when `name` is typed; the rest are shadowed by it.
+    pub copies: Vec<FileCopy>,
+}
+
+impl PathCommand {
+    pub fn active(&self) -> &FileCopy {
+        &self.copies[0]
+    }
+
+    pub fn shadowed(&self) -> &[FileCopy] {
+        &self.copies[1..]
+    }
+}
+
+/// The copy of a command that `check` inspects, and maybe runs.
 #[derive(Debug, Clone, Serialize)]
 pub struct Tool {
     pub name: String,
-    /// The file that runs when `name` is typed.
     pub path: PathBuf,
     /// Later PATH matches hidden behind `path`.
     pub shadowed: Vec<PathBuf>,
-}
-
-/// Whether `p` is inside one of the (already keyed) folders.
-fn inside(p: &Path, dir_keys: &[String]) -> bool {
-    let key = path_key(p);
-    dir_keys.iter().any(|d| key == *d || key.starts_with(&format!("{d}{}", std::path::MAIN_SEPARATOR)))
 }
 
 fn list_tools(dir: &Path) -> Vec<PathBuf> {
@@ -32,17 +52,20 @@ fn list_tools(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// `include_system`: also check the OS's own folders (see `platform::system_dirs`).
-pub fn discover(path: &[PathEntry], index: &PathIndex, include_system: bool) -> Vec<Tool> {
-    let system: Vec<String> =
-        if include_system { Vec::new() } else { platform::system_dirs().iter().map(|d| path_key(d)).collect() };
+fn in_os_dir(path: &Path) -> bool {
+    path.parent().is_some_and(platform::is_os_dir)
+}
 
+/// Every command on PATH, in the order first seen. The OS's own folders are
+/// searched for names only with `include_system`; without it, an OS copy still
+/// shows up whenever another folder has a file of the same name.
+pub fn inventory(path: &[PathEntry], index: &PathIndex, include_system: bool) -> Vec<PathCommand> {
     let mut seen_dirs = HashSet::new();
     let mut seen_names = HashSet::new();
-    let mut tools = Vec::new();
+    let mut commands = Vec::new();
     for entry in path {
         if platform::never_scan(&entry.dir)
-            || inside(&entry.dir, &system)
+            || (!include_system && platform::is_os_dir(&entry.dir))
             || !seen_dirs.insert(path_key(&entry.dir))
         {
             continue;
@@ -52,22 +75,32 @@ pub fn discover(path: &[PathEntry], index: &PathIndex, include_system: bool) -> 
             if !seen_names.insert(platform::lookup_key(&name)) {
                 continue;
             }
-            // Test what actually runs when the name is typed, not just this copy.
-            let hits = index.lookup(&name);
-            let Some(active) = hits.first() else { continue };
-            if !platform::is_runnable(active) || inside(active, &system) {
-                continue;
+            let copies: Vec<FileCopy> =
+                index.lookup(&name).iter().map(|p| FileCopy { path: p.clone(), os: in_os_dir(p) }).collect();
+            if !copies.is_empty() {
+                commands.push(PathCommand { name, copies });
             }
-            tools.push(Tool { name, path: active.clone(), shadowed: hits[1..].to_vec() });
         }
     }
-    tools
+    commands
+}
+
+#[cfg(test)]
+fn test_entries(dirs: &[&Path]) -> Vec<PathEntry> {
+    use crate::pathenv::PathOrigin;
+    dirs.iter()
+        .map(|d| PathEntry { raw: d.display().to_string(), dir: d.to_path_buf(), origin: PathOrigin::Process })
+        .collect()
+}
+
+#[cfg(test)]
+fn names(commands: &[PathCommand]) -> Vec<&str> {
+    commands.iter().map(|c| c.name.as_str()).collect()
 }
 
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
-    use crate::pathenv::PathOrigin;
 
     #[test]
     fn finds_active_copy_once_and_skips_non_programs() {
@@ -77,41 +110,74 @@ mod tests {
         fs::write(b.path().join("tool.cmd"), "").unwrap();
         fs::write(b.path().join("other.bat"), "").unwrap();
         fs::write(b.path().join("readme.txt"), "").unwrap();
-        let entries: Vec<PathEntry> = [a.path(), b.path()]
-            .iter()
-            .map(|d| PathEntry { raw: d.display().to_string(), dir: d.to_path_buf(), origin: PathOrigin::Process })
-            .collect();
+        let entries = test_entries(&[a.path(), b.path()]);
         let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
-        let tools = discover(&entries, &PathIndex::build(&dirs), false);
-        let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
-        assert_eq!(names, ["tool", "other"]);
-        assert!(tools[0].path.ends_with("tool.exe"));
-        assert_eq!(tools[0].shadowed.len(), 1);
+        let commands = inventory(&entries, &PathIndex::build(&dirs), false);
+        assert_eq!(names(&commands), ["tool", "other"]);
+        assert!(commands[0].active().path.ends_with("tool.exe"));
+        assert_eq!(commands[0].shadowed().len(), 1);
+    }
+
+    #[test]
+    fn os_copies_are_marked_and_os_only_names_need_system() {
+        let system32 = PathBuf::from(std::env::var("SystemRoot").unwrap()).join("System32");
+        let user = tempfile::tempdir().unwrap();
+        fs::write(user.path().join("cmd.exe"), "").unwrap();
+        let entries = test_entries(&[&system32, user.path()]);
+        let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
+        let index = PathIndex::build(&dirs);
+
+        // The user's cmd.exe is listed although Windows' own copy runs first.
+        let commands = inventory(&entries, &index, false);
+        assert_eq!(names(&commands), ["cmd"]);
+        let copies = &commands[0].copies;
+        assert!(copies[0].os && copies[0].path.starts_with(&system32));
+        assert!(!copies[1].os && copies[1].path.starts_with(user.path()));
+
+        let all = inventory(&entries, &index, true);
+        assert!(names(&all).contains(&"notepad"));
     }
 }
 
 #[cfg(all(test, unix))]
 mod unix_tests {
+    use std::os::unix::fs::PermissionsExt;
+
     use super::*;
     use crate::inspect::{self, Reason};
-    use crate::pathenv::PathOrigin;
 
     #[test]
     fn dangling_symlink_is_discovered_and_reported() {
         let dir = tempfile::tempdir().unwrap();
         let link = dir.path().join("gone");
         std::os::unix::fs::symlink(dir.path().join("deleted-target"), &link).unwrap();
-        let entries = vec![PathEntry {
-            raw: dir.path().display().to_string(),
-            dir: dir.path().to_path_buf(),
-            origin: PathOrigin::Process,
-        }];
+        let entries = test_entries(&[dir.path()]);
         let dirs = vec![dir.path().to_path_buf()];
         let index = PathIndex::build(&dirs);
-        let tools = discover(&entries, &index, false);
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].name, "gone");
-        let insp = inspect::inspect(&tools[0].path, &index, &dirs);
+        let commands = inventory(&entries, &index, false);
+        assert_eq!(names(&commands), ["gone"]);
+        let insp = inspect::inspect(&commands[0].active().path, &index, &dirs);
         assert!(matches!(insp.reasons.as_slice(), [Reason::MissingTarget { .. }]));
+    }
+
+    #[test]
+    fn os_copies_are_marked_and_os_only_names_need_system() {
+        let user = tempfile::tempdir().unwrap();
+        let sh = user.path().join("sh");
+        fs::write(&sh, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&sh, fs::Permissions::from_mode(0o755)).unwrap();
+        let entries = test_entries(&[Path::new("/bin"), user.path()]);
+        let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
+        let index = PathIndex::build(&dirs);
+
+        // The user's sh is listed although the distro's own copy runs first.
+        let commands = inventory(&entries, &index, false);
+        assert_eq!(names(&commands), ["sh"]);
+        let copies = &commands[0].copies;
+        assert!(copies[0].os && copies[0].path.starts_with("/bin"));
+        assert!(!copies[1].os && copies[1].path.starts_with(user.path()));
+
+        let all = inventory(&entries, &index, true);
+        assert!(names(&all).contains(&"ls"));
     }
 }

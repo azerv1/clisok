@@ -4,7 +4,7 @@
 //! program calls `platform::…` without ever checking which OS it runs on:
 //!
 //! - PATH rules: `PATH_SEPARATOR`, `path_key`, `lookup_key`, `index_entry`,
-//!   `is_runnable`, `command_name`, `unexpanded_var`, `system_dirs`, `never_scan`
+//!   `is_runnable`, `command_name`, `unexpanded_var`, `is_os_dir`, `never_scan`
 //! - running tools: `init`, `cleanup`, `run_headless`, `kill_children`, `never_run`
 //! - static checks: `inspect`
 //! - saved configuration: `persisted_path`, `broken_app_paths`, `AppPath`

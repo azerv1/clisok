@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use regex::Regex;
 
-use crate::discover::{self, Tool};
+use crate::discover::{self, PathCommand, Tool};
 use crate::exec::{self, Outcome};
 use crate::inspect::{self, Kind};
 use crate::pathenv::{self, PathIndex};
@@ -27,9 +27,9 @@ pub struct CheckArgs {
     #[cfg(windows)]
     #[arg(long)]
     registry: bool,
-    /// Also check the distro's own folders (/usr/bin, /bin, /usr/sbin, /sbin);
+    #[cfg_attr(windows, doc = "Also check Windows' own folder (%SystemRoot%);")]
+    #[cfg_attr(unix, doc = "Also check the distro's own folders (/usr/bin, /bin, /usr/sbin, /sbin);")]
     /// static checks only, nothing there is run
-    #[cfg(unix)]
     #[arg(long)]
     system: bool,
     /// Print the report as JSON
@@ -160,14 +160,18 @@ fn check_registry(_: &CheckArgs) -> bool {
     false
 }
 
-/// Windows' own folder is never run; on Linux `--system` opts the distro folders in.
-#[cfg(windows)]
-fn include_system(_: &CheckArgs) -> bool {
-    false
-}
-#[cfg(unix)]
-fn include_system(args: &CheckArgs) -> bool {
-    args.system
+/// For each command, the copy that runs. OS copies only with --system, and
+/// even then they are never run (`platform::never_run`).
+fn tools_to_check(commands: &[PathCommand], include_system: bool) -> Vec<Tool> {
+    commands
+        .iter()
+        .filter(|c| platform::is_runnable(&c.active().path) && (include_system || !c.active().os))
+        .map(|c| Tool {
+            name: c.name.clone(),
+            path: c.active().path.clone(),
+            shadowed: c.shadowed().iter().map(|s| s.path.clone()).collect(),
+        })
+        .collect()
 }
 
 fn entry_issues(entries: &[pathenv::PathEntry]) -> Vec<EntryIssue> {
@@ -222,7 +226,7 @@ pub fn check(args: &CheckArgs) -> ExitCode {
 
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
     let index = PathIndex::build(&dirs);
-    let tools = discover::discover(&entries, &index, include_system(args));
+    let tools = tools_to_check(&discover::inventory(&entries, &index, args.system), args.system);
     eprintln!("pathsok: checking {} tools...", tools.len());
 
     let ctx = Ctx {
