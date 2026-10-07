@@ -51,8 +51,16 @@ pub struct EntryIssue {
     pub problem: EntryProblem,
 }
 
+/// Version of the JSON output's shape. Bumped when a field is removed or
+/// changes meaning; new fields don't bump it.
+pub const SCHEMA_VERSION: u32 = 1;
+
 #[derive(Debug, Serialize)]
 pub struct Report {
+    /// `SCHEMA_VERSION`.
+    pub schema: u32,
+    /// The subcommand that produced the report.
+    pub command: &'static str,
     pub path_problems: Vec<EntryIssue>,
     pub app_paths: Vec<AppPath>,
     pub tools: Vec<ToolResult>,
