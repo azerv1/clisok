@@ -1,0 +1,29 @@
+name: Action test
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  test:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: List
+        uses: ./
+        with:
+          args: list
+      # Hosted runners may really have broken tools; this only proves
+      # download, extraction, and a full run work.
+      - name: Check
+        uses: ./
+        continue-on-error: true
+        with:
+          args: check --json
