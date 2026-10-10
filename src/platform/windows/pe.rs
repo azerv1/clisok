@@ -88,11 +88,13 @@ fn is_api_set(dll: &str) -> bool {
     d.starts_with("api-ms-") || d.starts_with("ext-ms-")
 }
 
-/// Standard search order: application dir, system dirs, then PATH.
+/// Standard search order: application dir, system dirs, then PATH. Kernel
+/// images (ntoskrnl.exe) also import drivers, which live in System32\drivers.
 fn resolve(dll: &str, app_dir: &Path, own_dir: &Path, is64: bool, path_dirs: &[PathBuf]) -> Option<PathBuf> {
     let win = windir();
     let system = win.join(if is64 { "System32" } else { "SysWOW64" });
-    [app_dir, own_dir, &system, &win.join("System"), &win]
+    let drivers = win.join(r"System32\drivers");
+    [app_dir, own_dir, &system, &win.join("System"), &win, &drivers]
         .into_iter()
         .chain(path_dirs.iter().map(PathBuf::as_path))
         .map(|d| d.join(dll))
@@ -144,6 +146,10 @@ mod tests {
         let cmd = inspect(&win.join(r"System32\cmd.exe"), &[]).unwrap();
         assert!(!cmd.gui);
         assert!(cmd.missing.is_empty(), "{:?}", cmd.missing);
+
+        // The kernel imports drivers such as cng.sys.
+        let kernel = inspect(&win.join(r"System32\ntoskrnl.exe"), &[]).unwrap();
+        assert!(kernel.missing.is_empty(), "{:?}", kernel.missing);
     }
 
     #[test]
