@@ -139,6 +139,10 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
         }
         // A static finding outranks a passing run: the path is still dead.
         _ if !res.reasons.is_empty() => Verdict::Broken,
+        Outcome::Started(note) => {
+            res.note = Some(note);
+            Verdict::Pass
+        }
         Outcome::ToolError(msg) => {
             res.note = Some(msg);
             Verdict::ToolError

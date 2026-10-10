@@ -96,6 +96,19 @@ static NEEDS_CONSOLE: LazyLock<RegexSet> = LazyLock::new(|| {
     .unwrap()
 });
 
+/// Output of a program that crashed or hit its own bug, rather than one that
+/// ran and refused the flag. A bare "Error:" is an ordinary refusal.
+static CRASH: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r"Traceback \(most recent call last\)",
+        r"\b[A-Z]\w+(Error|Exception)\b:",
+        r"(?i)\bpanicked at\b",
+        r"(?i)\bsegmentation fault\b",
+        r"(?i)\bunhandled exception\b",
+    ])
+    .unwrap()
+});
+
 /// Preferred line for a tool-error summary, e.g. the exception of a traceback.
 static ERROR_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)error|exception").unwrap());
 
@@ -178,6 +191,8 @@ pub enum Outcome {
     Broken(Reason),
     /// Not a path problem, just impossible to check headlessly.
     Skip(String),
+    /// Ran its own code, so it starts, but gave no help.
+    Started(String),
     ToolError(String),
 }
 
@@ -244,10 +259,22 @@ fn summarize(j: &Judgement, a: &Attempt) -> Outcome {
     let lines = || a.output.lines().map(str::trim).filter(|l| !l.is_empty());
     let last = lines().rfind(|l| ERROR_LINE.is_match(l)).or_else(|| lines().next_back());
     let exit = a.exit.map_or_else(|| "no exit code".into(), |c| format!("exit {c}"));
+    if *j == Judgement::Fail && ran_own_code(a) {
+        return Outcome::Started(format!("started, but did not answer --help ({exit})"));
+    }
     Outcome::ToolError(match last {
         Some(l) => format!("{exit}: {}", clip(l, 200)),
         None => exit,
     })
+}
+
+/// The program exited on its own terms: no timeout, no crash status (negative
+/// on Windows, a signal on Unix), not the shell's 126/127, and no crash text.
+/// Loader failures were already caught, so it started.
+fn ran_own_code(a: &Attempt) -> bool {
+    !a.timed_out
+        && a.exit.is_some_and(|c| c >= 0 && c != 126 && c != 127)
+        && !CRASH.is_match(&a.output)
 }
 
 pub fn clip(s: &str, max: usize) -> String {
@@ -349,6 +376,41 @@ operable program or batch file."#))));
         assert_eq!(judge(&run(1, "AttributeError: module 'x' has no attribute 'y'\n")), Judgement::Fail);
         assert_eq!(judge(&run(1, "ImportError: cannot import name 'A' from 'pkg.mod'\n")), Judgement::Fail);
         assert_eq!(judge(&run(1, "SyntaxError: Invalid regular expression\n")), Judgement::Fail);
+    }
+
+    fn summary(a: &Attempt) -> Outcome {
+        summarize(&judge(a), a)
+    }
+
+    #[test]
+    fn tools_that_ran_their_own_code_started() {
+        // Real output from tools that reject --help in their own words.
+        let cases = [
+            run(3, "funzip error: input not a zip or gzip file\n"),
+            run(1, "2026/10/10 15:10:40.82 SQLDIAG Error parsing command line parameters\n"),
+            run(1, "The CLI is unable to find Obsidian. Please make sure Obsidian is running and try again.\n"),
+            run(1, r#"{"component":"sailor","level":"fatal","msg":"unmarshalling config: EOF"}"#),
+            run(1, ""),
+        ];
+        for a in &cases {
+            assert!(matches!(summary(a), Outcome::Started(_)), "{:?}", a.output);
+        }
+    }
+
+    #[test]
+    fn crashes_and_hangs_stay_tool_errors() {
+        let timed_out = Attempt { timed_out: true, exit: None, ..run(0, "") };
+        let cases = [
+            timed_out,
+            run(127, "sh: 1: tool: Permission denied\n"),
+            run(-1073741819, ""),
+            run(1, "Traceback (most recent call last):\n  File \"x.py\", line 1\nKeyError: 'a'\n"),
+            run(1, "AttributeError: module 'x' has no attribute 'y'\n"),
+            run(101, "thread 'main' panicked at src/main.rs:1:1:\n"),
+        ];
+        for a in &cases {
+            assert!(matches!(summary(a), Outcome::ToolError(_)), "{:?}", a.output);
+        }
     }
 
     #[cfg(windows)]
