@@ -159,12 +159,16 @@ pub fn inspect(path: &Path, index: &PathIndex, path_dirs: &[PathBuf], insp: &mut
     }
 
     let small = fs::metadata(&real).is_ok_and(|m| m.len() <= MAX_LAUNCHER_SIZE);
-    if small
-        && let Ok(data) = fs::read(&real)
-        && let Some(t) = pylauncher::parse(&data, real.parent().unwrap_or(Path::new("")))
-    {
-        python::check_entry_point(&t.python, &t.module, &mut insp.reasons);
-        insp.kind = Kind::PyLauncher { python: t.python, module: t.module };
+    if small && let Ok(data) = fs::read(&real) {
+        let dir = real.parent().unwrap_or(Path::new(""));
+        if let Some(t) = pylauncher::parse(&data, dir) {
+            python::check_entry_point(&t.python, &t.module, &mut insp.reasons);
+            insp.kind = Kind::PyLauncher { python: t.python, module: t.module };
+        } else if let Some(python) = pylauncher::uv_python_target(&data, dir)
+            && !python.exists()
+        {
+            insp.reasons.push(Reason::MissingInterpreter { path: python });
+        }
     }
 }
 

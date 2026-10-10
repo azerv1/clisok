@@ -7,6 +7,10 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use object::pe::{ImageNtHeaders32, ImageNtHeaders64, RT_RCDATA};
+use object::read::pe::{ImageNtHeaders, PeFile};
+use object::{FileKind, LittleEndian as LE};
+
 use crate::inspect::python::entry_module;
 
 const LOCAL_HEADER: &[u8] = b"PK\x03\x04";
@@ -89,6 +93,33 @@ fn interpreter(shebang: &str, exe_dir: &Path) -> Option<PathBuf> {
     Some(if p.is_absolute() { p } else { exe_dir.join(p) })
 }
 
+/// uv's Python trampolines (`python3.x.exe` from `uv python install`) carry
+/// no zip: the interpreter path is an RCDATA resource named `UV_PYTHON_PATH`.
+pub fn uv_python_target(data: &[u8], exe_dir: &Path) -> Option<PathBuf> {
+    let raw = match FileKind::parse(data).ok()? {
+        FileKind::Pe32 => uv_python_path::<ImageNtHeaders32>(data),
+        FileKind::Pe64 => uv_python_path::<ImageNtHeaders64>(data),
+        _ => None,
+    }?;
+    let p = PathBuf::from(raw);
+    Some(if p.is_absolute() { p } else { exe_dir.join(p) })
+}
+
+fn uv_python_path<Pe: ImageNtHeaders>(data: &[u8]) -> Option<String> {
+    let pe = PeFile::<Pe, &[u8]>::parse(data).ok()?;
+    let sections = pe.section_table();
+    let dir = pe.data_directories().resource_directory(data, &sections).ok()??;
+    let rcdata = dir.root().ok()?.entries.iter().find(|e| e.name_or_id().id() == Some(RT_RCDATA))?;
+    let named = rcdata.data(dir).ok()?.table()?.entries.iter().find(|e| {
+        e.name_or_id().name().and_then(|n| n.to_string_lossy(dir).ok()).as_deref() == Some("UV_PYTHON_PATH")
+    })?;
+    let lang = named.data(dir).ok()?.table()?.entries.first()?;
+    let entry = lang.data(dir).ok()?.data()?;
+    let bytes = sections.pe_data_at(data, entry.offset_to_data.get(LE))?;
+    let path = bytes.get(..entry.size.get(LE) as usize)?;
+    Some(String::from_utf8_lossy(path).into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,5 +175,22 @@ mod tests {
         exe.extend(stored_zip(b"data.txt", b"hello"));
         assert_eq!(parse(&exe, Path::new("C:\\")), None);
         assert_eq!(parse(b"MZ plain program", Path::new("C:\\")), None);
+    }
+
+    #[test]
+    fn reads_uv_python_trampoline_target() {
+        let exe = include_bytes!("../../../tests/fixtures/uv-python-trampoline.exe");
+        let p = uv_python_target(exe, Path::new(r"C:\x")).unwrap();
+        assert!(p.starts_with(r"C:\pathsok-fixture"));
+        assert!(p.ends_with("python.exe"));
+        assert_eq!(parse(exe, Path::new(r"C:\x")), None);
+    }
+
+    #[test]
+    fn other_programs_have_no_uv_python_target() {
+        assert_eq!(uv_python_target(b"MZ plain program", Path::new("C:\\")), None);
+        let root = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
+        let data = std::fs::read(root.join(r"System32\cmd.exe")).unwrap();
+        assert_eq!(uv_python_target(&data, Path::new("C:\\")), None);
     }
 }
