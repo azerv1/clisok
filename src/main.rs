@@ -67,6 +67,12 @@ mod tests {
     }
 
     #[test]
+    fn ignore_takes_known_codes_only() {
+        assert!(Cli::try_parse_from(["pathsok", "check", "--ignore", "PATH007", "--ignore", "path203"]).is_ok());
+        assert!(Cli::try_parse_from(["pathsok", "check", "--ignore", "PATH999"]).is_err());
+    }
+
+    #[test]
     fn list_takes_system_and_json_only() {
         let cli = Cli::try_parse_from(["pathsok", "list", "--system", "--json"]).unwrap();
         assert!(matches!(cli.command, Some(Command::List(_))));

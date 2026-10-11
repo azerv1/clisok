@@ -42,6 +42,9 @@ pub struct CheckArgs {
     /// Don't run --help for this tool (repeatable)
     #[arg(long, value_name = "NAME")]
     skip: Vec<String>,
+    /// Drop findings with this code, e.g. PATH007 (repeatable)
+    #[arg(long, value_name = "CODE")]
+    ignore: Vec<Code>,
     /// Number of tools checked in parallel [default: one per CPU core]
     #[arg(short, long)]
     jobs: Option<usize>,
@@ -255,7 +258,7 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         return ExitCode::from(2);
     }
 
-    let severities = Severities::default();
+    let severities = Severities(args.ignore.iter().map(|&c| (c, Severity::Off)).collect());
     let mut path_problems = entry_issues(&entries, &severities);
 
     // Entries saved in the registry that this process never received, e.g. a
