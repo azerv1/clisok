@@ -16,7 +16,9 @@ use crate::exec::{self, Outcome, ToolErrorKind};
 use crate::inspect::{self, Kind};
 use crate::pathenv::{self, EntryProblem, PathIndex};
 use crate::platform::{self, path_key};
-use crate::report::{AppPathIssue, EntryIssue, Finding, Report, SCHEMA_VERSION, ToolResult, Verdict, print_stdout};
+use crate::report::{
+    AppPathIssue, EntryIssue, Finding, Origin, Report, SCHEMA_VERSION, ToolResult, Verdict, print_stdout,
+};
 use crate::{pool, progress};
 
 /// Installers and uninstallers can act on `--help`, so they are never run.
@@ -86,6 +88,7 @@ fn prepare(tool: Tool, ctx: &Ctx) -> Prepared {
     let res = ToolResult {
         name: tool.name,
         path: tool.path,
+        origin: Origin::Path,
         kind: insp.kind,
         verdict: Verdict::Pass,
         reasons: insp.reasons.into_iter().filter_map(|r| Finding::new(r, &ctx.severities)).collect(),
@@ -137,6 +140,29 @@ fn note_finding(res: &mut ToolResult, code: Code, note: String, default: Verdict
             }
         }
     }
+}
+
+/// A tool at one of the config's `extra` places: static checks only.
+fn prepare_extra(tool: Tool, ctx: &Ctx) -> Prepared {
+    let mut p = prepare(tool, ctx);
+    p.res.origin = Origin::Extra;
+    p.skip_why = Some("not run: extra place, static checks only");
+    p
+}
+
+/// Tools at the config's `extra` places that PATH doesn't already cover.
+fn extra_tools(patterns: &[String], on_path: &[Tool]) -> Result<Vec<Tool>, String> {
+    let known: HashSet<String> = on_path.iter().map(|t| path_key(&t.path)).collect();
+    Ok(discover::extra_files(patterns)?
+        .into_iter()
+        .filter(|f| !known.contains(&path_key(f)))
+        .map(|path| Tool {
+            name: discover::file_command(&path),
+            path,
+            shadowed: Vec::new(),
+            hidden_by: None,
+        })
+        .collect())
 }
 
 /// Run `--help` (unless skipped) and settle the verdict.
@@ -321,7 +347,14 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
     let index = PathIndex::build(&dirs);
     let tools = tools_to_check(&discover::inventory(&entries, &index, system), system);
-    eprintln!("pathsok: checking {} tools...", tools.len());
+    let extra = match extra_tools(config.extra.as_deref().unwrap_or_default(), &tools) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("pathsok: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    eprintln!("pathsok: checking {} tools...", tools.len() + extra.len());
 
     let ctx = Ctx {
         index: &index,
@@ -330,7 +363,8 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         timeout: Duration::from_secs(args.timeout.or(config.timeout).unwrap_or(DEFAULT_TIMEOUT)),
         severities,
     };
-    let prepared = pool::run_in_order(tools, jobs, |t| prepare(t, &ctx));
+    let mut prepared = pool::run_in_order(tools, jobs, |t| prepare(t, &ctx));
+    prepared.extend(pool::run_in_order(extra, jobs, |t| prepare_extra(t, &ctx)));
     let mut queue: Vec<(usize, Prepared)> = prepared.into_iter().enumerate().collect();
     queue.sort_by_key(|(_, p)| cost_rank(p)); // stable: discovery order within a rank
 
@@ -515,6 +549,7 @@ mod tests {
         let res = ToolResult {
             name: "tool".into(),
             path: PathBuf::from("tool"),
+            origin: Origin::Path,
             kind: Kind::Missing,
             verdict: Verdict::Pass,
             reasons: Finding::new(reason(), &ctx.severities).into_iter().collect(),
@@ -535,6 +570,56 @@ mod tests {
         assert_eq!(json["path"], "gone");
 
         assert!(Finding::new(reason(), &severities(&[(Code::Path101, Severity::Off)])).is_none());
+    }
+
+    #[test]
+    fn extra_places_are_checked_but_never_run() {
+        let tmp = tempfile::tempdir().unwrap();
+        #[cfg(windows)]
+        let (file, expected) = {
+            let file = tmp.path().join("tool.cmd");
+            fs::write(&file, "@\"C:\\definitely\\missing\\real.exe\" %*\r\n").unwrap();
+            (file, Code::Path101)
+        };
+        #[cfg(unix)]
+        let (file, expected) = {
+            use std::os::unix::fs::PermissionsExt;
+            let file = tmp.path().join("tool");
+            fs::write(&file, "#!/definitely/missing/python\n").unwrap();
+            fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+            (file, Code::Path103)
+        };
+        let places = [tmp.path().display().to_string()];
+        let mut tools = extra_tools(&places, &[]).unwrap();
+        assert_eq!(tools.len(), 1);
+
+        let dirs: Vec<PathBuf> = vec![];
+        let index = PathIndex::build(&dirs);
+        let ctx = Ctx {
+            index: &index,
+            dirs: &dirs,
+            skip: HashSet::new(),
+            timeout: Duration::from_secs(1),
+            severities: Severities::default(),
+        };
+        let res = run(prepare_extra(tools.remove(0), &ctx), &ctx);
+        assert_eq!((res.origin, res.verdict), (Origin::Extra, Verdict::Broken));
+        assert!(res.attempts.is_empty());
+        assert_eq!(res.reasons[0].code, expected);
+
+        let report = Report {
+            schema: SCHEMA_VERSION,
+            command: "check",
+            config: vec![],
+            path_problems: vec![],
+            app_paths: vec![],
+            tools: vec![res],
+        };
+        assert!(report.to_text(false).contains("Extra\n[BROKEN] tool  "));
+
+        // A program PATH already covers is not checked twice.
+        let on_path = Tool { name: "tool".into(), path: file, shadowed: vec![], hidden_by: None };
+        assert!(extra_tools(&places, &[on_path]).unwrap().is_empty());
     }
 
     #[test]

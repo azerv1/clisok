@@ -1,12 +1,14 @@
 //! `pathsok list`: every command on PATH and the copies it shadows. Nothing is run.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use crate::config::ConfigArgs;
 use crate::discover::{self, PathCommand};
 use crate::pathenv::{self, PathIndex};
-use crate::report::{ListReport, SCHEMA_VERSION, print_stdout};
+use crate::platform::path_key;
+use crate::report::{ExtraFile, ListReport, SCHEMA_VERSION, print_stdout};
 
 #[derive(clap::Args)]
 pub struct ListArgs {
@@ -43,8 +45,23 @@ pub fn list(args: &ListArgs) -> ExitCode {
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
     let mut commands = discover::inventory(&entries, &PathIndex::build(&dirs), system);
     sort_by_name(&mut commands);
+    let on_path: HashSet<String> = commands.iter().flat_map(|c| &c.copies).map(|c| path_key(&c.path)).collect();
+    let extra = match discover::extra_files(config.extra.as_deref().unwrap_or_default()) {
+        Ok(files) => files
+            .into_iter()
+            .filter(|f| !on_path.contains(&path_key(f)))
+            .map(|path| ExtraFile {
+                name: discover::file_command(&path),
+                path,
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("pathsok: {e}");
+            return ExitCode::from(2);
+        }
+    };
 
-    let report = ListReport { schema: SCHEMA_VERSION, command: "list", config: config.files, commands };
+    let report = ListReport { schema: SCHEMA_VERSION, command: "list", config: config.files, commands, extra };
     if args.json {
         match serde_json::to_string_pretty(&report) {
             Ok(j) => print_stdout(&format!("{j}\n")),
@@ -89,6 +106,7 @@ mod tests {
                 command("curl", &[("/os/curl", true), ("/home/me/bin/curl", false)]),
                 command("git", &[("/home/me/bin/git", false)]),
             ],
+            extra: vec![],
         };
         let text = report.to_text();
         let os_path = PathBuf::from("/os/curl").display().to_string();

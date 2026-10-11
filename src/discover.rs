@@ -60,6 +60,36 @@ fn list_tools(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
+/// Programs at the config's `extra` places, which may be globs: a file is
+/// taken as is, a folder for the programs in it. Sorted, without repeats.
+/// A place that matches nothing is noted on stderr.
+pub fn extra_files(patterns: &[String]) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    for pattern in patterns {
+        let matches = glob::glob(pattern).map_err(|e| format!("extra: bad pattern '{pattern}': {e}"))?;
+        let before = files.len();
+        for path in matches.flatten() {
+            if path.is_dir() {
+                files.extend(list_tools(&path));
+            } else if platform::is_runnable(&path) {
+                files.push(path);
+            }
+        }
+        if files.len() == before {
+            eprintln!("pathsok: extra: no programs at {pattern}");
+        }
+    }
+    let mut seen = HashSet::new();
+    files.retain(|f| seen.insert(path_key(f)));
+    files.sort();
+    Ok(files)
+}
+
+/// The command a file would answer to, or else its file name.
+pub fn file_command(path: &Path) -> String {
+    platform::command_name(path).unwrap_or_else(|| path.file_name().unwrap_or_default().to_string_lossy().into_owned())
+}
+
 fn in_os_dir(path: &Path) -> bool {
     path.parent().is_some_and(platform::is_os_dir)
 }
