@@ -22,8 +22,8 @@ pub enum Severity {
     Off,
 }
 
-/// The text fields are for the docs.
-#[allow(dead_code)]
+/// The text fields are read by the docs generator, which runs as a test.
+#[cfg_attr(not(test), allow(dead_code))]
 pub struct CodeInfo {
     pub code: Code,
     pub number: u16,

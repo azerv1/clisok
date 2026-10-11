@@ -17,8 +17,8 @@ use crate::codes::{Code, Severity};
 /// The project file's name.
 pub const FILE_NAME: &str = ".pathsok.toml";
 
-/// Every setting, for the docs: key, value type, meaning.
-#[allow(dead_code)]
+/// Every setting, for the docs generator (a test): key, value type, meaning.
+#[cfg_attr(not(test), allow(dead_code))]
 pub const KEYS: &[(&str, &str, &str)] = &[
     ("check.skip", "list of strings", "Don't run --help for these tools, like `--skip`."),
     ("check.timeout", "integer", "Seconds before a --help run is killed, like `--timeout`."),

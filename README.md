@@ -10,7 +10,13 @@ pathsok list             # list every command and the copies it shadows; runs no
 ```
 
 `pathsok check` exits 0 when everything is fine, nonzero when it finds problems.
-Run `pathsok check --help` for all options.
+Every problem has a stable code like `PATH002`.
+
+**Docs:** [azerv1.github.io/pathsok](https://azerv1.github.io/pathsok/) —
+[usage](https://azerv1.github.io/pathsok/usage.html),
+[`.pathsok.toml` configuration](https://azerv1.github.io/pathsok/configuration.html),
+[error codes](https://azerv1.github.io/pathsok/codes.html),
+[GitHub Action](https://azerv1.github.io/pathsok/github-action.html).
 
 ## Install
 
@@ -19,17 +25,10 @@ Windows x86_64 `.zip`, or a static Linux x86_64 `.tar.gz`.
 
 ## GitHub Action
 
-Check the runner's PATH, for example after your setup steps:
-
 ```yaml
 - uses: azerv1/pathsok@0.4.0
   with:
     args: check --skip some-noisy-tool
 ```
-
-| Input     | Default | Meaning                                                              |
-|-----------|---------|----------------------------------------------------------------------|
-| `args`    | `check` | Arguments passed to pathsok, split on whitespace                     |
-| `version` | the ref | Release to download; defaults to the ref you used, else the latest  |
 
 The step fails when `check` finds problems. Linux and Windows runners only.

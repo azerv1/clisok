@@ -29,6 +29,12 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
   - **Repair preview** — each finding shows the repair `--fix` would apply and the flag it needs, e.g. `fix: uv tool install --reinstall ruff [needs --reinstall-broken]`. JSON carries the same planned action. Plain `check` is the preview, so there is no `--dry-run`.
   - **Hidden behind an OS copy** — when an OS-owned copy is active and hides a user-installed copy, report a tool-level `[WARN]`. The OS copy is never run, the hidden copy gets static inspection only, and the exit code is unaffected. Today the whole command is dropped (`src/discover.rs:58`).
 
+- **Error codes** (done) — every finding has a permanent code: PATH0xx PATH entries, PATH1xx tool checks, PATH2xx the `--help` run, PATH3xx registry. A code is never renumbered or reused. `--ignore CODE` drops a code; the list lives in `src/codes.rs`.
+
+- **`.pathsok.toml`** (done) — a user file, then the nearest project file up to `.git`; flags beat both. It sets `[check]` flag defaults, `[severity]` per code (`error`/`warn`/`off`), and `extra` places off PATH that get static checks only. `skip` and `extra` take `${VAR}` and `${VAR:-default}`. Expected-tool rules are out of scope: that is pathlint's job.
+
+- **Docs** (done) — an mdBook site in `docs/`, deployed to GitHub Pages. The codes page and the config key table are generated from the source; a test fails when they are stale.
+
 - **`pathsok list [--system] [--json]`** — enumerate every active command and all shadowed copies without executing tools. By default, omit commands that exist only in OS-owned directories, but list any command with at least one non-OS copy, including when the OS copy is the active one. `--system` lists everything. OS copies are always marked.
 
 - **`pathsok check --fix`** — repair only generated artifacts with unambiguous manager ownership, using the manager's own offline operation where one exists. Remain offline and never modify an unowned executable. Orphan shims, whose package the manager confirms is absent, are skipped with the exact manager command to remove them, e.g. `npm rm -g foo`.
@@ -64,7 +70,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **PATH invariant** — pathsok never breaks PATH. Before writing, resolve every command name under the old and new persisted PATH (machine + user, expanded). If any previously reachable name would resolve to a different file or disappear, abort the write and report `skipped: would change resolution of X`. The backup stays as a safety net; there is no restore command.
 
-- **Reporting** — add a JSON schema version, command mode, inventory entries, planned and applied repair actions, final verdicts, and backup location where applicable. Under `--json`, stdout contains JSON only; progress and diagnostics remain on stderr. This already holds today (`src/main.rs:291`, `src/progress.rs`).
+- **Reporting** — every finding carries its `code` and effective `severity` (done). Add a JSON schema version, command mode, inventory entries, planned and applied repair actions, final verdicts, and backup location where applicable. Under `--json`, stdout contains JSON only; progress and diagnostics remain on stderr. This already holds today (`src/main.rs:291`, `src/progress.rs`).
 
 **Platform path** — common Unix behavior → OS-specific binary inspection → OS-specific safety rules.
 
