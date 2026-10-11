@@ -141,6 +141,8 @@ pub struct Report {
     pub schema: u32,
     /// The subcommand that produced the report.
     pub command: &'static str,
+    /// The config files read, in order.
+    pub config: Vec<PathBuf>,
     pub path_problems: Vec<EntryIssue>,
     pub app_paths: Vec<AppPathIssue>,
     pub tools: Vec<ToolResult>,
@@ -244,6 +246,8 @@ pub struct ListReport {
     pub schema: u32,
     /// The subcommand that produced the report.
     pub command: &'static str,
+    /// The config files read, in order.
+    pub config: Vec<PathBuf>,
     pub commands: Vec<PathCommand>,
 }
 

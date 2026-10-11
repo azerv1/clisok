@@ -3,6 +3,7 @@
 
 mod check;
 mod codes;
+mod config;
 mod discover;
 mod exec;
 mod inspect;

@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use crate::config::ConfigArgs;
 use crate::discover::{self, PathCommand};
 use crate::pathenv::{self, PathIndex};
 use crate::report::{ListReport, SCHEMA_VERSION, print_stdout};
@@ -16,6 +17,8 @@ pub struct ListArgs {
     /// Print the list as JSON
     #[arg(long)]
     json: bool,
+    #[command(flatten)]
+    config: ConfigArgs,
 }
 
 /// Alphabetical, ignoring case; names that differ only in case (Unix) keep a fixed order.
@@ -24,16 +27,24 @@ fn sort_by_name(commands: &mut [PathCommand]) {
 }
 
 pub fn list(args: &ListArgs) -> ExitCode {
+    let config = match args.config.load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("pathsok: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let system = args.system || config.system.unwrap_or(false);
     let entries = pathenv::process_path();
     if entries.is_empty() {
         eprintln!("pathsok: PATH is empty");
         return ExitCode::from(2);
     }
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
-    let mut commands = discover::inventory(&entries, &PathIndex::build(&dirs), args.system);
+    let mut commands = discover::inventory(&entries, &PathIndex::build(&dirs), system);
     sort_by_name(&mut commands);
 
-    let report = ListReport { schema: SCHEMA_VERSION, command: "list", commands };
+    let report = ListReport { schema: SCHEMA_VERSION, command: "list", config: config.files, commands };
     if args.json {
         match serde_json::to_string_pretty(&report) {
             Ok(j) => print_stdout(&format!("{j}\n")),
@@ -73,6 +84,7 @@ mod tests {
         let report = ListReport {
             schema: SCHEMA_VERSION,
             command: "list",
+            config: vec![],
             commands: vec![
                 command("curl", &[("/os/curl", true), ("/home/me/bin/curl", false)]),
                 command("git", &[("/home/me/bin/git", false)]),

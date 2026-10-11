@@ -10,6 +10,7 @@ use std::time::Duration;
 use regex::Regex;
 
 use crate::codes::{Code, Severities, Severity};
+use crate::config::{Config, ConfigArgs};
 use crate::discover::{self, PathCommand, Tool};
 use crate::exec::{self, Outcome, ToolErrorKind};
 use crate::inspect::{self, Kind};
@@ -48,10 +49,14 @@ pub struct CheckArgs {
     /// Number of tools checked in parallel [default: one per CPU core]
     #[arg(short, long)]
     jobs: Option<usize>,
-    /// Seconds before a --help run is killed
-    #[arg(long, default_value_t = 30, value_name = "SECS")]
-    timeout: u64,
+    /// Seconds before a --help run is killed [default: 30]
+    #[arg(long, value_name = "SECS")]
+    timeout: Option<u64>,
+    #[command(flatten)]
+    config: ConfigArgs,
 }
+
+const DEFAULT_TIMEOUT: u64 = 30;
 
 /// Workers per core. The tools being run are CPU-heavy (interpreter
 /// startup), so more workers than cores only slows every tool down.
@@ -202,12 +207,19 @@ fn cost_rank(p: &Prepared) -> u8 {
 }
 
 #[cfg(windows)]
-fn check_registry(args: &CheckArgs) -> bool {
-    args.registry
+fn check_registry(args: &CheckArgs, config: &Config) -> bool {
+    args.registry || config.registry.unwrap_or(false)
 }
 #[cfg(unix)]
-fn check_registry(_: &CheckArgs) -> bool {
+fn check_registry(_: &CheckArgs, _: &Config) -> bool {
     false
+}
+
+/// Severities from the config, with `--ignore` on top.
+fn severities(args: &CheckArgs, config: &Config) -> Severities {
+    let mut map = config.severity.clone();
+    map.extend(args.ignore.iter().map(|&c| (c, Severity::Off)));
+    Severities(map)
 }
 
 /// For each command, the copy that runs. OS copies only with --system, and
@@ -243,6 +255,16 @@ fn entry_issues(entries: &[pathenv::PathEntry], sev: &Severities) -> Vec<EntryIs
 }
 
 pub fn check(args: &CheckArgs) -> ExitCode {
+    let config = match args.config.load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("pathsok: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let system = args.system || config.system.unwrap_or(false);
+    let skip = if args.skip.is_empty() { config.skip.clone().unwrap_or_default() } else { args.skip.clone() };
+
     platform::init();
     // Ctrl+C: stop every running tool and give the cursor back before exiting.
     let _ = ctrlc::set_handler(|| {
@@ -250,7 +272,7 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         platform::cursor_visible(true);
         std::process::exit(130);
     });
-    let jobs = args.jobs.unwrap_or_else(|| pool::default_jobs(JOBS_PER_CORE, MAX_JOBS)).max(1);
+    let jobs = args.jobs.or(config.jobs).unwrap_or_else(|| pool::default_jobs(JOBS_PER_CORE, MAX_JOBS)).max(1);
 
     let entries = pathenv::process_path();
     if entries.is_empty() {
@@ -258,7 +280,7 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         return ExitCode::from(2);
     }
 
-    let severities = Severities(args.ignore.iter().map(|&c| (c, Severity::Off)).collect());
+    let severities = severities(args, &config);
     let mut path_problems = entry_issues(&entries, &severities);
 
     // Entries saved in the registry that this process never received, e.g. a
@@ -272,7 +294,7 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         }
     }
     let mut app_paths = Vec::new();
-    if check_registry(args) {
+    if check_registry(args, &config) {
         // Report persisted problems the process PATH doesn't already show.
         let known: HashSet<(String, String)> = path_problems
             .iter()
@@ -298,14 +320,14 @@ pub fn check(args: &CheckArgs) -> ExitCode {
 
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
     let index = PathIndex::build(&dirs);
-    let tools = tools_to_check(&discover::inventory(&entries, &index, args.system), args.system);
+    let tools = tools_to_check(&discover::inventory(&entries, &index, system), system);
     eprintln!("pathsok: checking {} tools...", tools.len());
 
     let ctx = Ctx {
         index: &index,
         dirs: &dirs,
-        skip: args.skip.iter().map(|s| s.to_lowercase()).collect(),
-        timeout: Duration::from_secs(args.timeout),
+        skip: skip.iter().map(|s| s.to_lowercase()).collect(),
+        timeout: Duration::from_secs(args.timeout.or(config.timeout).unwrap_or(DEFAULT_TIMEOUT)),
         severities,
     };
     let prepared = pool::run_in_order(tools, jobs, |t| prepare(t, &ctx));
@@ -356,7 +378,8 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     }
 
     platform::cleanup();
-    let report = Report { schema: SCHEMA_VERSION, command: "check", path_problems, app_paths, tools };
+    let report =
+        Report { schema: SCHEMA_VERSION, command: "check", config: config.files, path_problems, app_paths, tools };
     if args.json {
         match serde_json::to_string_pretty(&report) {
             Ok(j) => print_stdout(&format!("{j}\n")),
@@ -440,7 +463,14 @@ mod tests {
         assert!(res.note.as_deref().unwrap().starts_with("hidden behind "));
 
         let report =
-            Report { schema: SCHEMA_VERSION, command: "check", path_problems: vec![], app_paths: vec![], tools: vec![res] };
+            Report {
+                schema: SCHEMA_VERSION,
+                command: "check",
+                config: vec![],
+                path_problems: vec![],
+                app_paths: vec![],
+                tools: vec![res],
+            };
         assert_eq!(report.exit_code(), 0);
         let text = report.to_text(false);
         assert!(text.contains("[WARN]   tool  "));
@@ -517,6 +547,7 @@ mod tests {
         let report = |sev: &Severities| Report {
             schema: SCHEMA_VERSION,
             command: "check",
+            config: vec![],
             path_problems: EntryIssue::new(entry.clone(), EntryProblem::Duplicate, sev).into_iter().collect(),
             app_paths: vec![],
             tools: vec![],
