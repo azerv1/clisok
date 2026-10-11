@@ -186,6 +186,14 @@ fn echoes_arg(output: &str, arg: &str) -> bool {
     Regex::new(&pat).is_ok_and(|re| re.is_match(output))
 }
 
+/// Why a tool that ran counts as a tool error rather than broken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolErrorKind {
+    TimedOut,
+    /// Exited with an error of its own.
+    Exit,
+}
+
 pub enum Outcome {
     Pass,
     Broken(Reason),
@@ -193,7 +201,7 @@ pub enum Outcome {
     Skip(String),
     /// Ran its own code, so it starts, but gave no help.
     Started(String),
-    ToolError(String),
+    ToolError(ToolErrorKind, String),
 }
 
 const CONSOLE_NOTE: &str = "not run: needs an interactive console or a display";
@@ -202,7 +210,7 @@ const CONSOLE_NOTE: &str = "not run: needs an interactive console or a display";
 pub fn run_help(path: &Path, timeout: Duration) -> (Outcome, Vec<Attempt>) {
     let first = match run_capture(path, &["--help"], timeout) {
         Ok(a) => a,
-        Err(e) => return (Outcome::Broken(Reason::Output { line: format!("failed to start: {e}") }), vec![]),
+        Err(e) => return (Outcome::Broken(Reason::FailedToStart { error: e.to_string() }), vec![]),
     };
     let j1 = judge(&first);
     match &j1 {
@@ -210,7 +218,8 @@ pub fn run_help(path: &Path, timeout: Duration) -> (Outcome, Vec<Attempt>) {
         Judgement::Broken(line) => return (broken(line), vec![first]),
         Judgement::NeedsConsole => return (Outcome::Skip(CONSOLE_NOTE.into()), vec![first]),
         _ if first.timed_out => {
-            return (Outcome::ToolError(format!("timed out after {}s", timeout.as_secs())), vec![first]);
+            let note = format!("timed out after {}s", timeout.as_secs());
+            return (Outcome::ToolError(ToolErrorKind::TimedOut, note), vec![first]);
         }
         _ => {}
     }
@@ -262,10 +271,11 @@ fn summarize(j: &Judgement, a: &Attempt) -> Outcome {
     if *j == Judgement::Fail && ran_own_code(a) {
         return Outcome::Started(format!("started, but did not answer --help ({exit})"));
     }
-    Outcome::ToolError(match last {
+    let note = match last {
         Some(l) => format!("{exit}: {}", clip(l, 200)),
         None => exit,
-    })
+    };
+    Outcome::ToolError(if a.timed_out { ToolErrorKind::TimedOut } else { ToolErrorKind::Exit }, note)
 }
 
 /// The program exited on its own terms: no timeout, no crash status (negative
@@ -409,7 +419,7 @@ operable program or batch file."#))));
             run(101, "thread 'main' panicked at src/main.rs:1:1:\n"),
         ];
         for a in &cases {
-            assert!(matches!(summary(a), Outcome::ToolError(_)), "{:?}", a.output);
+            assert!(matches!(summary(a), Outcome::ToolError(..)), "{:?}", a.output);
         }
     }
 

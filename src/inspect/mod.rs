@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::codes::Code;
 use crate::pathenv::PathIndex;
 use crate::platform;
 
@@ -39,7 +40,23 @@ pub enum Reason {
     UnresolvedCommand { name: String },
     #[cfg_attr(not(windows), allow(dead_code))]
     AppNotInstalled { package: String },
+    FailedToStart { error: String },
     Output { line: String },
+}
+
+impl Reason {
+    pub fn code(&self) -> Code {
+        match self {
+            Reason::MissingTarget { .. } => Code::Path101,
+            Reason::MissingLibrary { .. } => Code::Path102,
+            Reason::MissingInterpreter { .. } => Code::Path103,
+            Reason::MissingModule { .. } => Code::Path104,
+            Reason::UnresolvedCommand { .. } => Code::Path105,
+            Reason::AppNotInstalled { .. } => Code::Path106,
+            Reason::FailedToStart { .. } => Code::Path201,
+            Reason::Output { .. } => Code::Path202,
+        }
+    }
 }
 
 impl fmt::Display for Reason {
@@ -57,6 +74,7 @@ impl fmt::Display for Reason {
             Reason::AppNotInstalled { package } => {
                 write!(f, "alias for a packaged app that is no longer installed: {package}")
             }
+            Reason::FailedToStart { error } => write!(f, "failed to start: {error}"),
             Reason::Output { line } => write!(f, "{line}"),
         }
     }

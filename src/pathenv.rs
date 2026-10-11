@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use crate::codes::Code;
 use crate::platform;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -56,9 +57,18 @@ pub enum EntryProblem {
 }
 
 impl EntryProblem {
-    /// Duplicates and stale sessions are warnings; everything else is broken.
-    pub fn is_error(self) -> bool {
-        !matches!(self, EntryProblem::Duplicate | EntryProblem::NotInSession)
+    pub fn code(self) -> Code {
+        match self {
+            EntryProblem::Empty => Code::Path001,
+            EntryProblem::Missing => Code::Path002,
+            EntryProblem::NotDir => Code::Path003,
+            EntryProblem::UnexpandedVar => Code::Path004,
+            EntryProblem::StrayQuote => Code::Path005,
+            EntryProblem::Whitespace => Code::Path006,
+            EntryProblem::Duplicate => Code::Path007,
+            EntryProblem::NotInSession => Code::Path008,
+            EntryProblem::Truncated => Code::Path009,
+        }
     }
 }
 

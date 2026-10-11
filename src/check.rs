@@ -9,12 +9,13 @@ use std::time::Duration;
 
 use regex::Regex;
 
+use crate::codes::{Code, Severities, Severity};
 use crate::discover::{self, PathCommand, Tool};
-use crate::exec::{self, Outcome};
+use crate::exec::{self, Outcome, ToolErrorKind};
 use crate::inspect::{self, Kind};
 use crate::pathenv::{self, EntryProblem, PathIndex};
 use crate::platform::{self, path_key};
-use crate::report::{EntryIssue, Report, SCHEMA_VERSION, ToolResult, Verdict, print_stdout};
+use crate::report::{AppPathIssue, EntryIssue, Finding, Report, SCHEMA_VERSION, ToolResult, Verdict, print_stdout};
 use crate::{pool, progress};
 
 /// Installers and uninstallers can act on `--help`, so they are never run.
@@ -62,6 +63,7 @@ struct Ctx<'a> {
     dirs: &'a [PathBuf],
     skip: HashSet<String>,
     timeout: Duration,
+    severities: Severities,
 }
 
 /// A tool after its static checks, with the decision whether to run it.
@@ -78,8 +80,9 @@ fn prepare(tool: Tool, ctx: &Ctx) -> Prepared {
         path: tool.path,
         kind: insp.kind,
         verdict: Verdict::Pass,
-        reasons: insp.reasons,
+        reasons: insp.reasons.into_iter().filter_map(|r| Finding::new(r, &ctx.severities)).collect(),
         note: None,
+        code: None,
         shadowed: tool.shadowed,
         hidden_by: tool.hidden_by,
         attempts: Vec::new(),
@@ -108,14 +111,34 @@ fn prepare(tool: Tool, ctx: &Ctx) -> Prepared {
     Prepared { res, skip_why }
 }
 
+/// A finding reported as the tool's note (hidden copy, tool error): its
+/// verdict, unless the code's severity is overridden.
+fn note_finding(res: &mut ToolResult, code: Code, note: String, default: Verdict, sev: &Severities) -> Verdict {
+    match sev.get(code) {
+        Some(Severity::Off) => {
+            res.note = Some(format!("ignored {code}: {note}"));
+            Verdict::Skip
+        }
+        over => {
+            res.note = Some(note);
+            res.code = Some(code);
+            match over {
+                Some(Severity::Error) => Verdict::Broken,
+                Some(_) => Verdict::Warn,
+                None => default,
+            }
+        }
+    }
+}
+
 /// Run `--help` (unless skipped) and settle the verdict.
 fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
     let mut res = p.res;
-    // Typing the name never reaches this copy, so it can't fail the run;
-    // its static findings are still listed.
+    // Typing the name never reaches this copy, so by default it can't fail
+    // the run; its static findings are still listed.
     if let Some(os_copy) = &res.hidden_by {
-        res.note = Some(format!("hidden behind {}, which runs instead", os_copy.display()));
-        res.verdict = Verdict::Warn;
+        let note = format!("hidden behind {}, which runs instead", os_copy.display());
+        res.verdict = note_finding(&mut res, Code::Path107, note, Verdict::Warn, &ctx.severities);
         return res;
     }
     let outcome = match p.skip_why {
@@ -128,26 +151,36 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
         }
     };
 
-    res.verdict = match outcome {
+    let run_verdict = match outcome {
         Outcome::Broken(r) => {
-            res.reasons.push(r);
-            Verdict::Broken
+            res.reasons.extend(Finding::new(r, &ctx.severities));
+            Verdict::Pass
         }
         Outcome::Skip(note) => {
             res.note = Some(note);
-            if res.reasons.is_empty() { Verdict::Skip } else { Verdict::Broken }
+            Verdict::Skip
         }
-        // A static finding outranks a passing run: the path is still dead.
-        _ if !res.reasons.is_empty() => Verdict::Broken,
         Outcome::Started(note) => {
             res.note = Some(note);
             Verdict::Pass
         }
-        Outcome::ToolError(msg) => {
-            res.note = Some(msg);
-            Verdict::ToolError
+        Outcome::ToolError(kind, msg) => {
+            let code = match kind {
+                ToolErrorKind::TimedOut => Code::Path203,
+                ToolErrorKind::Exit => Code::Path204,
+            };
+            note_finding(&mut res, code, msg, Verdict::ToolError, &ctx.severities)
         }
         Outcome::Pass => Verdict::Pass,
+    };
+    // A failing finding outranks whatever the run showed: the path is still
+    // dead. Findings set to warn make it a warning at most.
+    res.verdict = if res.reasons.iter().any(|f| f.severity == Severity::Error) {
+        Verdict::Broken
+    } else if res.reasons.is_empty() {
+        run_verdict
+    } else {
+        run_verdict.min(Verdict::Warn)
     };
     if res.verdict == Verdict::Pass {
         res.attempts.clear();
@@ -199,10 +232,10 @@ fn tools_to_check(commands: &[PathCommand], include_system: bool) -> Vec<Tool> {
     tools
 }
 
-fn entry_issues(entries: &[pathenv::PathEntry]) -> Vec<EntryIssue> {
+fn entry_issues(entries: &[pathenv::PathEntry], sev: &Severities) -> Vec<EntryIssue> {
     pathenv::check_entries(entries)
         .into_iter()
-        .map(|(entry, problem)| EntryIssue { entry, problem })
+        .filter_map(|(entry, problem)| EntryIssue::new(entry, problem, sev))
         .collect()
 }
 
@@ -222,7 +255,8 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         return ExitCode::from(2);
     }
 
-    let mut path_problems = entry_issues(&entries);
+    let severities = Severities::default();
+    let mut path_problems = entry_issues(&entries, &severities);
 
     // Entries saved in the registry that this process never received, e.g. a
     // terminal started before PATH was changed.
@@ -231,7 +265,7 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     for e in platform::persisted_path() {
         let key = path_key(&e.dir);
         if e.dir.is_dir() && !session.contains(&key) && reported.insert(key) {
-            path_problems.push(EntryIssue { entry: e, problem: EntryProblem::NotInSession });
+            path_problems.extend(EntryIssue::new(e, EntryProblem::NotInSession, &severities));
         }
     }
     let mut app_paths = Vec::new();
@@ -242,11 +276,12 @@ pub fn check(args: &CheckArgs) -> ExitCode {
             .map(|p| (path_key(&p.entry.dir), p.problem.to_string()))
             .collect();
         path_problems.extend(
-            entry_issues(&platform::persisted_path())
+            entry_issues(&platform::persisted_path(), &severities)
                 .into_iter()
                 .filter(|p| !known.contains(&(path_key(&p.entry.dir), p.problem.to_string()))),
         );
-        app_paths = platform::broken_app_paths();
+        app_paths =
+            platform::broken_app_paths().into_iter().filter_map(|a| AppPathIssue::new(a, &severities)).collect();
     }
 
     // A saved PATH cut off by a length limit lost every entry after the cut,
@@ -255,7 +290,8 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     let cut = platform::truncated_saved_paths();
     let cut_keys: HashSet<String> = cut.iter().map(|e| path_key(&e.dir)).collect();
     path_problems.retain(|p| !(p.problem == EntryProblem::Missing && cut_keys.contains(&path_key(&p.entry.dir))));
-    path_problems.extend(cut.into_iter().map(|entry| EntryIssue { entry, problem: EntryProblem::Truncated }));
+    path_problems
+        .extend(cut.into_iter().filter_map(|entry| EntryIssue::new(entry, EntryProblem::Truncated, &severities)));
 
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
     let index = PathIndex::build(&dirs);
@@ -267,6 +303,7 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         dirs: &dirs,
         skip: args.skip.iter().map(|s| s.to_lowercase()).collect(),
         timeout: Duration::from_secs(args.timeout),
+        severities,
     };
     let prepared = pool::run_in_order(tools, jobs, |t| prepare(t, &ctx));
     let mut queue: Vec<(usize, Prepared)> = prepared.into_iter().enumerate().collect();
@@ -385,7 +422,13 @@ mod tests {
         let command = hidden_by_os(os_dir.path(), user_dir.path());
         let dirs = vec![os_dir.path().to_path_buf(), user_dir.path().to_path_buf()];
         let index = PathIndex::build(&dirs);
-        let ctx = Ctx { index: &index, dirs: &dirs, skip: HashSet::new(), timeout: Duration::from_secs(1) };
+        let ctx = Ctx {
+            index: &index,
+            dirs: &dirs,
+            skip: HashSet::new(),
+            timeout: Duration::from_secs(1),
+            severities: Severities::default(),
+        };
 
         let tool = tools_to_check(&[command], false).remove(0);
         let res = run(prepare(tool, &ctx), &ctx);
@@ -396,6 +439,92 @@ mod tests {
         let report =
             Report { schema: SCHEMA_VERSION, command: "check", path_problems: vec![], app_paths: vec![], tools: vec![res] };
         assert_eq!(report.exit_code(), 0);
-        assert!(report.to_text(false).contains("[WARN]   tool  "));
+        let text = report.to_text(false);
+        assert!(text.contains("[WARN]   tool  "));
+        assert!(text.contains("         PATH107 hidden behind "));
+    }
+
+    fn severities(pairs: &[(Code, Severity)]) -> Severities {
+        Severities(pairs.iter().copied().collect())
+    }
+
+    #[test]
+    fn severity_override_changes_the_hidden_copy_verdict() {
+        let (os_dir, user_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let command = hidden_by_os(os_dir.path(), user_dir.path());
+        let dirs = vec![os_dir.path().to_path_buf(), user_dir.path().to_path_buf()];
+        let index = PathIndex::build(&dirs);
+        let check_with = |sev: Severity| {
+            let ctx = Ctx {
+                index: &index,
+                dirs: &dirs,
+                skip: HashSet::new(),
+                timeout: Duration::from_secs(1),
+                severities: severities(&[(Code::Path107, sev)]),
+            };
+            run(prepare(tools_to_check(std::slice::from_ref(&command), false).remove(0), &ctx), &ctx)
+        };
+
+        let res = check_with(Severity::Error);
+        assert_eq!((res.verdict, res.code), (Verdict::Broken, Some(Code::Path107)));
+        let res = check_with(Severity::Off);
+        assert_eq!((res.verdict, res.code), (Verdict::Skip, None));
+        assert!(res.note.unwrap().starts_with("ignored PATH107: hidden behind "));
+    }
+
+    #[test]
+    fn finding_set_to_warn_warns_instead_of_failing() {
+        let dirs: Vec<PathBuf> = vec![];
+        let index = PathIndex::build(&dirs);
+        let sev = severities(&[(Code::Path101, Severity::Warn)]);
+        let ctx = Ctx { index: &index, dirs: &dirs, skip: HashSet::new(), timeout: Duration::from_secs(1), severities: sev };
+        let reason = || crate::inspect::Reason::MissingTarget { path: PathBuf::from("gone") };
+        let res = ToolResult {
+            name: "tool".into(),
+            path: PathBuf::from("tool"),
+            kind: Kind::Missing,
+            verdict: Verdict::Pass,
+            reasons: Finding::new(reason(), &ctx.severities).into_iter().collect(),
+            note: None,
+            code: None,
+            shadowed: vec![],
+            hidden_by: None,
+            attempts: vec![],
+            ms: 0,
+        };
+        let res = run(Prepared { res, skip_why: Some("not run: target is missing") }, &ctx);
+        assert_eq!(res.verdict, Verdict::Warn);
+
+        let json = serde_json::to_value(&res.reasons[0]).unwrap();
+        assert_eq!(json["code"], "PATH101");
+        assert_eq!(json["severity"], "warn");
+        assert_eq!(json["type"], "missing-target");
+        assert_eq!(json["path"], "gone");
+
+        assert!(Finding::new(reason(), &severities(&[(Code::Path101, Severity::Off)])).is_none());
+    }
+
+    #[test]
+    fn entry_codes_follow_their_severity() {
+        let entry = pathenv::PathEntry {
+            raw: "dup".into(),
+            dir: PathBuf::from("dup"),
+            origin: pathenv::PathOrigin::Process,
+        };
+        let report = |sev: &Severities| Report {
+            schema: SCHEMA_VERSION,
+            command: "check",
+            path_problems: EntryIssue::new(entry.clone(), EntryProblem::Duplicate, sev).into_iter().collect(),
+            app_paths: vec![],
+            tools: vec![],
+        };
+
+        let default = report(&Severities::default());
+        assert_eq!(default.exit_code(), 0);
+        assert!(default.to_text(false).contains("[WARN]   PATH007 (process) \"dup\" — duplicate entry"));
+        let strict = report(&severities(&[(Code::Path007, Severity::Error)]));
+        assert_eq!(strict.exit_code(), 1);
+        assert!(strict.to_text(false).contains("[BROKEN] PATH007 "));
+        assert!(report(&severities(&[(Code::Path007, Severity::Off)])).path_problems.is_empty());
     }
 }

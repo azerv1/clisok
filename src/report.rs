@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use crate::codes::{Code, Severities, Severity};
 use crate::discover::PathCommand;
 use crate::exec::Attempt;
 use crate::inspect::{Kind, Reason};
@@ -40,9 +41,12 @@ pub struct ToolResult {
     pub path: PathBuf,
     pub kind: Kind,
     pub verdict: Verdict,
-    pub reasons: Vec<Reason>,
+    pub reasons: Vec<Finding>,
     /// Why it was skipped, or the tool's own error.
     pub note: Option<String>,
+    /// The code behind `note`, when it is a finding (hidden copy, tool error).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<Code>,
     pub shadowed: Vec<PathBuf>,
     /// The OS copy that runs instead of this one.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -52,10 +56,72 @@ pub struct ToolResult {
     pub ms: u64,
 }
 
+/// A static or run finding about one tool.
+#[derive(Debug, Serialize)]
+pub struct Finding {
+    pub code: Code,
+    pub severity: Severity,
+    #[serde(flatten)]
+    pub reason: Reason,
+}
+
+impl Finding {
+    /// `None` when the code is turned off.
+    pub fn new(reason: Reason, sev: &Severities) -> Option<Self> {
+        let code = reason.code();
+        match sev.of(code) {
+            Severity::Off => None,
+            severity => Some(Finding { code, severity, reason }),
+        }
+    }
+}
+
+impl std::fmt::Display for Finding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.code, self.reason)
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct EntryIssue {
     pub entry: PathEntry,
     pub problem: EntryProblem,
+    pub code: Code,
+    pub severity: Severity,
+}
+
+impl EntryIssue {
+    /// `None` when the code is turned off.
+    pub fn new(entry: PathEntry, problem: EntryProblem, sev: &Severities) -> Option<Self> {
+        let code = problem.code();
+        match sev.of(code) {
+            Severity::Off => None,
+            severity => Some(EntryIssue { entry, problem, code, severity }),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct AppPathIssue {
+    #[serde(flatten)]
+    pub app_path: AppPath,
+    pub code: Code,
+    pub severity: Severity,
+}
+
+impl AppPathIssue {
+    /// `None` when the code is turned off.
+    pub fn new(app_path: AppPath, sev: &Severities) -> Option<Self> {
+        let code = Code::Path301;
+        match sev.of(code) {
+            Severity::Off => None,
+            severity => Some(AppPathIssue { app_path, code, severity }),
+        }
+    }
+}
+
+fn severity_tag(s: Severity) -> &'static str {
+    if s == Severity::Error { "[BROKEN]" } else { "[WARN]  " }
 }
 
 /// Print to stdout. A reader that stops early (`pathsok list | head`) is not
@@ -76,7 +142,7 @@ pub struct Report {
     /// The subcommand that produced the report.
     pub command: &'static str,
     pub path_problems: Vec<EntryIssue>,
-    pub app_paths: Vec<AppPath>,
+    pub app_paths: Vec<AppPathIssue>,
     pub tools: Vec<ToolResult>,
 }
 
@@ -86,9 +152,10 @@ impl Report {
     }
 
     pub fn exit_code(&self) -> u8 {
-        let bad_entries = self.path_problems.iter().any(|p| p.problem.is_error());
+        let bad_entries = self.path_problems.iter().any(|p| p.severity == Severity::Error);
         let bad_tools = self.tools.iter().any(|t| t.verdict == Verdict::Broken);
-        u8::from(bad_entries || bad_tools || !self.app_paths.is_empty())
+        let bad_app_paths = self.app_paths.iter().any(|a| a.severity == Severity::Error);
+        u8::from(bad_entries || bad_tools || bad_app_paths)
     }
 
     pub fn to_text(&self, verbose: bool) -> String {
@@ -97,8 +164,8 @@ impl Report {
         if !self.path_problems.is_empty() {
             s.push_str("PATH entries\n");
             for p in &self.path_problems {
-                let tag = if p.problem.is_error() { "[BROKEN]" } else { "[WARN]  " };
-                let _ = writeln!(s, "{tag} ({}) \"{}\" — {}", p.entry.origin, p.entry.raw, p.problem);
+                let tag = severity_tag(p.severity);
+                let _ = writeln!(s, "{tag} {} ({}) \"{}\" — {}", p.code, p.entry.origin, p.entry.raw, p.problem);
             }
             s.push('\n');
         }
@@ -106,7 +173,8 @@ impl Report {
         if !self.app_paths.is_empty() {
             s.push_str("App Paths\n");
             for a in &self.app_paths {
-                let _ = writeln!(s, "[BROKEN] {}\n         target does not exist: {}", a.key, a.target.display());
+                let (tag, key, target) = (severity_tag(a.severity), &a.app_path.key, a.app_path.target.display());
+                let _ = writeln!(s, "{tag} {} {key}\n         target does not exist: {target}", a.code);
             }
             s.push('\n');
         }
@@ -125,8 +193,14 @@ impl Report {
             for r in &t.reasons {
                 let _ = writeln!(s, "         {r}");
             }
-            if let Some(n) = &t.note {
-                let _ = writeln!(s, "         {n}");
+            match (&t.note, t.code) {
+                (Some(n), Some(c)) => {
+                    let _ = writeln!(s, "         {c} {n}");
+                }
+                (Some(n), None) => {
+                    let _ = writeln!(s, "         {n}");
+                }
+                (None, _) => {}
             }
             if verbose {
                 for sh in &t.shadowed {
@@ -145,7 +219,7 @@ impl Report {
             }
         }
 
-        let warns = self.path_problems.iter().filter(|p| !p.problem.is_error()).count();
+        let warns = self.path_problems.iter().filter(|p| p.severity == Severity::Warn).count();
         let _ = writeln!(
             s,
             "\nSummary: {} passed, {} broken, {} tool errors, {} warnings, {} skipped ({} tools); {} PATH problems, {} PATH warnings, {} broken App Paths.",

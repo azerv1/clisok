@@ -2,6 +2,7 @@
 //! missing DLLs and Python modules, and tools whose `--help` fails.
 
 mod check;
+mod codes;
 mod discover;
 mod exec;
 mod inspect;
