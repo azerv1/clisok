@@ -10,7 +10,7 @@ binok check --json     # same, as JSON on stdout
 binok list             # list every command and the copies it shadows; runs nothing
 ```
 
-`binok check` exits 0 when everything is fine and 1 when it finds problems. Every problem has a stable [code](codes.md) like `BOK002`.
+`binok check` exits 0 when everything is fine and 1 when it finds problems. Every problem has a stable [code](codes.md) like `BIN002`.
 
 ## Install
 

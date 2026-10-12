@@ -5,16 +5,16 @@
 Checks PATH entries, then every tool on PATH: static checks first, then a test run for the tools that are safe to run: `--version`, falling back to `-V`, `--help` and `-h` for tools that reject it. Installers, GUI programs, app execution aliases, plain scripts and the OS's own programs are never run.
 
 ```
-[BROKEN] BOK002 (user) "C:\gone" — directory does not exist
+[BROKEN] BIN002 (user) "C:\gone" — directory does not exist
 Tools
 [BROKEN] ruff  C:\Users\me\.local\bin\ruff.exe
-         BOK103 interpreter does not exist: C:\Python311\python.exe
+         BIN103 interpreter does not exist: C:\Python311\python.exe
 ```
 
 - **`--json`** — print the report as JSON on stdout; progress stays on stderr.
 - **`-v`, `--verbose`** — also list passing and skipped tools, and shadowed copies.
 - **`--skip NAME`** — don't run this tool. Repeatable.
-- **`--ignore CODE`** — drop findings with this code, e.g. `BOK007`. Repeatable.
+- **`--ignore CODE`** — drop findings with this code, e.g. `BIN007`. Repeatable.
 - **`--system`** — also check the OS's own folders, statically; nothing there is run.
 - **`--registry`** — Windows only: also check the saved PATH and App Paths registrations.
 - **`-j`, `--jobs N`** — tools checked in parallel; default one per CPU core.

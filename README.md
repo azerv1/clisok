@@ -11,7 +11,7 @@ binok list             # list every command and the copies it shadows; runs noth
 ```
 
 `binok check` exits 0 when everything is fine, nonzero when it finds problems.
-Every problem has a stable code like `BOK002`.
+Every problem has a stable code like `BIN002`.
 
 **Docs:** [azerv1.github.io/binok](https://azerv1.github.io/binok/) —
 [usage](https://azerv1.github.io/binok/usage.html),

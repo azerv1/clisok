@@ -29,13 +29,13 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
   - **Repair preview** — each finding shows the repair `--fix` would apply and the flag it needs, e.g. `fix: uv tool install --reinstall ruff [needs --reinstall-broken]`. JSON carries the same planned action. Plain `check` is the preview, so there is no `--dry-run`.
   - **Hidden behind an OS copy** — when an OS-owned copy is active and hides a user-installed copy, report a tool-level `[WARN]`. The OS copy is never run, the hidden copy gets static inspection only, and the exit code is unaffected. Today the whole command is dropped (`src/discover.rs:58`).
 
-- **Error codes** (done) — every finding has a permanent code: BOK0xx PATH entries, BOK1xx tool checks, BOK2xx the test run, BOK3xx registry. A code is never renumbered or reused. `--ignore CODE` drops a code; the list lives in `src/codes.rs`.
+- **Error codes** (done) — every finding has a permanent code: BIN0xx PATH entries, BIN1xx tool checks, BIN2xx the test run, BIN3xx registry. A code is never renumbered or reused. `--ignore CODE` drops a code; the list lives in `src/codes.rs`.
 
 - **`.binok.toml`** (done) — a user file, then the nearest project file up to `.git`; flags beat both. It sets `[check]` flag defaults, `[severity]` per code (`error`/`warn`/`off`), and `extra` places off PATH that get static checks only. `skip` and `extra` take `${VAR}` and `${VAR:-default}`. Expected-tool rules are out of scope: that is pathlint's job.
 
 - **Docs** (done) — an mdBook site in `docs/`, deployed to GitHub Pages. The codes page and the config key table are generated from the source; a test fails when they are stale.
 
-- **Name and scope** (done) — renamed from pathsok, since the tool checks the system's executables, not only PATH. Codes moved from `PATHnnn` to `BOKnnn` before either was released. PATH-entry checks and `list` stay even though pathlint and patholog also cover them: PATH entries are one input to the executables check.
+- **Name and scope** (done) — renamed from pathsok, since the tool checks the system's executables, not only PATH. Codes moved from `PATHnnn` to `BINnnn` before either was released. PATH-entry checks and `list` stay even though pathlint and patholog also cover them: PATH entries are one input to the executables check.
 
 - **`binok list [--system] [--json]`** — enumerate every active command and all shadowed copies without executing tools. By default, omit commands that exist only in OS-owned directories, but list any command with at least one non-OS copy, including when the OS copy is the active one. `--system` lists everything. OS copies are always marked.
 

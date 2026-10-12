@@ -59,15 +59,15 @@ pub enum EntryProblem {
 impl EntryProblem {
     pub fn code(self) -> Code {
         match self {
-            EntryProblem::Empty => Code::Bok001,
-            EntryProblem::Missing => Code::Bok002,
-            EntryProblem::NotDir => Code::Bok003,
-            EntryProblem::UnexpandedVar => Code::Bok004,
-            EntryProblem::StrayQuote => Code::Bok005,
-            EntryProblem::Whitespace => Code::Bok006,
-            EntryProblem::Duplicate => Code::Bok007,
-            EntryProblem::NotInSession => Code::Bok008,
-            EntryProblem::Truncated => Code::Bok009,
+            EntryProblem::Empty => Code::Bin001,
+            EntryProblem::Missing => Code::Bin002,
+            EntryProblem::NotDir => Code::Bin003,
+            EntryProblem::UnexpandedVar => Code::Bin004,
+            EntryProblem::StrayQuote => Code::Bin005,
+            EntryProblem::Whitespace => Code::Bin006,
+            EntryProblem::Duplicate => Code::Bin007,
+            EntryProblem::NotInSession => Code::Bin008,
+            EntryProblem::Truncated => Code::Bin009,
         }
     }
 }

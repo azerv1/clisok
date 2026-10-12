@@ -12,8 +12,8 @@ extra   = [
 ]
 
 [severity]
-BOK007 = "error"   # duplicates fail the run
-BOK008 = "off"     # don't report stale terminals
+BIN007 = "error"   # duplicates fail the run
+BIN008 = "off"     # don't report stale terminals
 ```
 
 ## Where binok looks

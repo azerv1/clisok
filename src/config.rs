@@ -249,13 +249,13 @@ mod tests {
 
     #[test]
     fn parses_a_file() {
-        let src = "[check]\nskip = [\"${NOPE:-gradle}\"]\ntimeout = 5\nextra = [\"${HOME}/tools\"]\n\n[severity]\nBOK007 = \"error\"\nBOK008 = \"off\"\n";
+        let src = "[check]\nskip = [\"${NOPE:-gradle}\"]\ntimeout = 5\nextra = [\"${HOME}/tools\"]\n\n[severity]\nBIN007 = \"error\"\nBIN008 = \"off\"\n";
         let c = parse(src, Path::new("t.toml"), &vars).unwrap();
         assert_eq!(c.skip, Some(vec!["gradle".to_string()]));
         assert_eq!(c.timeout, Some(5));
         assert_eq!(c.extra, Some(vec!["/home/me/tools".to_string()]));
-        assert_eq!(c.severity[&Code::Bok007], Severity::Error);
-        assert_eq!(c.severity[&Code::Bok008], Severity::Off);
+        assert_eq!(c.severity[&Code::Bin007], Severity::Error);
+        assert_eq!(c.severity[&Code::Bin008], Severity::Off);
     }
 
     #[test]
@@ -263,15 +263,15 @@ mod tests {
         let err = parse("[check]\n\nskip = [\"a\", \"${NOPE}\"]\n", Path::new("t.toml"), &vars).unwrap_err();
         assert!(err.starts_with("t.toml:3: variable NOPE is not set"), "{err}");
         assert!(parse("[check]\nbogus = 1\n", Path::new("t.toml"), &vars).unwrap_err().contains("bogus"));
-        assert!(parse("[severity]\nBOK999 = \"off\"\n", Path::new("t.toml"), &vars).unwrap_err().contains("BOK999"));
-        assert!(parse("[severity]\nBOK007 = \"loud\"\n", Path::new("t.toml"), &vars).is_err());
+        assert!(parse("[severity]\nBIN999 = \"off\"\n", Path::new("t.toml"), &vars).unwrap_err().contains("BIN999"));
+        assert!(parse("[severity]\nBIN007 = \"loud\"\n", Path::new("t.toml"), &vars).is_err());
     }
 
     #[test]
     fn later_file_wins_and_severities_merge() {
         let mut c = Config::default();
-        let user = "[check]\ntimeout = 5\nskip = [\"a\"]\n[severity]\nBOK007 = \"error\"\n";
-        let project = "[check]\nskip = [\"b\"]\n[severity]\nBOK008 = \"off\"\n";
+        let user = "[check]\ntimeout = 5\nskip = [\"a\"]\n[severity]\nBIN007 = \"error\"\n";
+        let project = "[check]\nskip = [\"b\"]\n[severity]\nBIN008 = \"off\"\n";
         c.merge(parse(user, Path::new("u"), &vars).unwrap(), "u".into());
         c.merge(parse(project, Path::new("p"), &vars).unwrap(), "p".into());
         assert_eq!(c.timeout, Some(5));

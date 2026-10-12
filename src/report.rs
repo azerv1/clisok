@@ -122,7 +122,7 @@ pub struct AppPathIssue {
 impl AppPathIssue {
     /// `None` when the code is turned off.
     pub fn new(app_path: AppPath, sev: &Severities) -> Option<Self> {
-        let code = Code::Bok301;
+        let code = Code::Bin301;
         match sev.of(code) {
             Severity::Off => None,
             severity => Some(AppPathIssue { app_path, code, severity }),

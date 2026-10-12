@@ -45,7 +45,7 @@ pub struct CheckArgs {
     /// Don't run this tool (repeatable)
     #[arg(long, value_name = "NAME")]
     skip: Vec<String>,
-    /// Drop findings with this code, e.g. BOK007 (repeatable)
+    /// Drop findings with this code, e.g. BIN007 (repeatable)
     #[arg(long, value_name = "CODE")]
     ignore: Vec<Code>,
     /// Number of tools checked in parallel [default: one per CPU core]
@@ -172,7 +172,7 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
     // the run; its static findings are still listed.
     if let Some(os_copy) = &res.hidden_by {
         let note = format!("hidden behind {}, which runs instead", os_copy.display());
-        res.verdict = note_finding(&mut res, Code::Bok107, note, Verdict::Warn, &ctx.severities);
+        res.verdict = note_finding(&mut res, Code::Bin107, note, Verdict::Warn, &ctx.severities);
         return res;
     }
     let outcome = match p.skip_why {
@@ -200,8 +200,8 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
         }
         Outcome::ToolError(kind, msg) => {
             let code = match kind {
-                ToolErrorKind::TimedOut => Code::Bok203,
-                ToolErrorKind::Exit => Code::Bok204,
+                ToolErrorKind::TimedOut => Code::Bin203,
+                ToolErrorKind::Exit => Code::Bin204,
             };
             note_finding(&mut res, code, msg, Verdict::ToolError, &ctx.severities)
         }
@@ -508,7 +508,7 @@ mod tests {
         assert_eq!(report.exit_code(), 0);
         let text = report.to_text(false);
         assert!(text.contains("[WARN]   tool  "));
-        assert!(text.contains("         BOK107 hidden behind "));
+        assert!(text.contains("         BIN107 hidden behind "));
     }
 
     fn severities(pairs: &[(Code, Severity)]) -> Severities {
@@ -527,23 +527,23 @@ mod tests {
                 dirs: &dirs,
                 skip: HashSet::new(),
                 timeout: Duration::from_secs(1),
-                severities: severities(&[(Code::Bok107, sev)]),
+                severities: severities(&[(Code::Bin107, sev)]),
             };
             run(prepare(tools_to_check(std::slice::from_ref(&command), false).remove(0), &ctx), &ctx)
         };
 
         let res = check_with(Severity::Error);
-        assert_eq!((res.verdict, res.code), (Verdict::Broken, Some(Code::Bok107)));
+        assert_eq!((res.verdict, res.code), (Verdict::Broken, Some(Code::Bin107)));
         let res = check_with(Severity::Off);
         assert_eq!((res.verdict, res.code), (Verdict::Skip, None));
-        assert!(res.note.unwrap().starts_with("ignored BOK107: hidden behind "));
+        assert!(res.note.unwrap().starts_with("ignored BIN107: hidden behind "));
     }
 
     #[test]
     fn finding_set_to_warn_warns_instead_of_failing() {
         let dirs: Vec<PathBuf> = vec![];
         let index = PathIndex::build(&dirs);
-        let sev = severities(&[(Code::Bok101, Severity::Warn)]);
+        let sev = severities(&[(Code::Bin101, Severity::Warn)]);
         let ctx = Ctx { index: &index, dirs: &dirs, skip: HashSet::new(), timeout: Duration::from_secs(1), severities: sev };
         let reason = || crate::inspect::Reason::MissingTarget { path: PathBuf::from("gone") };
         let res = ToolResult {
@@ -564,12 +564,12 @@ mod tests {
         assert_eq!(res.verdict, Verdict::Warn);
 
         let json = serde_json::to_value(&res.reasons[0]).unwrap();
-        assert_eq!(json["code"], "BOK101");
+        assert_eq!(json["code"], "BIN101");
         assert_eq!(json["severity"], "warn");
         assert_eq!(json["type"], "missing-target");
         assert_eq!(json["path"], "gone");
 
-        assert!(Finding::new(reason(), &severities(&[(Code::Bok101, Severity::Off)])).is_none());
+        assert!(Finding::new(reason(), &severities(&[(Code::Bin101, Severity::Off)])).is_none());
     }
 
     #[test]
@@ -579,7 +579,7 @@ mod tests {
         let (file, expected) = {
             let file = tmp.path().join("tool.cmd");
             fs::write(&file, "@\"C:\\definitely\\missing\\real.exe\" %*\r\n").unwrap();
-            (file, Code::Bok101)
+            (file, Code::Bin101)
         };
         #[cfg(unix)]
         let (file, expected) = {
@@ -587,7 +587,7 @@ mod tests {
             let file = tmp.path().join("tool");
             fs::write(&file, "#!/definitely/missing/python\n").unwrap();
             fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
-            (file, Code::Bok103)
+            (file, Code::Bin103)
         };
         let places = [tmp.path().display().to_string()];
         let mut tools = extra_tools(&places, &[]).unwrap();
@@ -640,10 +640,10 @@ mod tests {
 
         let default = report(&Severities::default());
         assert_eq!(default.exit_code(), 0);
-        assert!(default.to_text(false).contains("[WARN]   BOK007 (process) \"dup\" — duplicate entry"));
-        let strict = report(&severities(&[(Code::Bok007, Severity::Error)]));
+        assert!(default.to_text(false).contains("[WARN]   BIN007 (process) \"dup\" — duplicate entry"));
+        let strict = report(&severities(&[(Code::Bin007, Severity::Error)]));
         assert_eq!(strict.exit_code(), 1);
-        assert!(strict.to_text(false).contains("[BROKEN] BOK007 "));
-        assert!(report(&severities(&[(Code::Bok007, Severity::Off)])).path_problems.is_empty());
+        assert!(strict.to_text(false).contains("[BROKEN] BIN007 "));
+        assert!(report(&severities(&[(Code::Bin007, Severity::Off)])).path_problems.is_empty());
     }
 }

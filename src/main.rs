@@ -71,8 +71,8 @@ mod tests {
 
     #[test]
     fn ignore_takes_known_codes_only() {
-        assert!(Cli::try_parse_from(["binok", "check", "--ignore", "BOK007", "--ignore", "bok203"]).is_ok());
-        assert!(Cli::try_parse_from(["binok", "check", "--ignore", "BOK999"]).is_err());
+        assert!(Cli::try_parse_from(["binok", "check", "--ignore", "BIN007", "--ignore", "bin203"]).is_ok());
+        assert!(Cli::try_parse_from(["binok", "check", "--ignore", "BIN999"]).is_err());
     }
 
     #[test]
