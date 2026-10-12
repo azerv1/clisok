@@ -1,5 +1,5 @@
 //! binok: check that the executables on this system work — PATH entries,
-//! launchers and shims, DLLs and Python modules, and a headless `--help` run.
+//! launchers and shims, DLLs and Python modules, and a headless `--version` run.
 
 mod check;
 mod codes;
@@ -21,7 +21,7 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(version, about = "Check that the executables on this system work: PATH entries, launchers, shims, libraries, and a headless --help run")]
+#[command(version, about = "Check that the executables on this system work: PATH entries, launchers, shims, libraries, and a headless --version run")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -29,7 +29,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Check PATH entries and every tool on PATH, running --help where it is safe
+    /// Check PATH entries and every tool on PATH, test-running the ones that are safe
     Check(check::CheckArgs),
     /// List every command on PATH and the copies it shadows, without running anything
     List(list::ListArgs),

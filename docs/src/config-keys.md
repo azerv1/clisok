@@ -2,8 +2,8 @@
 
 | Key | Value | Meaning |
 |---|---|---|
-| `check.skip` | list of strings | Don't run --help for these tools, like `--skip`. |
-| `check.timeout` | integer | Seconds before a --help run is killed, like `--timeout`. |
+| `check.skip` | list of strings | Don't run these tools, like `--skip`. |
+| `check.timeout` | integer | Seconds before a test run is killed, like `--timeout`. |
 | `check.jobs` | integer | Tools checked in parallel, like `--jobs`. |
 | `check.system` | boolean | Also check the OS's own folders, like `--system`. Also applies to `list`. |
 | `check.registry` | boolean | Windows only: also check the saved PATH and App Paths, like `--registry`. |

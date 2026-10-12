@@ -20,8 +20,8 @@ pub const FILE_NAME: &str = ".binok.toml";
 /// Every setting, for the docs generator (a test): key, value type, meaning.
 #[cfg_attr(not(test), allow(dead_code))]
 pub const KEYS: &[(&str, &str, &str)] = &[
-    ("check.skip", "list of strings", "Don't run --help for these tools, like `--skip`."),
-    ("check.timeout", "integer", "Seconds before a --help run is killed, like `--timeout`."),
+    ("check.skip", "list of strings", "Don't run these tools, like `--skip`."),
+    ("check.timeout", "integer", "Seconds before a test run is killed, like `--timeout`."),
     ("check.jobs", "integer", "Tools checked in parallel, like `--jobs`."),
     ("check.system", "boolean", "Also check the OS's own folders, like `--system`. Also applies to `list`."),
     ("check.registry", "boolean", "Windows only: also check the saved PATH and App Paths, like `--registry`."),

@@ -35,7 +35,7 @@ fn is_noise(line: &str) -> bool {
 }
 
 /// True for scripts that only forward their arguments to another program,
-/// which makes `--help` safe to run. Anything else might perform actions.
+/// which makes a test run safe. Anything else might perform actions.
 pub fn is_shim(text: &str) -> bool {
     let lines: Vec<&str> = text.lines().filter(|l| !is_noise(l)).collect();
     if text.contains("node_modules") && text.contains("%*") {

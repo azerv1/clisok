@@ -1,4 +1,4 @@
-//! Run `<tool> --help` and decide what the result means.
+//! The test run: `<tool> --version` (or help) and what the result means.
 
 use std::io;
 use std::path::Path;
@@ -57,7 +57,7 @@ static BROKEN: LazyLock<RegexSet> = LazyLock::new(|| {
     .unwrap()
 });
 
-/// Output that means the tool started but doesn't take `--help`/`-h`.
+/// Output that means the tool started but doesn't take the flag we passed.
 static USAGE: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r"(?i)\busage:",
@@ -206,55 +206,51 @@ pub enum Outcome {
 
 const CONSOLE_NOTE: &str = "not run: needs an interactive console or a display";
 
-/// `--help`, then `-h`, then `--version`, stopping at the first conclusive answer.
-pub fn run_help(path: &Path, timeout: Duration) -> (Outcome, Vec<Attempt>) {
-    let first = match run_capture(path, &["--help"], timeout) {
-        Ok(a) => a,
-        Err(e) => return (Outcome::Broken(Reason::FailedToStart { error: e.to_string() }), vec![]),
-    };
-    let j1 = judge(&first);
-    match &j1 {
-        Judgement::Pass => return (Outcome::Pass, vec![first]),
-        Judgement::Broken(line) => return (broken(line), vec![first]),
-        Judgement::NeedsConsole => return (Outcome::Skip(CONSOLE_NOTE.into()), vec![first]),
-        _ if first.timed_out => {
-            let note = format!("timed out after {}s", timeout.as_secs());
-            return (Outcome::ToolError(ToolErrorKind::TimedOut, note), vec![first]);
-        }
-        _ => {}
-    }
+/// The flags of a test run, in order. `--version` goes first because it
+/// rarely opens a pager or a browser; help is the fallback for tools without it.
+pub const PROBES: &[&str] = &["--version", "-V", "--help", "-h"];
 
-    let Ok(second) = run_capture(path, &["-h"], timeout) else {
-        return (summarize(&j1, &first), vec![first]);
-    };
-    let outcome = match judge(&second) {
-        Judgement::Pass | Judgement::Usage => Outcome::Pass,
-        Judgement::Broken(line) => broken(&line),
-        Judgement::NeedsConsole => Outcome::Skip(CONSOLE_NOTE.into()),
-        Judgement::Fail if j1 == Judgement::Usage || second.timed_out => summarize(&j1, &first),
-        Judgement::Fail => return with_version_fallback(path, timeout, &j1, first, second),
-    };
-    (outcome, vec![first, second])
+/// Try each of `PROBES` in turn, stopping at the first conclusive answer.
+pub fn run_probe(path: &Path, timeout: Duration) -> (Outcome, Vec<Attempt>) {
+    probe(|arg| run_capture(path, &[arg], timeout), timeout)
 }
 
-/// Last try for programs without help: many still answer `--version`.
-fn with_version_fallback(
-    path: &Path,
-    timeout: Duration,
-    j1: &Judgement,
-    first: Attempt,
-    second: Attempt,
-) -> (Outcome, Vec<Attempt>) {
-    let Ok(third) = run_capture(path, &["--version"], timeout) else {
-        return (summarize(j1, &first), vec![first, second]);
-    };
-    let outcome = match judge(&third) {
-        Judgement::Pass | Judgement::Usage => Outcome::Pass,
-        Judgement::Broken(line) => broken(&line),
-        Judgement::NeedsConsole => Outcome::Skip(CONSOLE_NOTE.into()),
-        Judgement::Fail => summarize(j1, &first),
-    };
-    (outcome, vec![first, second, third])
+/// A rejected flag (Usage) moves on too: a later `--help` runs more of the
+/// tool and can still find something missing.
+fn probe(mut run: impl FnMut(&str) -> io::Result<Attempt>, timeout: Duration) -> (Outcome, Vec<Attempt>) {
+    let mut attempts: Vec<Attempt> = Vec::new();
+    let mut usage = false;
+    for arg in PROBES {
+        let a = match run(arg) {
+            Ok(a) => a,
+            Err(e) if attempts.is_empty() => {
+                return (Outcome::Broken(Reason::FailedToStart { error: e.to_string() }), attempts);
+            }
+            Err(_) => break,
+        };
+        let (j, timed_out) = (judge(&a), a.timed_out);
+        attempts.push(a);
+        let outcome = match j {
+            Judgement::Pass => Outcome::Pass,
+            Judgement::Broken(line) => broken(&line),
+            Judgement::NeedsConsole => Outcome::Skip(CONSOLE_NOTE.into()),
+            _ if timed_out && attempts.len() == 1 => {
+                let note = format!("timed out after {}s", timeout.as_secs());
+                Outcome::ToolError(ToolErrorKind::TimedOut, note)
+            }
+            _ if timed_out => break,
+            Judgement::Usage => {
+                usage = true;
+                continue;
+            }
+            Judgement::Fail => continue,
+        };
+        return (outcome, attempts);
+    }
+    // Nothing conclusive. A rejected flag still shows the tool started;
+    // otherwise the first attempt explains what went wrong.
+    let first = if usage { Judgement::Usage } else { Judgement::Fail };
+    (summarize(&first, &attempts[0]), attempts)
 }
 
 fn broken(line: &str) -> Outcome {
@@ -269,7 +265,7 @@ fn summarize(j: &Judgement, a: &Attempt) -> Outcome {
     let last = lines().rfind(|l| ERROR_LINE.is_match(l)).or_else(|| lines().next_back());
     let exit = a.exit.map_or_else(|| "no exit code".into(), |c| format!("exit {c}"));
     if *j == Judgement::Fail && ran_own_code(a) {
-        return Outcome::Started(format!("started, but did not answer --help ({exit})"));
+        return Outcome::Started(format!("started, but did not answer --version or --help ({exit})"));
     }
     let note = match last {
         Some(l) => format!("{exit}: {}", clip(l, 200)),
@@ -421,6 +417,68 @@ operable program or batch file."#))));
         for a in &cases {
             assert!(matches!(summary(a), Outcome::ToolError(..)), "{:?}", a.output);
         }
+    }
+
+    /// Run `probe` against canned answers, one per flag in `PROBES` order.
+    fn probe_with(answers: &[(i32, &str)]) -> (Outcome, Vec<String>) {
+        let mut answers = answers.iter();
+        let (outcome, attempts) = probe(
+            |arg| {
+                let &(exit, output) = answers.next().expect("probed past the canned answers");
+                Ok(Attempt { arg: arg.into(), ..run(exit, output) })
+            },
+            Duration::from_secs(1),
+        );
+        (outcome, attempts.into_iter().map(|a| a.arg).collect())
+    }
+
+    #[test]
+    fn version_answer_ends_the_probe() {
+        let (outcome, args) = probe_with(&[(0, "tool 1.2.3\n")]);
+        assert!(matches!(outcome, Outcome::Pass));
+        assert_eq!(args, ["--version"]);
+    }
+
+    #[test]
+    fn rejected_version_falls_back_to_help() {
+        let (outcome, args) = probe_with(&[
+            (2, "error: unrecognized option '--version'\n"),
+            (1, ""),
+            (0, "Usage: tool [options]\n"),
+        ]);
+        assert!(matches!(outcome, Outcome::Pass));
+        assert_eq!(args, ["--version", "-V", "--help"]);
+        // --help can still find what --version didn't load.
+        let (outcome, _) = probe_with(&[(2, "unknown option --version\n"), (1, ""), (1, "No module named 'dep'\n")]);
+        assert!(matches!(outcome, Outcome::Broken(_)));
+    }
+
+    #[test]
+    fn no_answer_to_any_flag_is_started() {
+        let (outcome, args) = probe_with(&[(1, ""), (1, ""), (1, ""), (1, "")]);
+        assert!(matches!(outcome, Outcome::Started(_)));
+        assert_eq!(args, PROBES);
+    }
+
+    #[test]
+    fn first_probe_timing_out_is_a_tool_error() {
+        let mut calls = 0;
+        let (outcome, attempts) = probe(
+            |arg| {
+                calls += 1;
+                Ok(Attempt { arg: arg.into(), timed_out: true, exit: None, ..run(0, "") })
+            },
+            Duration::from_secs(1),
+        );
+        assert!(matches!(outcome, Outcome::ToolError(ToolErrorKind::TimedOut, _)));
+        assert_eq!((calls, attempts.len()), (1, 1));
+    }
+
+    #[test]
+    fn failing_to_start_is_broken() {
+        let (outcome, attempts) = probe(|_| Err(io::Error::other("bad image")), Duration::from_secs(1));
+        assert!(matches!(outcome, Outcome::Broken(Reason::FailedToStart { .. })));
+        assert!(attempts.is_empty());
     }
 
     #[cfg(windows)]

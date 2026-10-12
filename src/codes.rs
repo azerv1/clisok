@@ -2,7 +2,7 @@
 //! forever and is never reused, so scripts and ignore lists can rely on it.
 //!
 //! Ranges: BOK0xx PATH entries, BOK1xx static tool checks, BOK2xx the
-//! `--help` run, BOK3xx registry.
+//! test run, BOK3xx registry.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -91,9 +91,9 @@ codes! {
     Bok202 = 202, Error, "error output when run",
         "Running it printed an error that means something it needs is missing, or the Windows loader stopped it (missing DLL, bad image). The message is quoted. Reinstall the tool or what it depends on.";
     Bok203 = 203, Warn + tool_error, "timed out",
-        "`--help` didn't finish within the timeout, even when retried on its own. The tool may wait for input or the network. Doesn't fail the run; use `--skip NAME` if it is expected.";
+        "The test run didn't finish within the timeout, even when retried on its own. The tool may wait for input or the network. Doesn't fail the run; use `--skip NAME` if it is expected.";
     Bok204 = 204, Warn + tool_error, "exited with an error",
-        "The tool started, but `--help`, `-h` and `--version` all ended in an error of its own. Usually it works and just refuses those flags. Doesn't fail the run.";
+        "The tool started, but `--version`, `-V`, `--help` and `-h` all ended in an error of its own. Usually it works and just refuses those flags. Doesn't fail the run.";
     Bok301 = 301, Error, "App Paths target does not exist",
         "A registry App Paths entry, which `Win+R` and `start` use, points at a program that is gone. Delete the key or reinstall the program.";
 }

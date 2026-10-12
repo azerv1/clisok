@@ -66,7 +66,7 @@ static SETUP: LazyLock<Regex> = LazyLock::new(|| {
 static SAFE_SUBST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$\((dirname|readlink|realpath)\s").unwrap());
 
 /// True for scripts that only start another program with the caller's
-/// arguments, which makes `--help` safe to run: environment setup, then one
+/// arguments, which makes a test run safe: environment setup, then one
 /// last line that forwards `"$@"`. Any other command might act.
 pub fn is_launcher(path: &Path, text: &str) -> bool {
     // npm/pnpm/bun install a package's own entry script, symlinked from bin.

@@ -1,5 +1,5 @@
 //! `binok check`: PATH entries, then every tool on PATH — static checks
-//! first, then `--help` for the ones that are safe to run.
+//! first, then a test run (`--version`, then `--help`) for the ones that are safe to run.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -21,7 +21,7 @@ use crate::report::{
 };
 use crate::{pool, progress};
 
-/// Installers and uninstallers can act on `--help`, so they are never run.
+/// Installers and uninstallers can act on any flag, so they are never run.
 static INSTALLER_NAME: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)(uninst|^unins\d|^setup|^install)").unwrap());
 
@@ -42,7 +42,7 @@ pub struct CheckArgs {
     /// Also list passing and skipped tools, and shadowed copies
     #[arg(short, long)]
     verbose: bool,
-    /// Don't run --help for this tool (repeatable)
+    /// Don't run this tool (repeatable)
     #[arg(long, value_name = "NAME")]
     skip: Vec<String>,
     /// Drop findings with this code, e.g. BOK007 (repeatable)
@@ -51,7 +51,7 @@ pub struct CheckArgs {
     /// Number of tools checked in parallel [default: one per CPU core]
     #[arg(short, long)]
     jobs: Option<usize>,
-    /// Seconds before a --help run is killed [default: 30]
+    /// Seconds before a test run is killed [default: 30]
     #[arg(long, value_name = "SECS")]
     timeout: Option<u64>,
     #[command(flatten)]
@@ -82,7 +82,7 @@ struct Prepared {
     skip_why: Option<&'static str>,
 }
 
-/// Static checks only: cheap, and decides whether `--help` is safe to run.
+/// Static checks only: cheap, and decides whether a test run is safe.
 fn prepare(tool: Tool, ctx: &Ctx) -> Prepared {
     let insp = inspect::inspect(&tool.path, ctx.index, ctx.dirs);
     let res = ToolResult {
@@ -111,9 +111,9 @@ fn prepare(tool: Tool, ctx: &Ctx) -> Prepared {
     } else if INSTALLER_NAME.is_match(&res.name) {
         Some("not run: looks like an installer or uninstaller")
     } else if insp.gui {
-        Some("no --help: GUI program")
+        Some("not run: GUI program")
     } else if matches!(res.kind, Kind::Script) {
-        Some("no --help: script, not a launcher")
+        Some("not run: script, not a launcher")
     } else if matches!(res.kind, Kind::Missing) {
         Some("not run: target is missing")
     } else {
@@ -165,7 +165,7 @@ fn extra_tools(patterns: &[String], on_path: &[Tool]) -> Result<Vec<Tool>, Strin
         .collect())
 }
 
-/// Run `--help` (unless skipped) and settle the verdict.
+/// Do the test run (unless skipped) and settle the verdict.
 fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
     let mut res = p.res;
     // Typing the name never reaches this copy, so by default it can't fail
@@ -178,7 +178,7 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
     let outcome = match p.skip_why {
         Some(why) => Outcome::Skip(why.to_string()),
         None => {
-            let (outcome, attempts) = exec::run_help(&res.path, ctx.timeout);
+            let (outcome, attempts) = exec::run_probe(&res.path, ctx.timeout);
             res.ms = attempts.iter().map(|a| a.ms).sum();
             res.attempts = attempts.into_iter().map(exec::trim_output).collect();
             outcome

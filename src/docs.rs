@@ -16,7 +16,7 @@ fn group(number: u16) -> &'static str {
     match number / 100 {
         0 => "BOK0xx — PATH entries",
         1 => "BOK1xx — tool checks",
-        2 => "BOK2xx — the --help run",
+        2 => "BOK2xx — the test run",
         _ => "BOK3xx — Windows registry",
     }
 }

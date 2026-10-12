@@ -25,11 +25,11 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **`binok`** — print help and exit successfully. The old flat flags move under `check`; used bare, they get clap's standard unknown-argument error. binok was never released, so old invocations get no special handling.
 
-- **`binok check [existing options]`** — preserve the current PATH, launcher, dependency, and `--help` checks, including `--json`, `--verbose`, `--skip`, `--jobs`, `--timeout`, Windows `--registry`, and `--system` (now on every platform).
+- **`binok check [existing options]`** — preserve the current PATH, launcher, dependency, and test-run checks (`--version`, then `--help`), including `--json`, `--verbose`, `--skip`, `--jobs`, `--timeout`, Windows `--registry`, and `--system` (now on every platform).
   - **Repair preview** — each finding shows the repair `--fix` would apply and the flag it needs, e.g. `fix: uv tool install --reinstall ruff [needs --reinstall-broken]`. JSON carries the same planned action. Plain `check` is the preview, so there is no `--dry-run`.
   - **Hidden behind an OS copy** — when an OS-owned copy is active and hides a user-installed copy, report a tool-level `[WARN]`. The OS copy is never run, the hidden copy gets static inspection only, and the exit code is unaffected. Today the whole command is dropped (`src/discover.rs:58`).
 
-- **Error codes** (done) — every finding has a permanent code: BOK0xx PATH entries, BOK1xx tool checks, BOK2xx the `--help` run, BOK3xx registry. A code is never renumbered or reused. `--ignore CODE` drops a code; the list lives in `src/codes.rs`.
+- **Error codes** (done) — every finding has a permanent code: BOK0xx PATH entries, BOK1xx tool checks, BOK2xx the test run, BOK3xx registry. A code is never renumbered or reused. `--ignore CODE` drops a code; the list lives in `src/codes.rs`.
 
 - **`.binok.toml`** (done) — a user file, then the nearest project file up to `.git`; flags beat both. It sets `[check]` flag defaults, `[severity]` per code (`error`/`warn`/`off`), and `extra` places off PATH that get static checks only. `skip` and `extra` take `${VAR}` and `${VAR:-default}`. Expected-tool rules are out of scope: that is pathlint's job.
 
@@ -80,7 +80,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **Linux** — ELF loading, `ld.so.conf`, Linux system directories, and WSL filtering.
 
-- **macOS** — static checks only; `check` never runs `--help`. No environment variable cuts a process off from WindowServer, and running a quarantined binary shows a Gatekeeper dialog.
+- **macOS** — static checks only; `check` never test-runs a tool. No environment variable cuts a process off from WindowServer, and running a quarantined binary shows a Gatekeeper dialog.
   - **Inspection** — Mach-O and universal-binary parsing through `object`'s `macho` feature; `LC_LOAD_DYLIB` and `LC_RPATH`; `@rpath`, `@loader_path`, and `@executable_path`; application-bundle exclusions; macOS system directories.
   - **Shared cache** — since macOS 11, system dylibs live in the dyld shared cache, not on disk. Resolve them with `_dyld_shared_cache_contains_path`, or every binary looks broken.
 

@@ -130,7 +130,7 @@ A Windows app execution alias is left over from a packaged (Store or MSIX) app t
 
 Typing the name runs the operating system's own copy, which comes earlier in PATH, so this copy never runs. Move its folder ahead of the OS folder in PATH, or call it by full path.
 
-## BOK2xx — the --help run
+## BOK2xx — the test run
 
 ### BOK201 — failed to start {#bok201}
 
@@ -148,13 +148,13 @@ Running it printed an error that means something it needs is missing, or the Win
 
 **Default:** tool error, shown as `[ERROR]`; doesn't fail the run
 
-`--help` didn't finish within the timeout, even when retried on its own. The tool may wait for input or the network. Doesn't fail the run; use `--skip NAME` if it is expected.
+The test run didn't finish within the timeout, even when retried on its own. The tool may wait for input or the network. Doesn't fail the run; use `--skip NAME` if it is expected.
 
 ### BOK204 — exited with an error {#bok204}
 
 **Default:** tool error, shown as `[ERROR]`; doesn't fail the run
 
-The tool started, but `--help`, `-h` and `--version` all ended in an error of its own. Usually it works and just refuses those flags. Doesn't fail the run.
+The tool started, but `--version`, `-V`, `--help` and `-h` all ended in an error of its own. Usually it works and just refuses those flags. Doesn't fail the run.
 
 ## BOK3xx — Windows registry
 

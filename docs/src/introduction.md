@@ -2,7 +2,7 @@
 
 binok checks that the executables on your system actually work: PATH entries, launchers and shims, DLLs and shared libraries, interpreters, Windows registry entries, and programs in extra places you name. It runs on Windows and Linux.
 
-A tidy PATH isn't the same as a working system. Every folder on PATH can exist while the programs inside them point at a Python that was upgraded away, a DLL that was uninstalled, or an npm package that's gone. binok follows each program to what it depends on and checks that it's there. Then it runs `--help` on the programs that are safe to run, headless, so nothing opens a window.
+A tidy PATH isn't the same as a working system. Every folder on PATH can exist while the programs inside them point at a Python that was upgraded away, a DLL that was uninstalled, or an npm package that's gone. binok follows each program to what it depends on and checks that it's there. Then it runs `--version` (or `--help`, for tools without it) on the programs that are safe to run, headless, so nothing opens a window.
 
 ```
 binok check            # check PATH entries and every tool on PATH
