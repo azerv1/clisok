@@ -4,6 +4,9 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 use crate::inspect::Reason;
 use crate::pathenv::PathIndex;
@@ -52,8 +55,19 @@ pub fn resolve(script: &Script, index: &PathIndex) -> Result<PathBuf, Reason> {
     index.lookup(name).first().cloned().ok_or_else(|| Reason::UnresolvedCommand { name: name.clone() })
 }
 
+/// `NAME=value` with nothing after it, so no command runs.
+static ASSIGN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"^(export\s+)?[A-Za-z_]\w*=("[^"]*"|'[^']*'|[^\s"']*)$"#).unwrap());
+/// Shell builtins that only set up the environment.
+static SETUP: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(export\s+[A-Za-z_]\w*|unset\s+[A-Za-z_]\w*|set(\s+[-+][A-Za-z]+)+)$").unwrap()
+});
+/// Command substitutions that only work out where the script lives.
+static SAFE_SUBST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$\((dirname|readlink|realpath)\s").unwrap());
+
 /// True for scripts that only start another program with the caller's
-/// arguments, which makes `--help` safe to run. Anything else might act.
+/// arguments, which makes `--help` safe to run: environment setup, then one
+/// last line that forwards `"$@"`. Any other command might act.
 pub fn is_launcher(path: &Path, text: &str) -> bool {
     // npm/pnpm/bun install a package's own entry script, symlinked from bin.
     let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -66,7 +80,17 @@ pub fn is_launcher(path: &Path, text: &str) -> bool {
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .collect();
-    lines.len() <= 10 && lines.iter().any(|l| l.contains("\"$@\"") || l.contains("$*"))
+    let Some((last, setup)) = lines.split_last() else { return false };
+    lines.len() <= 10
+        && setup.iter().all(|l| one_command(l) && (SETUP.is_match(l) || ASSIGN.is_match(l)))
+        && one_command(last)
+        && (last.contains("\"$@\"") || last.contains("$*"))
+}
+
+/// A single command: no `;`, pipes, `&&`/`&`, backticks, or command
+/// substitution other than locating the script itself.
+fn one_command(line: &str) -> bool {
+    !line.contains([';', '|', '&', '`']) && line.matches("$(").count() == SAFE_SUBST.find_iter(line).count()
 }
 
 #[cfg(test)]
@@ -112,5 +136,19 @@ mod tests {
         let p = Path::new("/tmp/x");
         assert!(is_launcher(p, "#!/bin/sh\nexec /opt/tool/bin/tool \"$@\"\n"));
         assert!(!is_launcher(p, "#!/bin/sh\nrm -rf /tmp/cache\nrsync -a ~/a ~/b\n"));
+        // Wrappers that set up the environment first.
+        assert!(is_launcher(p, "#!/bin/sh\nset -e\nexport JAVA_HOME=\"/opt/jdk\"\nexec \"$JAVA_HOME/bin/java\" -jar /opt/x.jar \"$@\"\n"));
+        assert!(is_launcher(p, "#!/bin/sh\nexec \"$(dirname \"$0\")/../lib/tool\" \"$@\"\n"));
+    }
+
+    #[test]
+    fn a_short_script_that_acts_is_not_a_launcher() {
+        let p = Path::new("/tmp/x");
+        assert!(!is_launcher(p, "#!/bin/sh\nrm -rf build\nmake \"$@\"\n"));
+        assert!(!is_launcher(p, "#!/bin/sh\nrm -rf build; make \"$@\"\n"));
+        assert!(!is_launcher(p, "#!/bin/sh\nmake clean && make \"$@\"\n"));
+        assert!(!is_launcher(p, "#!/bin/sh\nexec tool \"$@\"\necho done\n"));
+        assert!(!is_launcher(p, "#!/bin/sh\nFOO=1 make clean\nexec tool \"$@\"\n"));
+        assert!(!is_launcher(p, "#!/bin/sh\nV=$(git pull)\nexec tool \"$@\"\n"));
     }
 }
