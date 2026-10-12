@@ -181,7 +181,7 @@ mod tests {
     fn reads_uv_python_trampoline_target() {
         let exe = include_bytes!("../../../tests/fixtures/uv-python-trampoline.exe");
         let p = uv_python_target(exe, Path::new(r"C:\x")).unwrap();
-        assert!(p.starts_with(r"C:\pathsok-fixture"));
+        assert!(p.starts_with(r"C:\pathsok-fixture")); // baked into the fixture under the old name
         assert!(p.ends_with("python.exe"));
         assert_eq!(parse(exe, Path::new(r"C:\x")), None);
     }

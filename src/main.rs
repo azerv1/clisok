@@ -1,5 +1,5 @@
-//! pathsok: find broken paths — bad PATH entries, dead launchers and shims,
-//! missing DLLs and Python modules, and tools whose `--help` fails.
+//! binok: check that the executables on this system work — PATH entries,
+//! launchers and shims, DLLs and Python modules, and a headless `--help` run.
 
 mod check;
 mod codes;
@@ -21,7 +21,7 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(version, about = "Find broken paths: PATH entries, launchers, shims, and tools whose --help fails")]
+#[command(version, about = "Check that the executables on this system work: PATH entries, launchers, shims, libraries, and a headless --help run")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -59,26 +59,26 @@ mod tests {
 
     #[test]
     fn bare_command_has_no_subcommand() {
-        assert!(Cli::try_parse_from(["pathsok"]).unwrap().command.is_none());
+        assert!(Cli::try_parse_from(["binok"]).unwrap().command.is_none());
     }
 
     #[test]
     fn check_options_live_under_check() {
-        let cli = Cli::try_parse_from(["pathsok", "check", "--json", "-v", "--skip", "a", "--skip", "b"]).unwrap();
+        let cli = Cli::try_parse_from(["binok", "check", "--json", "-v", "--skip", "a", "--skip", "b"]).unwrap();
         assert!(matches!(cli.command, Some(Command::Check(_))));
-        assert!(Cli::try_parse_from(["pathsok", "--json"]).is_err());
+        assert!(Cli::try_parse_from(["binok", "--json"]).is_err());
     }
 
     #[test]
     fn ignore_takes_known_codes_only() {
-        assert!(Cli::try_parse_from(["pathsok", "check", "--ignore", "PATH007", "--ignore", "path203"]).is_ok());
-        assert!(Cli::try_parse_from(["pathsok", "check", "--ignore", "PATH999"]).is_err());
+        assert!(Cli::try_parse_from(["binok", "check", "--ignore", "BOK007", "--ignore", "bok203"]).is_ok());
+        assert!(Cli::try_parse_from(["binok", "check", "--ignore", "BOK999"]).is_err());
     }
 
     #[test]
     fn list_takes_system_and_json_only() {
-        let cli = Cli::try_parse_from(["pathsok", "list", "--system", "--json"]).unwrap();
+        let cli = Cli::try_parse_from(["binok", "list", "--system", "--json"]).unwrap();
         assert!(matches!(cli.command, Some(Command::List(_))));
-        assert!(Cli::try_parse_from(["pathsok", "list", "--verbose"]).is_err());
+        assert!(Cli::try_parse_from(["binok", "list", "--verbose"]).is_err());
     }
 }

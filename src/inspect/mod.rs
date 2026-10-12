@@ -47,14 +47,14 @@ pub enum Reason {
 impl Reason {
     pub fn code(&self) -> Code {
         match self {
-            Reason::MissingTarget { .. } => Code::Path101,
-            Reason::MissingLibrary { .. } => Code::Path102,
-            Reason::MissingInterpreter { .. } => Code::Path103,
-            Reason::MissingModule { .. } => Code::Path104,
-            Reason::UnresolvedCommand { .. } => Code::Path105,
-            Reason::AppNotInstalled { .. } => Code::Path106,
-            Reason::FailedToStart { .. } => Code::Path201,
-            Reason::Output { .. } => Code::Path202,
+            Reason::MissingTarget { .. } => Code::Bok101,
+            Reason::MissingLibrary { .. } => Code::Bok102,
+            Reason::MissingInterpreter { .. } => Code::Bok103,
+            Reason::MissingModule { .. } => Code::Bok104,
+            Reason::UnresolvedCommand { .. } => Code::Bok105,
+            Reason::AppNotInstalled { .. } => Code::Bok106,
+            Reason::FailedToStart { .. } => Code::Bok201,
+            Reason::Output { .. } => Code::Bok202,
         }
     }
 }

@@ -1,4 +1,4 @@
-//! `.pathsok.toml`: defaults for `check` and `list` flags, severity per code,
+//! `.binok.toml`: defaults for `check` and `list` flags, severity per code,
 //! and extra places to check. A user-wide file is read first, then the
 //! project's; command-line flags beat both.
 //!
@@ -15,7 +15,7 @@ use toml::Spanned;
 use crate::codes::{Code, Severity};
 
 /// The project file's name.
-pub const FILE_NAME: &str = ".pathsok.toml";
+pub const FILE_NAME: &str = ".binok.toml";
 
 /// Every setting, for the docs generator (a test): key, value type, meaning.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -108,7 +108,7 @@ fn home() -> Option<PathBuf> {
     env_var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
 }
 
-/// `%APPDATA%\pathsok\config.toml`, or `$XDG_CONFIG_HOME/pathsok/config.toml`
+/// `%APPDATA%\binok\config.toml`, or `$XDG_CONFIG_HOME/binok/config.toml`
 /// (default `~/.config`).
 fn user_file() -> Option<PathBuf> {
     let dir = if cfg!(windows) {
@@ -116,11 +116,11 @@ fn user_file() -> Option<PathBuf> {
     } else {
         env_var("XDG_CONFIG_HOME").filter(|d| !d.is_empty()).map(PathBuf::from).or_else(|| Some(home()?.join(".config")))?
     };
-    Some(dir.join("pathsok").join("config.toml"))
+    Some(dir.join("binok").join("config.toml"))
 }
 
 /// The files to read, in order: the user file, then the nearest
-/// `.pathsok.toml` from `start` upward, stopping at a `.git` folder or home.
+/// `.binok.toml` from `start` upward, stopping at a `.git` folder or home.
 fn discover(start: &Path, user: Option<PathBuf>, home: Option<&Path>) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = user.into_iter().filter(|f| f.is_file()).collect();
     for dir in start.ancestors() {
@@ -249,13 +249,13 @@ mod tests {
 
     #[test]
     fn parses_a_file() {
-        let src = "[check]\nskip = [\"${NOPE:-gradle}\"]\ntimeout = 5\nextra = [\"${HOME}/tools\"]\n\n[severity]\nPATH007 = \"error\"\nPATH008 = \"off\"\n";
+        let src = "[check]\nskip = [\"${NOPE:-gradle}\"]\ntimeout = 5\nextra = [\"${HOME}/tools\"]\n\n[severity]\nBOK007 = \"error\"\nBOK008 = \"off\"\n";
         let c = parse(src, Path::new("t.toml"), &vars).unwrap();
         assert_eq!(c.skip, Some(vec!["gradle".to_string()]));
         assert_eq!(c.timeout, Some(5));
         assert_eq!(c.extra, Some(vec!["/home/me/tools".to_string()]));
-        assert_eq!(c.severity[&Code::Path007], Severity::Error);
-        assert_eq!(c.severity[&Code::Path008], Severity::Off);
+        assert_eq!(c.severity[&Code::Bok007], Severity::Error);
+        assert_eq!(c.severity[&Code::Bok008], Severity::Off);
     }
 
     #[test]
@@ -263,15 +263,15 @@ mod tests {
         let err = parse("[check]\n\nskip = [\"a\", \"${NOPE}\"]\n", Path::new("t.toml"), &vars).unwrap_err();
         assert!(err.starts_with("t.toml:3: variable NOPE is not set"), "{err}");
         assert!(parse("[check]\nbogus = 1\n", Path::new("t.toml"), &vars).unwrap_err().contains("bogus"));
-        assert!(parse("[severity]\nPATH999 = \"off\"\n", Path::new("t.toml"), &vars).unwrap_err().contains("PATH999"));
-        assert!(parse("[severity]\nPATH007 = \"loud\"\n", Path::new("t.toml"), &vars).is_err());
+        assert!(parse("[severity]\nBOK999 = \"off\"\n", Path::new("t.toml"), &vars).unwrap_err().contains("BOK999"));
+        assert!(parse("[severity]\nBOK007 = \"loud\"\n", Path::new("t.toml"), &vars).is_err());
     }
 
     #[test]
     fn later_file_wins_and_severities_merge() {
         let mut c = Config::default();
-        let user = "[check]\ntimeout = 5\nskip = [\"a\"]\n[severity]\nPATH007 = \"error\"\n";
-        let project = "[check]\nskip = [\"b\"]\n[severity]\nPATH008 = \"off\"\n";
+        let user = "[check]\ntimeout = 5\nskip = [\"a\"]\n[severity]\nBOK007 = \"error\"\n";
+        let project = "[check]\nskip = [\"b\"]\n[severity]\nBOK008 = \"off\"\n";
         c.merge(parse(user, Path::new("u"), &vars).unwrap(), "u".into());
         c.merge(parse(project, Path::new("p"), &vars).unwrap(), "p".into());
         assert_eq!(c.timeout, Some(5));

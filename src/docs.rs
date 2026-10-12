@@ -14,10 +14,10 @@ const NOTICE: &str = "<!-- Generated from the source by `UPDATE_DOCS=1 cargo tes
 
 fn group(number: u16) -> &'static str {
     match number / 100 {
-        0 => "PATH0xx — PATH entries",
-        1 => "PATH1xx — tool checks",
-        2 => "PATH2xx — the --help run",
-        _ => "PATH3xx — Windows registry",
+        0 => "BOK0xx — PATH entries",
+        1 => "BOK1xx — tool checks",
+        2 => "BOK2xx — the --help run",
+        _ => "BOK3xx — Windows registry",
     }
 }
 

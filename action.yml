@@ -1,5 +1,5 @@
-name: pathsok
-description: Find broken PATH entries, dead launchers and shims, missing DLLs, and tools whose --help fails.
+name: binok
+description: Check that the executables on a runner work: PATH entries, launchers and shims, missing DLLs, and a headless test run.
 branding:
   icon: check-circle
   color: green
@@ -9,13 +9,13 @@ inputs:
     description: Release to use, e.g. 0.4.0. Defaults to the ref this action is used at, or the latest release.
     default: ''
   args:
-    description: Arguments passed to pathsok, split on whitespace (e.g. "check --json --skip foo").
+    description: Arguments passed to binok, split on whitespace (e.g. "check --json --skip foo").
     default: check
 
 runs:
   using: composite
   steps:
-    - name: Download pathsok
+    - name: Download binok
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
@@ -23,30 +23,30 @@ runs:
         ACTION_REF: ${{ github.action_ref }}
       run: |
         case "$RUNNER_OS" in
-          Linux) asset='pathsok-*-x86_64-unknown-linux-musl.tar.gz' ;;
-          Windows) asset='pathsok-*-x86_64-pc-windows-msvc.zip' ;;
-          *) echo "::error::pathsok has no $RUNNER_OS build yet"; exit 1 ;;
+          Linux) asset='binok-*-x86_64-unknown-linux-musl.tar.gz' ;;
+          Windows) asset='binok-*-x86_64-pc-windows-msvc.zip' ;;
+          *) echo "::error::binok has no $RUNNER_OS build yet"; exit 1 ;;
         esac
         if [ -z "$VERSION" ] && [[ "$ACTION_REF" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
           VERSION="$ACTION_REF"
         fi
-        dir="$RUNNER_TEMP/pathsok"
+        dir="$RUNNER_TEMP/binok"
         rm -rf "$dir"
         # No tag argument means the latest release.
-        gh release download $VERSION -R azerv1/pathsok -p "$asset" -D "$dir"
+        gh release download $VERSION -R azerv1/binok -p "$asset" -D "$dir"
         cd "$dir"
         case "$RUNNER_OS" in
-          Linux) tar -xzf pathsok-*.tar.gz ;;
-          Windows) unzip -q pathsok-*.zip ;;
+          Linux) tar -xzf binok-*.tar.gz ;;
+          Windows) unzip -q binok-*.zip ;;
         esac
 
-    # Run by absolute path: adding pathsok to PATH would change the PATH it checks.
-    - name: Run pathsok
+    # Run by absolute path: adding binok to PATH would change the PATH it checks.
+    - name: Run binok
       shell: bash
       env:
         ARGS: ${{ inputs.args }}
       run: |
         set -f
-        exe="$RUNNER_TEMP/pathsok/pathsok"
+        exe="$RUNNER_TEMP/binok/binok"
         [ "$RUNNER_OS" = Windows ] && exe="$exe.exe"
         "$exe" $ARGS

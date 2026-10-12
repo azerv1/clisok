@@ -1,9 +1,9 @@
 [book]
-title = "pathsok"
+title = "binok"
 authors = ["azerv1"]
 language = "en"
 src = "src"
 
 [output.html]
-git-repository-url = "https://github.com/azerv1/pathsok"
-edit-url-template = "https://github.com/azerv1/pathsok/edit/main/docs/{path}"
+git-repository-url = "https://github.com/azerv1/binok"
+edit-url-template = "https://github.com/azerv1/binok/edit/main/docs/{path}"

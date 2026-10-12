@@ -76,7 +76,7 @@ pub fn extra_files(patterns: &[String]) -> Result<Vec<PathBuf>, String> {
             }
         }
         if files.len() == before {
-            eprintln!("pathsok: extra: no programs at {pattern}");
+            eprintln!("binok: extra: no programs at {pattern}");
         }
     }
     let mut seen = HashSet::new();

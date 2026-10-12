@@ -1,4 +1,4 @@
-//! `pathsok list`: every command on PATH and the copies it shadows. Nothing is run.
+//! `binok list`: every command on PATH and the copies it shadows. Nothing is run.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -32,14 +32,14 @@ pub fn list(args: &ListArgs) -> ExitCode {
     let config = match args.config.load() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("pathsok: {e}");
+            eprintln!("binok: {e}");
             return ExitCode::from(2);
         }
     };
     let system = args.system || config.system.unwrap_or(false);
     let entries = pathenv::process_path();
     if entries.is_empty() {
-        eprintln!("pathsok: PATH is empty");
+        eprintln!("binok: PATH is empty");
         return ExitCode::from(2);
     }
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
@@ -56,7 +56,7 @@ pub fn list(args: &ListArgs) -> ExitCode {
             })
             .collect(),
         Err(e) => {
-            eprintln!("pathsok: {e}");
+            eprintln!("binok: {e}");
             return ExitCode::from(2);
         }
     };
@@ -66,7 +66,7 @@ pub fn list(args: &ListArgs) -> ExitCode {
         match serde_json::to_string_pretty(&report) {
             Ok(j) => print_stdout(&format!("{j}\n")),
             Err(e) => {
-                eprintln!("pathsok: {e}");
+                eprintln!("binok: {e}");
                 return ExitCode::from(2);
             }
         }
