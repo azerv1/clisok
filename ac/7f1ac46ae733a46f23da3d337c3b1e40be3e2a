@@ -1,0 +1,35 @@
+src/codes.rs
+  s_77048c4b51552e::t_9d8a8e412ecc96 106-127
+  s_77048c4b51552e::t_c7c014b95e79b8 25
+src/main.rs
+  s_77048c4b51552e::t_31ecdbefb9f536 78-85
+  s_77048c4b51552e::t_87735ce44937fe 77
+  s_77048c4b51552e::t_5f171b45c7ac7c 19,38-39,47
+docs/src/codes.md
+  s_77048c4b51552e::t_02195a68167c0f 7
+src/rule.rs
+  s_77048c4b51552e::t_b37f841c415545 1-89
+src/docs.rs
+  s_77048c4b51552e::t_3c9eb5108ef8bf 32-33
+  s_77048c4b51552e::t_aeab6014106e9e 10,38,48
+docs/src/usage.md
+  s_77048c4b51552e::t_54490062029184 41-47
+README.md
+  s_77048c4b51552e::t_c557e59b299d79 12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ac7f1ac46ae733a46f23da3d337c3b1e40be3e2a",
+  "prompts": {},
+  "sessions": {
+    "s_77048c4b51552e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd36474c-a2ea-4dd1-8d82-904f90318286",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
