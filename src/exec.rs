@@ -57,6 +57,12 @@ static BROKEN: LazyLock<RegexSet> = LazyLock::new(|| {
     .unwrap()
 });
 
+/// A structured log line below warning level. Tools log what they look for
+/// ("could not locate config in ...") without anything being wrong.
+static QUIET_LOG: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)"level"\s*:\s*"(trace|debug|info)"|\blevel=(trace|debug|info)\b"#).unwrap()
+});
+
 /// Output that means the tool started but doesn't take the flag we passed.
 static USAGE: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
@@ -160,7 +166,9 @@ pub fn judge(a: &Attempt) -> Judgement {
     }
     // A line quoting our flag back ("can't open script "--help"") is the tool
     // misreading the flag, not something missing.
-    if let Some(line) = a.output.lines().find(|l| BROKEN.is_match(l) && !echoes_arg(l, &a.arg)) {
+    if let Some(line) =
+        a.output.lines().find(|l| BROKEN.is_match(l) && !echoes_arg(l, &a.arg) && !QUIET_LOG.is_match(l))
+    {
         return Judgement::Broken(clip(line.trim(), 200));
     }
     if NEEDS_CONSOLE.is_match(&a.output) {
@@ -329,6 +337,11 @@ operable program or batch file."#))));
         // A tool reporting its own missing input or a missing peer app.
         assert!(!is_broken(judge(&run(1, "tool: File 'tool.log' not found (OS errno 2 - No such file or directory)\n"))));
         assert!(!is_broken(judge(&run(1, "The CLI is unable to find App. Please make sure App is running and try again.\n"))));
+        // A debug log of an optional config search (process-compose).
+        let log = r#"{"level":"debug","error":"could not locate `tool` in any of the following paths: [C:\\Users\\me\\.config]","time":"2026-10-12T20:46:19+03:00"}"#;
+        assert!(!is_broken(judge(&run(1, log))));
+        assert!(!is_broken(judge(&run(1, "time=2026-10-12 level=info msg=\"unable to load plugins\"\n"))));
+        assert!(is_broken(judge(&run(1, r#"{"level":"error","msg":"could not load libfoo.so"}"#))));
         // The flag misread as a file name.
         assert_eq!(judge(&run(1, "tool: Can't open script \"--help\": No such file or directory\n")), Judgement::Usage);
     }
@@ -400,6 +413,7 @@ operable program or batch file."#))));
             run(1, "2026/10/10 15:10:40.82 SQLDIAG Error parsing command line parameters\n"),
             run(1, "The CLI is unable to find Obsidian. Please make sure Obsidian is running and try again.\n"),
             run(1, r#"{"component":"sailor","level":"fatal","msg":"unmarshalling config: EOF"}"#),
+            run(1, r#"{"level":"debug","error":"could not locate `tool` in any of the following paths: [C:\\cfg]"}"#),
             run(1, ""),
         ];
         for a in &cases {
