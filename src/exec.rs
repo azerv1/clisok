@@ -161,8 +161,9 @@ pub fn run_capture(program: &Path, args: &[&str], timeout: Duration) -> io::Resu
 
 /// Classify a single run. Pure, so it can be tested against real error text.
 pub fn judge(a: &Attempt) -> Judgement {
+    // What a hung tool printed before it was killed can still show it broken.
     if a.timed_out {
-        return Judgement::Fail;
+        return broken_line(a).map_or(Judgement::Fail, Judgement::Broken);
     }
     if let Some(code) = a.exit
         && let Some((_, meaning)) = LOADER_STATUS.iter().find(|(c, _)| *c == code as u32)
@@ -172,13 +173,8 @@ pub fn judge(a: &Attempt) -> Judgement {
     if a.exit == Some(0) {
         return Judgement::Pass;
     }
-    // A line quoting our flag back ("can't open script "--help"") is the tool
-    // misreading the flag, not something missing.
-    if let Some(line) = broken_candidates(&a.output)
-        .into_iter()
-        .find(|l| BROKEN.is_match(l) && !echoes_arg(l, &a.arg) && !QUIET_LOG.is_match(l))
-    {
-        return Judgement::Broken(clip(line.trim(), 200));
+    if let Some(line) = broken_line(a) {
+        return Judgement::Broken(line);
     }
     if NEEDS_CONSOLE.is_match(&a.output) {
         return Judgement::NeedsConsole;
@@ -190,6 +186,15 @@ pub fn judge(a: &Attempt) -> Judgement {
         return Judgement::Usage;
     }
     Judgement::Fail
+}
+
+/// The first output line that says something is missing. A line quoting our
+/// flag back ("can't open script "--help"") is the tool misreading the flag.
+fn broken_line(a: &Attempt) -> Option<String> {
+    broken_candidates(&a.output)
+        .into_iter()
+        .find(|l| BROKEN.is_match(l) && !echoes_arg(l, &a.arg) && !QUIET_LOG.is_match(l))
+        .map(|l| clip(l.trim(), 200))
 }
 
 /// Lines that may say something is missing. A Python traceback quotes source
@@ -262,6 +267,10 @@ fn probe(mut run: impl FnMut(&str) -> io::Result<Attempt>, timeout: Duration) ->
             Judgement::Pass => Outcome::Pass,
             Judgement::Broken(line) => broken(&line),
             Judgement::NeedsConsole => Outcome::Skip(CONSOLE_NOTE.into()),
+            // Output before the hang shows it started, then waited (e.g. for a key).
+            _ if timed_out && attempts.len() == 1 && !attempts[0].output.trim().is_empty() => Outcome::Started(
+                format!("printed output, then didn't exit within {}s (likely waiting for input)", timeout.as_secs()),
+            ),
             _ if timed_out && attempts.len() == 1 => {
                 let note = format!("timed out after {}s", timeout.as_secs());
                 Outcome::ToolError(ToolErrorKind::TimedOut, note)
@@ -513,6 +522,22 @@ operable program or batch file."#))));
         );
         assert!(matches!(outcome, Outcome::ToolError(ToolErrorKind::TimedOut, _)));
         assert_eq!((calls, attempts.len()), (1, 1));
+    }
+
+    #[test]
+    fn timeout_after_output_started_unless_it_says_broken() {
+        let probe_timeout = |output: &'static str| {
+            probe(
+                |arg| Ok(Attempt { arg: arg.into(), timed_out: true, exit: None, ..run(0, output) }),
+                Duration::from_secs(1),
+            )
+            .0
+        };
+        // vimrun runs its argument as a command, then waits for a key.
+        let vimrun = "'--version' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n";
+        assert!(matches!(probe_timeout(vimrun), Outcome::Started(_)));
+        assert!(matches!(probe_timeout("No module named 'dep'\n"), Outcome::Broken(_)));
+        assert!(matches!(probe_timeout(" \r\n"), Outcome::ToolError(ToolErrorKind::TimedOut, _)));
     }
 
     #[test]
