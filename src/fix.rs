@@ -1,8 +1,11 @@
 //! Fixes, the way Ruff has them: every finding may carry one, and its
-//! applicability decides whether it may be applied. For now every fix is
-//! advice.
+//! applicability decides whether `--fix` may apply it.
+
+use std::path::PathBuf;
 
 use serde::Serialize;
+
+use crate::codes::Code;
 
 use crate::inspect::Reason;
 use crate::pathenv::{EntryProblem, PathEntry, PathOrigin};
@@ -12,6 +15,8 @@ use crate::pathenv::{EntryProblem, PathEntry, PathOrigin};
 pub enum Applicability {
     /// Advice only; never applied.
     DisplayOnly,
+    /// Applied with `--fix`: changes nothing that works today.
+    Safe,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -25,12 +30,32 @@ impl Fix {
         Fix { applicability: Applicability::DisplayOnly, message: message.into() }
     }
 
-    /// The report line's label: `help:` for advice.
+    pub fn is_safe(&self) -> bool {
+        self.applicability == Applicability::Safe
+    }
+
+    /// The report line's label: `help:` for advice, `fix:` for what `--fix` does.
     pub fn label(&self) -> &'static str {
         match self.applicability {
             Applicability::DisplayOnly => "help:",
+            Applicability::Safe => "fix:",
         }
     }
+}
+
+/// PATH problems `--fix` removes from the saved user PATH (Windows). Neither
+/// changes which program runs: an empty entry names nothing, and a later
+/// copy of a folder is never reached.
+pub const SAFE_PATH_PROBLEMS: &[EntryProblem] = &[EntryProblem::Empty, EntryProblem::Duplicate];
+
+/// What `--fix` changed.
+#[derive(Debug, Serialize)]
+pub struct Applied {
+    pub code: Code,
+    pub target: String,
+    pub message: String,
+    /// Where the value from before the change was saved.
+    pub backup: PathBuf,
 }
 
 /// Where the user edits the PATH that holds `entry`.
@@ -43,6 +68,10 @@ fn path_place(origin: PathOrigin) -> &'static str {
 }
 
 pub fn for_entry(problem: EntryProblem, entry: &PathEntry) -> Option<Fix> {
+    if cfg!(windows) && entry.origin == PathOrigin::User && SAFE_PATH_PROBLEMS.contains(&problem) {
+        let message = "remove it from the user PATH".to_string();
+        return Some(Fix { applicability: Applicability::Safe, message });
+    }
     let what = match problem {
         EntryProblem::Empty => "remove the empty entry",
         EntryProblem::Missing => "remove the entry if the program is gone; reconnect the drive or share if not",
@@ -96,6 +125,18 @@ mod tests {
         assert_eq!(fix.applicability, Applicability::DisplayOnly);
         assert!(fix.message.ends_with("(system PATH, needs admin)"));
         assert_eq!(for_entry(EntryProblem::NotInSession, &entry(PathOrigin::User)).unwrap().message, "open a new terminal");
+    }
+
+    #[test]
+    fn only_user_path_empties_and_repeats_are_safe() {
+        let safe = |p, o| for_entry(p, &entry(o)).unwrap().is_safe();
+        assert_eq!(safe(EntryProblem::Duplicate, PathOrigin::User), cfg!(windows));
+        assert_eq!(safe(EntryProblem::Empty, PathOrigin::User), cfg!(windows));
+        assert!(!safe(EntryProblem::Duplicate, PathOrigin::System));
+        assert!(!safe(EntryProblem::Duplicate, PathOrigin::Process));
+        // Cleaning an entry can make a dead folder live, so it is not safe.
+        assert!(!safe(EntryProblem::Whitespace, PathOrigin::User));
+        assert!(!safe(EntryProblem::StrayQuote, PathOrigin::User));
     }
 
     #[test]

@@ -8,7 +8,7 @@ use serde::Serialize;
 use crate::codes::{Code, Severities, Severity};
 use crate::discover::PathCommand;
 use crate::exec::Attempt;
-use crate::fix::{self, Fix};
+use crate::fix::{self, Applied, Fix};
 use crate::inspect::{Kind, Reason};
 use crate::pathenv::{EntryProblem, PathEntry};
 use crate::platform::AppPath;
@@ -166,6 +166,9 @@ pub struct Report {
     pub command: &'static str,
     /// The config files read, in order.
     pub config: Vec<PathBuf>,
+    /// What `--fix` changed; the findings below are from after the change.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fixed: Vec<Applied>,
     pub path_problems: Vec<EntryIssue>,
     pub app_paths: Vec<AppPathIssue>,
     pub tools: Vec<ToolResult>,
@@ -183,14 +186,37 @@ impl Report {
         u8::from(bad_entries || bad_tools || bad_app_paths)
     }
 
+    /// Findings `--fix` would fix.
+    fn fixable(&self) -> usize {
+        let safe = |f: Option<&Fix>| f.is_some_and(Fix::is_safe);
+        self.path_problems.iter().filter(|p| safe(p.fix.as_ref())).count()
+            + self.app_paths.iter().filter(|a| a.fix.is_safe()).count()
+            + self.tools.iter().flat_map(|t| &t.reasons).filter(|r| safe(r.fix.as_ref())).count()
+    }
+
     pub fn to_text(&self, verbose: bool) -> String {
         let mut s = String::new();
+
+        if !self.fixed.is_empty() {
+            s.push_str("Fixed\n");
+            for f in &self.fixed {
+                let _ = writeln!(s, "[FIXED]  {} {} — {}", f.code, f.target, f.message);
+            }
+            let mut backups: Vec<&PathBuf> = self.fixed.iter().map(|f| &f.backup).collect();
+            backups.dedup();
+            for b in backups {
+                let _ = writeln!(s, "         backup of the old value: {}", b.display());
+            }
+            s.push('\n');
+        }
 
         if !self.path_problems.is_empty() {
             s.push_str("PATH entries\n");
             for p in &self.path_problems {
                 let tag = severity_tag(p.severity);
-                let _ = writeln!(s, "{tag} {} ({}) \"{}\" — {}", p.code, p.entry.origin, p.entry.raw, p.problem);
+                let star = if p.fix.as_ref().is_some_and(Fix::is_safe) { " [*]" } else { "" };
+                let (code, origin, raw) = (p.code, p.entry.origin, &p.entry.raw);
+                let _ = writeln!(s, "{tag} {code}{star} ({origin}) \"{raw}\" — {}", p.problem);
                 write_fix(&mut s, p.fix.as_ref());
             }
             s.push('\n');
@@ -269,6 +295,14 @@ impl Report {
             warns,
             self.app_paths.len(),
         );
+        if !self.fixed.is_empty() {
+            let n = self.fixed.len();
+            let _ = writeln!(s, "Fixed {n} problem{}.", if n == 1 { "" } else { "s" });
+        }
+        let fixable = self.fixable();
+        if fixable > 0 {
+            let _ = writeln!(s, "[*] {fixable} fixable with --fix.");
+        }
         s
     }
 }

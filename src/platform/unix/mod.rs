@@ -15,7 +15,7 @@ use regex::Regex;
 use serde::Serialize;
 
 use crate::inspect::{Inspection, Kind, python};
-use crate::pathenv::{PathEntry, PathIndex};
+use crate::pathenv::{EntryProblem, PathEntry, PathIndex};
 
 pub use spawn::{cleanup, init, kill_children, run as run_headless};
 
@@ -121,6 +121,11 @@ pub fn persisted_path() -> Vec<PathEntry> {
 
 pub fn truncated_saved_paths() -> Vec<PathEntry> {
     Vec::new()
+}
+
+/// No saved PATH, so nothing to fix (no fix is offered as safe on Unix).
+pub fn fix_user_path(_drop: &[EntryProblem]) -> Result<Option<(Vec<String>, PathBuf)>, String> {
+    Ok(None)
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -19,7 +19,7 @@ use crate::inspect::{Inspection, Kind, Reason, python};
 use crate::pathenv::PathIndex;
 
 pub use console::cursor_visible;
-pub use registry::{AppPath, broken_app_paths, persisted_path, truncated_saved_paths};
+pub use registry::{AppPath, broken_app_paths, fix_user_path, persisted_path, truncated_saved_paths};
 pub use spawn::{cleanup, init, run as run_headless};
 
 pub const PATH_SEPARATOR: char = ';';

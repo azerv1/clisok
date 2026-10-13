@@ -112,6 +112,11 @@ pub fn process_path() -> Vec<PathEntry> {
 }
 
 pub fn check_entries(entries: &[PathEntry]) -> Vec<(PathEntry, EntryProblem)> {
+    entries.iter().zip(entry_problems(entries)).filter_map(|(e, p)| Some((e.clone(), p?))).collect()
+}
+
+/// The problem with each entry, in order; an entry repeats only an earlier one.
+fn entry_problems(entries: &[PathEntry]) -> Vec<Option<EntryProblem>> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for e in entries {
@@ -132,11 +137,40 @@ pub fn check_entries(entries: &[PathEntry]) -> Vec<(PathEntry, EntryProblem)> {
                 Ok(_) => None,
             }
         };
-        if let Some(p) = problem {
-            out.push((e.clone(), p));
-        }
+        out.push(problem);
     }
     out
+}
+
+/// `raw`, a saved PATH value read after the entries in `earlier`, without its
+/// entries whose problem is in `drop`, and the raw entries it removed. Each
+/// entry is expanded on its own, so the rest of `raw` keeps its exact text,
+/// including `%VARS%` and a trailing separator.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn remove_entries(
+    earlier: &[PathEntry],
+    raw: &str,
+    origin: PathOrigin,
+    expand: impl Fn(&str) -> String,
+    drop: &[EntryProblem],
+) -> (String, Vec<String>) {
+    let parts: Vec<&str> = raw.split(platform::PATH_SEPARATOR).collect();
+    // A single trailing separator is not an entry (see `parse_path`).
+    let n = if parts.len() > 1 && parts.last() == Some(&"") { parts.len() - 1 } else { parts.len() };
+    let mut entries = earlier.to_vec();
+    entries.extend(parts[..n].iter().map(|p| {
+        let x = expand(p);
+        PathEntry { dir: PathBuf::from(x.trim().trim_matches('"')), raw: x, origin }
+    }));
+    let problems = entry_problems(&entries);
+    let (mut kept, mut removed) = (Vec::new(), Vec::new());
+    for (i, part) in parts.iter().enumerate() {
+        match problems.get(earlier.len() + i).copied().flatten() {
+            Some(p) if i < n && drop.contains(&p) => removed.push(part.to_string()),
+            _ => kept.push(*part),
+        }
+    }
+    (kept.join(&platform::PATH_SEPARATOR.to_string()), removed)
 }
 
 /// Every PATH match for every command name, in the order the shell tries them.
@@ -204,6 +238,32 @@ mod tests {
                 EntryProblem::NotDir,
             ]
         );
+    }
+
+    #[test]
+    fn removes_only_the_dropped_problems_and_keeps_the_rest_verbatim() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (a, b) = (tmp.path().join("a"), tmp.path().join("b"));
+        fs::create_dir(&a).unwrap();
+        fs::create_dir(&b).unwrap();
+        let (a, b) = (a.display().to_string(), b.display().to_string());
+        let system = parse_path(&a, PathOrigin::System);
+        // %B% stands for b and stays unexpanded in the result; " x" and the
+        // missing folder are other problems and are kept.
+        let raw = format!("%B%;;{a};{b}; x;C:\\definitely\\missing;%B%;");
+        let expand = |s: &str| s.replace("%B%", &b);
+        let drop = [EntryProblem::Empty, EntryProblem::Duplicate];
+
+        let (kept, removed) = remove_entries(&system, &raw, PathOrigin::User, expand, &drop);
+        assert_eq!(kept, "%B%; x;C:\\definitely\\missing;");
+        assert_eq!(removed, ["", a.as_str(), b.as_str(), "%B%"]);
+
+        // Only what is asked for goes.
+        let (kept, removed) = remove_entries(&system, &raw, PathOrigin::User, expand, &[EntryProblem::Empty]);
+        assert_eq!(kept, format!("%B%;{a};{b}; x;C:\\definitely\\missing;%B%;"));
+        assert_eq!(removed, [""]);
+        // Nothing to do leaves the value as it was.
+        assert_eq!(remove_entries(&[], &b, PathOrigin::User, expand, &drop), (b.clone(), vec![]));
     }
 
     #[test]

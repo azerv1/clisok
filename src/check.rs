@@ -13,8 +13,9 @@ use crate::codes::{Code, Severities, Severity};
 use crate::config::{Config, ConfigArgs};
 use crate::discover::{self, PathCommand, Tool};
 use crate::exec::{self, Outcome, ToolErrorKind};
+use crate::fix::{self, Applied, Fix};
 use crate::inspect::{self, Kind};
-use crate::pathenv::{self, EntryProblem, PathIndex};
+use crate::pathenv::{self, EntryProblem, PathEntry, PathIndex};
 use crate::platform::{self, path_key};
 use crate::report::{
     AppPathIssue, EntryIssue, Finding, Origin, Report, SCHEMA_VERSION, ToolResult, Verdict, print_stdout,
@@ -45,6 +46,11 @@ pub struct CheckArgs {
     /// Don't run this tool (repeatable)
     #[arg(long, value_name = "NAME")]
     skip: Vec<String>,
+    /// Apply the safe fixes (the `fix:` lines). On Windows that removes empty
+    /// and repeated entries from the saved user PATH; needs --registry to
+    /// find them
+    #[arg(long)]
+    fix: bool,
     /// Drop findings with this code, e.g. CLI007 (repeatable)
     #[arg(long, value_name = "CODE")]
     ignore: Vec<Code>,
@@ -280,6 +286,71 @@ fn entry_issues(entries: &[pathenv::PathEntry], sev: &Severities) -> Vec<EntryIs
         .collect()
 }
 
+/// Problems with PATH entries, this process's and (with `registry`) the saved
+/// ones, and broken App Paths registrations.
+fn path_findings(entries: &[PathEntry], registry: bool, severities: &Severities) -> (Vec<EntryIssue>, Vec<AppPathIssue>) {
+    let mut path_problems = entry_issues(entries, severities);
+
+    // Entries saved in the registry that this process never received, e.g. a
+    // terminal started before PATH was changed.
+    let session: HashSet<String> = entries.iter().map(|e| path_key(&e.dir)).collect();
+    let mut reported = HashSet::new();
+    for e in platform::persisted_path() {
+        let key = path_key(&e.dir);
+        if e.dir.is_dir() && !session.contains(&key) && reported.insert(key) {
+            path_problems.extend(EntryIssue::new(e, EntryProblem::NotInSession, severities));
+        }
+    }
+    let mut app_paths = Vec::new();
+    if registry {
+        // Report persisted problems the process PATH doesn't already show.
+        let known: HashSet<(String, String)> = path_problems
+            .iter()
+            .map(|p| (path_key(&p.entry.dir), p.problem.to_string()))
+            .collect();
+        path_problems.extend(
+            entry_issues(&platform::persisted_path(), severities)
+                .into_iter()
+                .filter(|p| !known.contains(&(path_key(&p.entry.dir), p.problem.to_string()))),
+        );
+        app_paths =
+            platform::broken_app_paths().into_iter().filter_map(|a| AppPathIssue::new(a, severities)).collect();
+    }
+
+    // A saved PATH cut off by a length limit lost every entry after the cut,
+    // and nothing else shows that. Its stub is reported as the cut, not as a
+    // plain missing folder.
+    let cut = platform::truncated_saved_paths();
+    let cut_keys: HashSet<String> = cut.iter().map(|e| path_key(&e.dir)).collect();
+    path_problems.retain(|p| !(p.problem == EntryProblem::Missing && cut_keys.contains(&path_key(&p.entry.dir))));
+    path_problems
+        .extend(cut.into_iter().filter_map(|entry| EntryIssue::new(entry, EntryProblem::Truncated, severities)));
+    (path_problems, app_paths)
+}
+
+/// Apply the safe fixes among `path_problems`. Only reported problems are
+/// fixed, so a code turned off is never fixed.
+fn apply_fixes(path_problems: &[EntryIssue], severities: &Severities) -> Result<Vec<Applied>, String> {
+    let drop: Vec<EntryProblem> = fix::SAFE_PATH_PROBLEMS
+        .iter()
+        .copied()
+        .filter(|&p| path_problems.iter().any(|i| i.problem == p && i.fix.as_ref().is_some_and(Fix::is_safe)))
+        .filter(|p| severities.of(p.code()) != Severity::Off)
+        .collect();
+    if drop.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Some((removed, backup)) = platform::fix_user_path(&drop)? else { return Ok(Vec::new()) };
+    Ok(removed
+        .into_iter()
+        .map(|raw| {
+            let (code, what) =
+                if raw.trim().is_empty() { (Code::Cli001, "empty entry") } else { (Code::Cli007, "duplicate entry") };
+            Applied { code, target: format!("(user) \"{raw}\""), message: format!("removed {what}"), backup: backup.clone() }
+        })
+        .collect())
+}
+
 pub fn check(args: &CheckArgs) -> ExitCode {
     let config = match args.config.load() {
         Ok(c) => c,
@@ -307,42 +378,24 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     }
 
     let severities = severities(args, &config);
-    let mut path_problems = entry_issues(&entries, &severities);
-
-    // Entries saved in the registry that this process never received, e.g. a
-    // terminal started before PATH was changed.
-    let session: HashSet<String> = entries.iter().map(|e| path_key(&e.dir)).collect();
-    let mut reported = HashSet::new();
-    for e in platform::persisted_path() {
-        let key = path_key(&e.dir);
-        if e.dir.is_dir() && !session.contains(&key) && reported.insert(key) {
-            path_problems.extend(EntryIssue::new(e, EntryProblem::NotInSession, &severities));
+    let registry = check_registry(args, &config);
+    let (mut path_problems, mut app_paths) = path_findings(&entries, registry, &severities);
+    let mut fixed = Vec::new();
+    if args.fix {
+        match apply_fixes(&path_problems, &severities) {
+            Ok(applied) if !applied.is_empty() => {
+                fixed = applied;
+                // Fixes change saved settings only, not this process's PATH,
+                // so only the saved-settings findings can have changed.
+                (path_problems, app_paths) = path_findings(&entries, registry, &severities);
+            }
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("clisok: {e}");
+                return ExitCode::from(2);
+            }
         }
     }
-    let mut app_paths = Vec::new();
-    if check_registry(args, &config) {
-        // Report persisted problems the process PATH doesn't already show.
-        let known: HashSet<(String, String)> = path_problems
-            .iter()
-            .map(|p| (path_key(&p.entry.dir), p.problem.to_string()))
-            .collect();
-        path_problems.extend(
-            entry_issues(&platform::persisted_path(), &severities)
-                .into_iter()
-                .filter(|p| !known.contains(&(path_key(&p.entry.dir), p.problem.to_string()))),
-        );
-        app_paths =
-            platform::broken_app_paths().into_iter().filter_map(|a| AppPathIssue::new(a, &severities)).collect();
-    }
-
-    // A saved PATH cut off by a length limit lost every entry after the cut,
-    // and nothing else shows that. Its stub is reported as the cut, not as a
-    // plain missing folder.
-    let cut = platform::truncated_saved_paths();
-    let cut_keys: HashSet<String> = cut.iter().map(|e| path_key(&e.dir)).collect();
-    path_problems.retain(|p| !(p.problem == EntryProblem::Missing && cut_keys.contains(&path_key(&p.entry.dir))));
-    path_problems
-        .extend(cut.into_iter().filter_map(|entry| EntryIssue::new(entry, EntryProblem::Truncated, &severities)));
 
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
     let index = PathIndex::build(&dirs);
@@ -413,7 +466,7 @@ pub fn check(args: &CheckArgs) -> ExitCode {
 
     platform::cleanup();
     let report =
-        Report { schema: SCHEMA_VERSION, command: "check", config: config.files, path_problems, app_paths, tools };
+        Report { schema: SCHEMA_VERSION, command: "check", config: config.files, fixed, path_problems, app_paths, tools };
     if args.json {
         match serde_json::to_string_pretty(&report) {
             Ok(j) => print_stdout(&format!("{j}\n")),
@@ -501,6 +554,7 @@ mod tests {
                 schema: SCHEMA_VERSION,
                 command: "check",
                 config: vec![],
+            fixed: vec![],
                 path_problems: vec![],
                 app_paths: vec![],
                 tools: vec![res],
@@ -611,6 +665,7 @@ mod tests {
             schema: SCHEMA_VERSION,
             command: "check",
             config: vec![],
+            fixed: vec![],
             path_problems: vec![],
             app_paths: vec![],
             tools: vec![res],
@@ -633,6 +688,7 @@ mod tests {
             schema: SCHEMA_VERSION,
             command: "check",
             config: vec![],
+            fixed: vec![],
             path_problems: EntryIssue::new(entry.clone(), EntryProblem::Duplicate, sev).into_iter().collect(),
             app_paths: vec![],
             tools: vec![],
@@ -649,5 +705,37 @@ mod tests {
         assert_eq!(strict.exit_code(), 1);
         assert!(strict.to_text(false).contains("[BROKEN] CLI007 "));
         assert!(report(&severities(&[(Code::Cli007, Severity::Off)])).path_problems.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn safe_fixes_are_marked_counted_and_reported_once_applied() {
+        let entry = pathenv::PathEntry { raw: "dup".into(), dir: PathBuf::from("dup"), origin: pathenv::PathOrigin::User };
+        let sev = Severities::default();
+        let mut report = Report {
+            schema: SCHEMA_VERSION,
+            command: "check",
+            config: vec![],
+            fixed: vec![],
+            path_problems: EntryIssue::new(entry, EntryProblem::Duplicate, &sev).into_iter().collect(),
+            app_paths: vec![],
+            tools: vec![],
+        };
+        let text = report.to_text(false);
+        assert!(text.contains("[WARN]   CLI007 [*] (user) \"dup\" — duplicate entry\n         fix: remove it from the user PATH\n"));
+        assert!(text.ends_with("[*] 1 fixable with --fix.\n"));
+
+        report.path_problems.clear();
+        report.fixed.push(Applied {
+            code: Code::Cli007,
+            target: "(user) \"dup\"".into(),
+            message: "removed duplicate entry".into(),
+            backup: PathBuf::from(r"C:\b\user-Path-1.txt"),
+        });
+        let text = report.to_text(false);
+        assert!(text.starts_with(
+            "Fixed\n[FIXED]  CLI007 (user) \"dup\" — removed duplicate entry\n         backup of the old value: C:\\b\\user-Path-1.txt\n"
+        ));
+        assert!(text.ends_with("Fixed 1 problem.\n"));
     }
 }
