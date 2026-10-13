@@ -132,6 +132,9 @@ fn prepare(tool: Tool, ctx: &Ctx) -> Prepared {
         Some(why)
     } else if ctx.skip.contains(&res.name.to_lowercase()) {
         Some("not run: --skip")
+    } else if res.reasons.iter().any(|f| f.severity == Severity::Error) {
+        // The verdict is already broken; a run would only repeat why.
+        Some("not run: static checks already failed")
     } else if matches!(res.kind, Kind::AppAlias { .. }) {
         Some("not run: app execution alias (starts a packaged app)")
     } else if INSTALLER_NAME.is_match(&res.name) {
@@ -217,7 +220,10 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
             Verdict::Pass
         }
         Outcome::Skip(note) => {
-            res.note = Some(note);
+            // A tool with findings is explained by them, not by why it wasn't run.
+            if res.reasons.is_empty() {
+                res.note = Some(note);
+            }
             Verdict::Skip
         }
         Outcome::Started(note) => {
@@ -713,6 +719,30 @@ mod tests {
         assert_eq!(json["path"], "gone");
 
         assert!(Finding::new(reason(), &severities(&[(Code::Cli101, Severity::Off)])).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn tool_that_failed_static_checks_is_not_run() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("tool.cmd");
+        fs::write(&path, format!("@\"{}\" %*\r\n", tmp.path().join("gone.exe").display())).unwrap();
+        let dirs = vec![tmp.path().to_path_buf()];
+        let index = PathIndex::build(&dirs);
+        let ctx = Ctx {
+            index: &index,
+            dirs: &dirs,
+            skip: HashSet::new(),
+            timeout: Duration::from_secs(1),
+            severities: Severities::default(),
+        };
+        let tool = Tool { name: "tool".into(), path, shadowed: vec![], hidden_by: None };
+        let p = prepare(tool, &ctx);
+        assert_eq!(p.skip_why, Some("not run: static checks already failed"));
+        let res = run(p, &ctx);
+        assert_eq!(res.verdict, Verdict::Broken);
+        assert!(res.attempts.is_empty() && res.note.is_none());
+        assert_eq!(res.reasons.len(), 1);
     }
 
     #[test]
