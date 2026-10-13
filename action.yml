@@ -1,4 +1,4 @@
-name: binok
+name: clisok
 description: Check that the executables on a runner work: PATH entries, launchers and shims, missing DLLs, and a headless test run.
 branding:
   icon: check-circle
@@ -9,13 +9,13 @@ inputs:
     description: Release to use, e.g. 0.4.0. Defaults to the ref this action is used at, or the latest release.
     default: ''
   args:
-    description: Arguments passed to binok, split on whitespace (e.g. "check --json --skip foo").
+    description: Arguments passed to clisok, split on whitespace (e.g. "check --json --skip foo").
     default: check
 
 runs:
   using: composite
   steps:
-    - name: Download binok
+    - name: Download clisok
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
@@ -23,30 +23,30 @@ runs:
         ACTION_REF: ${{ github.action_ref }}
       run: |
         case "$RUNNER_OS" in
-          Linux) asset='binok-*-x86_64-unknown-linux-musl.tar.gz' ;;
-          Windows) asset='binok-*-x86_64-pc-windows-msvc.zip' ;;
-          *) echo "::error::binok has no $RUNNER_OS build yet"; exit 1 ;;
+          Linux) asset='clisok-*-x86_64-unknown-linux-musl.tar.gz' ;;
+          Windows) asset='clisok-*-x86_64-pc-windows-msvc.zip' ;;
+          *) echo "::error::clisok has no $RUNNER_OS build yet"; exit 1 ;;
         esac
         if [ -z "$VERSION" ] && [[ "$ACTION_REF" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
           VERSION="$ACTION_REF"
         fi
-        dir="$RUNNER_TEMP/binok"
+        dir="$RUNNER_TEMP/clisok"
         rm -rf "$dir"
         # No tag argument means the latest release.
-        gh release download $VERSION -R azerv1/binok -p "$asset" -D "$dir"
+        gh release download $VERSION -R azerv1/clisok -p "$asset" -D "$dir"
         cd "$dir"
         case "$RUNNER_OS" in
-          Linux) tar -xzf binok-*.tar.gz ;;
-          Windows) unzip -q binok-*.zip ;;
+          Linux) tar -xzf clisok-*.tar.gz ;;
+          Windows) unzip -q clisok-*.zip ;;
         esac
 
-    # Run by absolute path: adding binok to PATH would change the PATH it checks.
-    - name: Run binok
+    # Run by absolute path: adding clisok to PATH would change the PATH it checks.
+    - name: Run clisok
       shell: bash
       env:
         ARGS: ${{ inputs.args }}
       run: |
         set -f
-        exe="$RUNNER_TEMP/binok/binok"
+        exe="$RUNNER_TEMP/clisok/clisok"
         [ "$RUNNER_OS" = Windows ] && exe="$exe.exe"
         "$exe" $ARGS

@@ -1,6 +1,6 @@
 # Configuration
 
-binok reads settings from TOML files. Command-line flags beat every file.
+clisok reads settings from TOML files. Command-line flags beat every file.
 
 ```toml
 [check]
@@ -12,14 +12,14 @@ extra   = [
 ]
 
 [severity]
-BIN007 = "error"   # duplicates fail the run
-BIN008 = "off"     # don't report stale terminals
+CLI007 = "error"   # duplicates fail the run
+CLI008 = "off"     # don't report stale terminals
 ```
 
-## Where binok looks
+## Where clisok looks
 
-1. **User file** — `%APPDATA%\binok\config.toml` on Windows, `$XDG_CONFIG_HOME/binok/config.toml` elsewhere (default `~/.config/binok/config.toml`).
-2. **Project file** — `.binok.toml` in the current folder or the nearest folder above it. The search stops at a folder holding `.git`, or at your home folder.
+1. **User file** — `%APPDATA%\clisok\config.toml` on Windows, `$XDG_CONFIG_HOME/clisok/config.toml` elsewhere (default `~/.config/clisok/config.toml`).
+2. **Project file** — `.clisok.toml` in the current folder or the nearest folder above it. The search stops at a folder holding `.git`, or at your home folder.
 
 The project file is read after the user file, and its settings replace the user file's. `[severity]` entries merge per code. `--config FILE` reads only that file; `--no-config` reads none. Both reports list the files read under `config` in JSON.
 
@@ -35,7 +35,7 @@ Windows paths have backslashes, which TOML's double-quoted strings treat as esca
 
 ## Extra places
 
-`extra` lists files and folders off PATH for binok to check too. Globs work: `*`, `?`, `[abc]` and `**`. A folder contributes the programs in it. Extra programs get the same static checks as programs on PATH, but they are never run, and they're reported in their own `Extra` section. A place that matches nothing is noted on stderr.
+`extra` lists files and folders off PATH for clisok to check too. Globs work: `*`, `?`, `[abc]` and `**`. A folder contributes the programs in it. Extra programs get the same static checks as programs on PATH, but they are never run, and they're reported in their own `Extra` section. A place that matches nothing is noted on stderr.
 
 ## Keys
 

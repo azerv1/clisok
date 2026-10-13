@@ -1,4 +1,4 @@
-//! binok: check that the executables on this system work — PATH entries,
+//! clisok: check that the executables on this system work — PATH entries,
 //! launchers and shims, DLLs and Python modules, and a headless `--version` run.
 
 mod check;
@@ -59,26 +59,26 @@ mod tests {
 
     #[test]
     fn bare_command_has_no_subcommand() {
-        assert!(Cli::try_parse_from(["binok"]).unwrap().command.is_none());
+        assert!(Cli::try_parse_from(["clisok"]).unwrap().command.is_none());
     }
 
     #[test]
     fn check_options_live_under_check() {
-        let cli = Cli::try_parse_from(["binok", "check", "--json", "-v", "--skip", "a", "--skip", "b"]).unwrap();
+        let cli = Cli::try_parse_from(["clisok", "check", "--json", "-v", "--skip", "a", "--skip", "b"]).unwrap();
         assert!(matches!(cli.command, Some(Command::Check(_))));
-        assert!(Cli::try_parse_from(["binok", "--json"]).is_err());
+        assert!(Cli::try_parse_from(["clisok", "--json"]).is_err());
     }
 
     #[test]
     fn ignore_takes_known_codes_only() {
-        assert!(Cli::try_parse_from(["binok", "check", "--ignore", "BIN007", "--ignore", "bin203"]).is_ok());
-        assert!(Cli::try_parse_from(["binok", "check", "--ignore", "BIN999"]).is_err());
+        assert!(Cli::try_parse_from(["clisok", "check", "--ignore", "CLI007", "--ignore", "cli203"]).is_ok());
+        assert!(Cli::try_parse_from(["clisok", "check", "--ignore", "CLI999"]).is_err());
     }
 
     #[test]
     fn list_takes_system_and_json_only() {
-        let cli = Cli::try_parse_from(["binok", "list", "--system", "--json"]).unwrap();
+        let cli = Cli::try_parse_from(["clisok", "list", "--system", "--json"]).unwrap();
         assert!(matches!(cli.command, Some(Command::List(_))));
-        assert!(Cli::try_parse_from(["binok", "list", "--verbose"]).is_err());
+        assert!(Cli::try_parse_from(["clisok", "list", "--verbose"]).is_err());
     }
 }

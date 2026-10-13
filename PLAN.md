@@ -1,4 +1,4 @@
-# Cross-Platform `binok` Commands and Safe Repair
+# Cross-Platform `clisok` Commands and Safe Repair
 
 ## Summary
 
@@ -23,38 +23,38 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 ## Public CLI
 
-- **`binok`** — print help and exit successfully. The old flat flags move under `check`; used bare, they get clap's standard unknown-argument error. binok was never released, so old invocations get no special handling.
+- **`clisok`** — print help and exit successfully. The old flat flags move under `check`; used bare, they get clap's standard unknown-argument error. clisok was never released, so old invocations get no special handling.
 
-- **`binok check [existing options]`** — preserve the current PATH, launcher, dependency, and test-run checks (`--version`, then `--help`), including `--json`, `--verbose`, `--skip`, `--jobs`, `--timeout`, Windows `--registry`, and `--system` (now on every platform).
+- **`clisok check [existing options]`** — preserve the current PATH, launcher, dependency, and test-run checks (`--version`, then `--help`), including `--json`, `--verbose`, `--skip`, `--jobs`, `--timeout`, Windows `--registry`, and `--system` (now on every platform).
   - **Repair preview** — each finding shows the repair `--fix` would apply and the flag it needs, e.g. `fix: uv tool install --reinstall ruff [needs --reinstall-broken]`. JSON carries the same planned action. Plain `check` is the preview, so there is no `--dry-run`.
   - **Hidden behind an OS copy** — when an OS-owned copy is active and hides a user-installed copy, report a tool-level `[WARN]`. The OS copy is never run, the hidden copy gets static inspection only, and the exit code is unaffected. Today the whole command is dropped (`src/discover.rs:58`).
 
-- **Error codes** (done) — every finding has a permanent code: BIN0xx PATH entries, BIN1xx tool checks, BIN2xx the test run, BIN3xx registry. A code is never renumbered or reused. `--ignore CODE` drops a code; the list lives in `src/codes.rs`.
+- **Error codes** (done) — every finding has a permanent code: CLI0xx PATH entries, CLI1xx tool checks, CLI2xx the test run, CLI3xx registry. A code is never renumbered or reused. `--ignore CODE` drops a code; the list lives in `src/codes.rs`.
 
-- **`.binok.toml`** (done) — a user file, then the nearest project file up to `.git`; flags beat both. It sets `[check]` flag defaults, `[severity]` per code (`error`/`warn`/`off`), and `extra` places off PATH that get static checks only. `skip` and `extra` take `${VAR}` and `${VAR:-default}`. Expected-tool rules are out of scope: that is pathlint's job.
+- **`.clisok.toml`** (done) — a user file, then the nearest project file up to `.git`; flags beat both. It sets `[check]` flag defaults, `[severity]` per code (`error`/`warn`/`off`), and `extra` places off PATH that get static checks only. `skip` and `extra` take `${VAR}` and `${VAR:-default}`. Expected-tool rules are out of scope: that is pathlint's job.
 
 - **Docs** (done) — an mdBook site in `docs/`, deployed to GitHub Pages. The codes page and the config key table are generated from the source; a test fails when they are stale.
 
-- **Name and scope** (done) — renamed from pathsok, since the tool checks the system's executables, not only PATH. Codes moved from `PATHnnn` to `BINnnn` before either was released. PATH-entry checks and `list` stay even though pathlint and patholog also cover them: PATH entries are one input to the executables check.
+- **Name and scope** (done) — renamed from pathsok, then binok, to clisok, since the tool checks the system's CLI tools, not only PATH. Codes moved from `PATHnnn` to `CLInnn` before any of them was released. PATH-entry checks and `list` stay even though pathlint and patholog also cover them: PATH entries are one input to the executables check.
 
-- **`binok list [--system] [--json]`** — enumerate every active command and all shadowed copies without executing tools. By default, omit commands that exist only in OS-owned directories, but list any command with at least one non-OS copy, including when the OS copy is the active one. `--system` lists everything. OS copies are always marked.
+- **`clisok list [--system] [--json]`** — enumerate every active command and all shadowed copies without executing tools. By default, omit commands that exist only in OS-owned directories, but list any command with at least one non-OS copy, including when the OS copy is the active one. `--system` lists everything. OS copies are always marked.
 
-- **`binok check --fix`** — repair only generated artifacts with unambiguous manager ownership, using the manager's own offline operation where one exists. Remain offline and never modify an unowned executable. Orphan shims, whose package the manager confirms is absent, are skipped with the exact manager command to remove them, e.g. `npm rm -g foo`.
+- **`clisok check --fix`** — repair only generated artifacts with unambiguous manager ownership, using the manager's own offline operation where one exists. Remain offline and never modify an unowned executable. Orphan shims, whose package the manager confirms is absent, are skipped with the exact manager command to remove them, e.g. `npm rm -g foo`.
 
-- **`binok check --fix --reinstall-broken`** — reinstall through the owning manager: uv, npm, pnpm, or cargo. Reproduce what the manager recorded:
+- **`clisok check --fix --reinstall-broken`** — reinstall through the owning manager: uv, npm, pnpm, or cargo. Reproduce what the manager recorded:
   - **Recorded spec** — where the manager records the spec the user typed, reproduce it verbatim. For uv that is the receipt's requirements, Python, and `--with` packages. The version may move within that spec; report old → new. Pinning the installed version instead would rewrite the receipt and stop `uv tool upgrade` from upgrading the tool.
   - **No recorded spec** — npm and cargo record none, so reinstall the installed version from `package.json` or `.crates2.json`; pinning has no side effect there.
   - **pnpm** — confirm which case applies when building its adapter; its global directory keeps a `package.json` that may hold the typed spec.
 
   Try `--offline` first where the manager supports it. Skip ambiguous or unreconstructable installations. Never invoke OS package managers, winget, or Chocolatey, request elevation, or repair system packages.
 
-- **`binok check --fix --fix-paths`** — on Windows, back up and repair only `HKCU\Environment\Path`, and only entries that are certainly garbage:
+- **`clisok check --fix --fix-paths`** — on Windows, back up and repair only `HKCU\Environment\Path`, and only entries that are certainly garbage:
   - **Removed** — empty entries, and duplicates within HKCU or of an entry already in the machine PATH.
   - **Cleaned** — leading and trailing whitespace trimmed; stray quotes stripped.
   - **Reported, never removed** — missing directories, non-directories, and unexpanded variables. A missing directory may be an unplugged drive, an offline network share, or a manager bin directory not created yet.
   - **Added** — existing bin directories confirmed by supported manager metadata, appended at the end so no existing command changes resolution.
 
-  Preserve entry order, registry value type, and expandable values; never touch machine PATH. Store the original value under `%LOCALAPPDATA%\binok\backups\` before writing and broadcast the environment change afterward. On Unix, report the action as skipped because the originating shell configuration cannot be identified safely.
+  Preserve entry order, registry value type, and expandable values; never touch machine PATH. Store the original value under `%LOCALAPPDATA%\clisok\backups\` before writing and broadcast the environment change afterward. On Unix, report the action as skipped because the originating shell configuration cannot be identified safely.
 
 `--fix-paths` and `--reinstall-broken` require `--fix`. Text and JSON output record every repair as applied, skipped, or failed. After repairs, `check` performs one complete scan and returns an exit status based on the final state.
 
@@ -68,9 +68,9 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **Manager adapters** — identify ownership from canonical paths and manager metadata, never executable names alone. Conflicting ownership produces a skipped repair. Each adapter implements both tiers: offline repair where the manager has one, and reinstall behind `--reinstall-broken`.
 
-- **Repair policy** — allow generated shim or launcher repair by default. Require `--reinstall-broken` for reinstallation and network access, and `--fix-paths` for PATH persistence. binok never deletes or moves a file. Prohibit shell-profile editing, administrator access, and system-package changes.
+- **Repair policy** — allow generated shim or launcher repair by default. Require `--reinstall-broken` for reinstallation and network access, and `--fix-paths` for PATH persistence. clisok never deletes or moves a file. Prohibit shell-profile editing, administrator access, and system-package changes.
 
-- **PATH invariant** — binok never breaks PATH. Before writing, resolve every command name under the old and new persisted PATH (machine + user, expanded). If any previously reachable name would resolve to a different file or disappear, abort the write and report `skipped: would change resolution of X`. The backup stays as a safety net; there is no restore command.
+- **PATH invariant** — clisok never breaks PATH. Before writing, resolve every command name under the old and new persisted PATH (machine + user, expanded). If any previously reachable name would resolve to a different file or disappear, abort the write and report `skipped: would change resolution of X`. The backup stays as a safety net; there is no restore command.
 
 - **Reporting** — every finding carries its `code` and effective `severity` (done). Add a JSON schema version, command mode, inventory entries, planned and applied repair actions, final verdicts, and backup location where applicable. Under `--json`, stdout contains JSON only; progress and diagnostics remain on stderr. This already holds today (`src/main.rs:291`, `src/progress.rs`).
 

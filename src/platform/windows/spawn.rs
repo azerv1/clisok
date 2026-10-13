@@ -63,7 +63,7 @@ fn desktop() -> Option<&'static [u16]> {
     static DESKTOP: OnceLock<Option<Vec<u16>>> = OnceLock::new();
     DESKTOP
         .get_or_init(|| {
-            let name = format!("binok-{}", std::process::id());
+            let name = format!("clisok-{}", std::process::id());
             let w = wide(&name);
             // SAFETY: valid NUL-terminated name. The handle is deliberately kept
             // open for the life of the process so the desktop stays alive.
@@ -77,7 +77,7 @@ fn desktop() -> Option<&'static [u16]> {
 fn work_dir() -> &'static Path {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| {
-        let d = std::env::temp_dir().join(format!("binok-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("clisok-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&d);
         d
     })
@@ -332,7 +332,7 @@ mod tests {
         assert!(desktop().is_some(), "hidden desktop was not created");
         assert_eq!(out.exit, Some(0));
         assert!(text.contains("1 dumb"), "{text}");
-        assert!(text.contains("binok-"), "{text}");
+        assert!(text.contains("clisok-"), "{text}");
     }
 
     #[test]

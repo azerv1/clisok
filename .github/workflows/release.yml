@@ -32,9 +32,9 @@ jobs:
       - run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Package
         run: |
-          name="binok-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          name="clisok-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir "$name"
-          exe=binok; [ "${{ matrix.archive }}" = zip ] && exe=binok.exe
+          exe=clisok; [ "${{ matrix.archive }}" = zip ] && exe=clisok.exe
           cp "target/${{ matrix.target }}/release/$exe" README.md CHANGELOG.md "$name"/
           if [ "${{ matrix.archive }}" = zip ]; then
             (cd "$name" && 7z a "../$name.zip" *)
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: binok-*.${{ matrix.archive }}
+          path: clisok-*.${{ matrix.archive }}
 
   release:
     needs: build

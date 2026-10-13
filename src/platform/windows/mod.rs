@@ -103,7 +103,7 @@ pub fn never_run(path: &Path) -> Option<&'static str> {
     path.parent().is_some_and(is_os_dir).then_some("not run: Windows' own program (static checks only)")
 }
 
-/// Child processes live in job objects that close with binok, so there is
+/// Child processes live in job objects that close with clisok, so there is
 /// nothing to clean up on Ctrl+C.
 pub fn kill_children() {}
 

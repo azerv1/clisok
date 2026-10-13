@@ -122,7 +122,7 @@ pub struct AppPathIssue {
 impl AppPathIssue {
     /// `None` when the code is turned off.
     pub fn new(app_path: AppPath, sev: &Severities) -> Option<Self> {
-        let code = Code::Bin301;
+        let code = Code::Cli301;
         match sev.of(code) {
             Severity::Off => None,
             severity => Some(AppPathIssue { app_path, code, severity }),
@@ -134,7 +134,7 @@ fn severity_tag(s: Severity) -> &'static str {
     if s == Severity::Error { "[BROKEN]" } else { "[WARN]  " }
 }
 
-/// Print to stdout. A reader that stops early (`binok list | head`) is not
+/// Print to stdout. A reader that stops early (`clisok list | head`) is not
 /// an error; `print!` would panic on the closed pipe.
 pub fn print_stdout(text: &str) {
     use std::io::Write as _;
@@ -257,7 +257,7 @@ impl Report {
     }
 }
 
-/// `binok list`: every command on PATH and the copies it shadows.
+/// `clisok list`: every command on PATH and the copies it shadows.
 #[derive(Debug, Serialize)]
 pub struct ListReport {
     /// `SCHEMA_VERSION`.

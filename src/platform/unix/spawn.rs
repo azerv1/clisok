@@ -32,7 +32,7 @@ pub fn init() {}
 fn work_dir() -> &'static Path {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| {
-        let d = std::env::temp_dir().join(format!("binok-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("clisok-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&d);
         d
     })
@@ -140,7 +140,7 @@ mod tests {
         let text = String::from_utf8_lossy(&out.output);
         assert_eq!(out.exit, Some(0));
         assert!(text.contains("1 dumb none"), "{text}");
-        assert!(text.contains("binok-"), "{text}");
+        assert!(text.contains("clisok-"), "{text}");
         assert!(text.contains("err"), "{text}");
     }
 
