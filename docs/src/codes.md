@@ -24,6 +24,7 @@ Change what a code does with `--ignore CODE` or a [`[severity]`](configuration.m
 | [CLI105](#cli105) | error | advice | command does not resolve through PATH |
 | [CLI106](#cli106) | error | advice | alias for an app that is no longer installed |
 | [CLI107](#cli107) | warning | — | hidden behind an OS copy |
+| [CLI108](#cli108) | warning | advice | script calls a file that does not exist |
 | [CLI201](#cli201) | error | — | failed to start |
 | [CLI202](#cli202) | error | — | error output when run |
 | [CLI203](#cli203) | tool error | — | timed out |
@@ -161,6 +162,14 @@ A Windows app execution alias is left over from a packaged (Store or MSIX) app t
 Typing the name runs the operating system's own copy, which comes earlier in PATH, so this copy never runs. Move its folder ahead of the OS folder in PATH, or call it by full path.
 
 **Fix:** None.
+
+### CLI108 — script calls a file that does not exist {#cli108}
+
+**Default:** warning; doesn't fail the run
+
+A script that does more than forward to one program calls a file that isn't there. The script may still work, since the call may be a side step such as cleanup, so clisok can't tell whether it is the script's main job. Restore the file, or remove the call from the script.
+
+**Fix:** Advice only, shown as a `help:` line.
 
 ## CLI2xx — the test run
 

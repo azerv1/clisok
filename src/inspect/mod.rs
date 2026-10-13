@@ -33,6 +33,9 @@ pub enum Kind {
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Reason {
     MissingTarget { path: PathBuf },
+    /// A file a non-launcher script calls, which may not be its main program.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    MissingScriptCall { path: PathBuf },
     /// A DLL (Windows) or shared library (Linux) the program needs.
     MissingLibrary { name: String, needed_by: PathBuf },
     MissingInterpreter { path: PathBuf },
@@ -48,6 +51,7 @@ impl Reason {
     pub fn code(&self) -> Code {
         match self {
             Reason::MissingTarget { .. } => Code::Cli101,
+            Reason::MissingScriptCall { .. } => Code::Cli108,
             Reason::MissingLibrary { .. } => Code::Cli102,
             Reason::MissingInterpreter { .. } => Code::Cli103,
             Reason::MissingModule { .. } => Code::Cli104,
@@ -63,6 +67,7 @@ impl fmt::Display for Reason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Reason::MissingTarget { path } => write!(f, "target does not exist: {}", path.display()),
+            Reason::MissingScriptCall { path } => write!(f, "calls a file that does not exist: {}", path.display()),
             Reason::MissingLibrary { name, needed_by } => {
                 write!(f, "library not found: {name} (needed by {})", needed_by.display())
             }

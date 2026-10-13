@@ -125,8 +125,13 @@ pub fn check(script: &Path, text: &str, index: &PathIndex) -> Vec<Reason> {
             !probed.contains(&key) && !temp.iter().any(|t| key.starts_with(t.as_str()))
         })
         .collect();
-    let mut reasons: Vec<Reason> =
-        missing.into_iter().map(|path| Reason::MissingTarget { path }).collect();
+    // A shim's one call is its program. Any other script may call a missing
+    // file only as a side step, so that is a warning, not a dead launcher.
+    let shim = is_shim(text);
+    let mut reasons: Vec<Reason> = missing
+        .into_iter()
+        .map(|path| if shim { Reason::MissingTarget { path } } else { Reason::MissingScriptCall { path } })
+        .collect();
 
     // npm-style shims fall back to `node` from PATH when there is no local node.exe.
     if text.contains("node_modules") && !dir.join("node.exe").exists() && index.lookup("node").is_empty() {
@@ -203,6 +208,21 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_
         std::fs::write(&exe, "").unwrap();
         let ok = format!("@\"{}\" %*", exe.display());
         assert!(check(&dir.path().join("real.cmd"), &ok, &idx).is_empty());
+    }
+
+    #[test]
+    fn missing_call_in_plain_script_is_not_a_missing_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("yazi.exe");
+        std::fs::write(&exe, "").unwrap();
+        let text = format!(
+            "@echo off\r\nsetlocal\r\n\"{}\" %*\r\nset \"E=%ERRORLEVEL%\"\r\ncall \"{}\" off >nul 2>&1\r\nexit /b %E%\r\n",
+            exe.display(),
+            dir.path().join("gone.cmd").display()
+        );
+        let idx = PathIndex::build(&[]);
+        let reasons = check(&dir.path().join("yazi.cmd"), &text, &idx);
+        assert!(matches!(reasons.as_slice(), [Reason::MissingScriptCall { path }] if path.ends_with("gone.cmd")));
     }
 
     #[test]

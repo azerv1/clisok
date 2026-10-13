@@ -117,6 +117,7 @@ pub fn for_entry(problem: EntryProblem, entry: &PathEntry) -> Option<Fix> {
 pub fn for_reason(reason: &Reason) -> Option<Fix> {
     let msg = match reason {
         Reason::MissingTarget { .. } => "reinstall the tool that owns it, or remove this launcher".into(),
+        Reason::MissingScriptCall { .. } => "restore the file, or remove the call from the script".into(),
         Reason::MissingLibrary { name, .. } => format!("reinstall the program, or install what provides {name}"),
         Reason::MissingInterpreter { .. } => {
             "reinstall the tool so it uses an installed interpreter, or remove this launcher".into()
@@ -252,6 +253,7 @@ mod tests {
         let path = PathBuf::from("x");
         for (code, got) in [
             r(Reason::MissingTarget { path: path.clone() }),
+            r(Reason::MissingScriptCall { path: path.clone() }),
             r(Reason::MissingLibrary { name: "x".into(), needed_by: path.clone() }),
             r(Reason::MissingInterpreter { path: path.clone() }),
             r(Reason::MissingModule { module: "x".into(), python: path }),
@@ -263,7 +265,7 @@ mod tests {
             assert_eq!(got, safety(code).0, "{code}");
         }
         // Every code is covered by one of the checks above or has no fix.
-        assert_eq!(CODES.len(), problems.len() + 1 + 8 + 3);
+        assert_eq!(CODES.len(), problems.len() + 1 + 9 + 3);
     }
 
     #[test]
