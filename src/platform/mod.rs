@@ -8,7 +8,7 @@
 //! - running tools: `init`, `cleanup`, `run_headless`, `kill_children`, `never_run`
 //! - static checks: `inspect`
 //! - saved configuration: `persisted_path`, `truncated_saved_paths`, `broken_app_paths`, `AppPath`,
-//!   `fix_user_path`
+//!   `fix_user_path`, `delete_app_path`
 //! - terminal: `cursor_visible`
 
 #[cfg(windows)]

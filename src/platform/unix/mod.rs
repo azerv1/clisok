@@ -15,7 +15,7 @@ use regex::Regex;
 use serde::Serialize;
 
 use crate::inspect::{Inspection, Kind, python};
-use crate::pathenv::{EntryProblem, PathEntry, PathIndex};
+use crate::pathenv::{EntryEdit, EntryProblem, PathEntry, PathIndex};
 
 pub use spawn::{cleanup, init, kill_children, run as run_headless};
 
@@ -124,8 +124,12 @@ pub fn truncated_saved_paths() -> Vec<PathEntry> {
 }
 
 /// No saved PATH, so nothing to fix (no fix is offered as safe on Unix).
-pub fn fix_user_path(_drop: &[EntryProblem]) -> Result<Option<(Vec<String>, PathBuf)>, String> {
+pub fn fix_user_path(_fixable: &[EntryProblem]) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
     Ok(None)
+}
+
+pub fn delete_app_path(key: &str) -> Result<PathBuf, String> {
+    Err(format!("{key}: no App Paths on Unix"))
 }
 
 #[derive(Debug, Clone, Serialize)]

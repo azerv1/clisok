@@ -142,18 +142,27 @@ fn entry_problems(entries: &[PathEntry]) -> Vec<Option<EntryProblem>> {
     out
 }
 
-/// `raw`, a saved PATH value read after the entries in `earlier`, without its
-/// entries whose problem is in `drop`, and the raw entries it removed. Each
-/// entry is expanded on its own, so the rest of `raw` keeps its exact text,
-/// including `%VARS%` and a trailing separator.
+/// One entry `fix_entries` changed: `new` is `None` when it was removed.
+#[derive(Debug, PartialEq)]
+pub struct EntryEdit {
+    pub problem: EntryProblem,
+    pub raw: String,
+    pub new: Option<String>,
+}
+
+/// `raw`, a saved PATH value read after the entries in `earlier`, with its
+/// entries whose problem is in `fixable` fixed: empty and repeated entries
+/// removed, quotes and surrounding whitespace cleaned off. Each entry is
+/// expanded on its own, so the rest of `raw` keeps its exact text, including
+/// `%VARS%` and a trailing separator.
 #[cfg_attr(not(windows), allow(dead_code))]
-pub fn remove_entries(
+pub fn fix_entries(
     earlier: &[PathEntry],
     raw: &str,
     origin: PathOrigin,
     expand: impl Fn(&str) -> String,
-    drop: &[EntryProblem],
-) -> (String, Vec<String>) {
+    fixable: &[EntryProblem],
+) -> (String, Vec<EntryEdit>) {
     let parts: Vec<&str> = raw.split(platform::PATH_SEPARATOR).collect();
     // A single trailing separator is not an entry (see `parse_path`).
     let n = if parts.len() > 1 && parts.last() == Some(&"") { parts.len() - 1 } else { parts.len() };
@@ -163,14 +172,21 @@ pub fn remove_entries(
         PathEntry { dir: PathBuf::from(x.trim().trim_matches('"')), raw: x, origin }
     }));
     let problems = entry_problems(&entries);
-    let (mut kept, mut removed) = (Vec::new(), Vec::new());
+    let (mut kept, mut edits) = (Vec::new(), Vec::new());
     for (i, part) in parts.iter().enumerate() {
-        match problems.get(earlier.len() + i).copied().flatten() {
-            Some(p) if i < n && drop.contains(&p) => removed.push(part.to_string()),
-            _ => kept.push(*part),
-        }
+        let problem = problems.get(earlier.len() + i).copied().flatten().filter(|p| i < n && fixable.contains(p));
+        let Some(problem) = problem else {
+            kept.push(part.to_string());
+            continue;
+        };
+        let new = match problem {
+            EntryProblem::StrayQuote | EntryProblem::Whitespace => Some(part.trim().replace('"', "")),
+            _ => None,
+        };
+        kept.extend(new.clone());
+        edits.push(EntryEdit { problem, raw: part.to_string(), new });
     }
-    (kept.join(&platform::PATH_SEPARATOR.to_string()), removed)
+    (kept.join(&platform::PATH_SEPARATOR.to_string()), edits)
 }
 
 /// Every PATH match for every command name, in the order the shell tries them.
@@ -241,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn removes_only_the_dropped_problems_and_keeps_the_rest_verbatim() {
+    fn fixes_only_the_given_problems_and_keeps_the_rest_verbatim() {
         let tmp = tempfile::tempdir().unwrap();
         let (a, b) = (tmp.path().join("a"), tmp.path().join("b"));
         fs::create_dir(&a).unwrap();
@@ -254,16 +270,34 @@ mod tests {
         let expand = |s: &str| s.replace("%B%", &b);
         let drop = [EntryProblem::Empty, EntryProblem::Duplicate];
 
-        let (kept, removed) = remove_entries(&system, &raw, PathOrigin::User, expand, &drop);
+        let removed = |problem, raw: &str| EntryEdit { problem, raw: raw.into(), new: None };
+
+        let (kept, edits) = fix_entries(&system, &raw, PathOrigin::User, expand, &drop);
         assert_eq!(kept, "%B%; x;C:\\definitely\\missing;");
-        assert_eq!(removed, ["", a.as_str(), b.as_str(), "%B%"]);
+        let dup = EntryProblem::Duplicate;
+        assert_eq!(
+            edits,
+            [removed(EntryProblem::Empty, ""), removed(dup, &a), removed(dup, &b), removed(dup, "%B%")]
+        );
 
         // Only what is asked for goes.
-        let (kept, removed) = remove_entries(&system, &raw, PathOrigin::User, expand, &[EntryProblem::Empty]);
+        let (kept, edits) = fix_entries(&system, &raw, PathOrigin::User, expand, &[EntryProblem::Empty]);
         assert_eq!(kept, format!("%B%;{a};{b}; x;C:\\definitely\\missing;%B%;"));
-        assert_eq!(removed, [""]);
+        assert_eq!(edits, [removed(EntryProblem::Empty, "")]);
         // Nothing to do leaves the value as it was.
-        assert_eq!(remove_entries(&[], &b, PathOrigin::User, expand, &drop), (b.clone(), vec![]));
+        assert_eq!(fix_entries(&[], &b, PathOrigin::User, expand, &drop), (b.clone(), vec![]));
+    }
+
+    #[test]
+    fn cleans_quotes_and_whitespace_in_place() {
+        let raw = r#"C:\a; %X%\bin ;"C:\Program Files\b";C:\c"#;
+        let fixable = [EntryProblem::Whitespace, EntryProblem::StrayQuote];
+        let (kept, edits) = fix_entries(&[], raw, PathOrigin::User, |s: &str| s.replace("%X%", r"C:\x"), &fixable);
+        assert_eq!(kept, r"C:\a;%X%\bin;C:\Program Files\b;C:\c");
+        let ws = EntryEdit { problem: EntryProblem::Whitespace, raw: r" %X%\bin ".into(), new: Some(r"%X%\bin".into()) };
+        assert_eq!(edits[0], ws);
+        assert_eq!(edits[1].new.as_deref(), Some(r"C:\Program Files\b"));
+        assert_eq!(edits.len(), 2);
     }
 
     #[test]

@@ -187,11 +187,11 @@ impl Report {
     }
 
     /// Findings `--fix` would fix.
-    fn fixable(&self) -> usize {
-        let safe = |f: Option<&Fix>| f.is_some_and(Fix::is_safe);
-        self.path_problems.iter().filter(|p| safe(p.fix.as_ref())).count()
-            + self.app_paths.iter().filter(|a| a.fix.is_safe()).count()
-            + self.tools.iter().flat_map(|t| &t.reasons).filter(|r| safe(r.fix.as_ref())).count()
+    fn fixable(&self, unsafe_fixes: bool) -> usize {
+        let applies = |f: Option<&Fix>| f.is_some_and(|f| f.applies(unsafe_fixes));
+        self.path_problems.iter().filter(|p| applies(p.fix.as_ref())).count()
+            + self.app_paths.iter().filter(|a| applies(Some(&a.fix))).count()
+            + self.tools.iter().flat_map(|t| &t.reasons).filter(|r| applies(r.fix.as_ref())).count()
     }
 
     pub fn to_text(&self, verbose: bool) -> String {
@@ -299,9 +299,10 @@ impl Report {
             let n = self.fixed.len();
             let _ = writeln!(s, "Fixed {n} problem{}.", if n == 1 { "" } else { "s" });
         }
-        let fixable = self.fixable();
-        if fixable > 0 {
-            let _ = writeln!(s, "[*] {fixable} fixable with --fix.");
+        let (safe, unsafe_only) = (self.fixable(false), self.fixable(true) - self.fixable(false));
+        if safe > 0 || unsafe_only > 0 {
+            let more = if unsafe_only > 0 { format!(" ({unsafe_only} more with --unsafe-fixes)") } else { String::new() };
+            let _ = writeln!(s, "[*] {safe} fixable with --fix{more}.");
         }
         s
     }

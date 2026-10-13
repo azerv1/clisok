@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::codes::Code;
-
 use crate::inspect::Reason;
 use crate::pathenv::{EntryProblem, PathEntry, PathOrigin};
 
@@ -15,6 +14,8 @@ use crate::pathenv::{EntryProblem, PathEntry, PathOrigin};
 pub enum Applicability {
     /// Advice only; never applied.
     DisplayOnly,
+    /// Applied with `--fix --unsafe-fixes`: may change what runs.
+    Unsafe,
     /// Applied with `--fix`: changes nothing that works today.
     Safe,
 }
@@ -30,23 +31,33 @@ impl Fix {
         Fix { applicability: Applicability::DisplayOnly, message: message.into() }
     }
 
+    fn new(applicability: Applicability, message: impl Into<String>) -> Self {
+        Fix { applicability, message: message.into() }
+    }
+
     pub fn is_safe(&self) -> bool {
         self.applicability == Applicability::Safe
+    }
+
+    /// Whether `--fix` applies it, given `--unsafe-fixes`.
+    pub fn applies(&self, unsafe_fixes: bool) -> bool {
+        match self.applicability {
+            Applicability::Safe => true,
+            Applicability::Unsafe => unsafe_fixes,
+            Applicability::DisplayOnly => false,
+        }
     }
 
     /// The report line's label: `help:` for advice, `fix:` for what `--fix` does.
     pub fn label(&self) -> &'static str {
         match self.applicability {
             Applicability::DisplayOnly => "help:",
+            Applicability::Unsafe => "fix (unsafe):",
             Applicability::Safe => "fix:",
         }
     }
 }
 
-/// PATH problems `--fix` removes from the saved user PATH (Windows). Neither
-/// changes which program runs: an empty entry names nothing, and a later
-/// copy of a folder is never reached.
-pub const SAFE_PATH_PROBLEMS: &[EntryProblem] = &[EntryProblem::Empty, EntryProblem::Duplicate];
 
 /// What `--fix` changed.
 #[derive(Debug, Serialize)]
@@ -68,9 +79,20 @@ fn path_place(origin: PathOrigin) -> &'static str {
 }
 
 pub fn for_entry(problem: EntryProblem, entry: &PathEntry) -> Option<Fix> {
-    if cfg!(windows) && entry.origin == PathOrigin::User && SAFE_PATH_PROBLEMS.contains(&problem) {
-        let message = "remove it from the user PATH".to_string();
-        return Some(Fix { applicability: Applicability::Safe, message });
+    // Only the saved user PATH (Windows) can be fixed. Removing an empty
+    // entry or a later copy of a folder changes no lookup. A cleaned entry
+    // that names a real folder starts to work, and its programs then come
+    // before those of later entries, so cleaning is unsafe.
+    if cfg!(windows) && entry.origin == PathOrigin::User {
+        let fix = |a, message| Some(Fix::new(a, message));
+        match problem {
+            EntryProblem::Empty | EntryProblem::Duplicate => {
+                return fix(Applicability::Safe, "remove it from the user PATH");
+            }
+            EntryProblem::StrayQuote => return fix(Applicability::Unsafe, "remove the quotes in the user PATH"),
+            EntryProblem::Whitespace => return fix(Applicability::Unsafe, "trim the spaces in the user PATH"),
+            _ => {}
+        }
     }
     let what = match problem {
         EntryProblem::Empty => "remove the empty entry",
@@ -103,10 +125,14 @@ pub fn for_reason(reason: &Reason) -> Option<Fix> {
     Some(Fix::display_only(msg))
 }
 
-/// An App Paths key whose program is gone.
+/// An App Paths key whose program is gone. Deleting it is unsafe: the
+/// program may be on a drive that is only unplugged.
 pub fn for_app_path(key: &str) -> Fix {
-    let admin = if key.starts_with("HKLM") { " (needs admin)" } else { "" };
-    Fix::display_only(format!("delete the registry key{admin}"))
+    if key.starts_with("HKCU") {
+        Fix::new(Applicability::Unsafe, "delete the registry key")
+    } else {
+        Fix::display_only("delete the registry key (needs admin)")
+    }
 }
 
 #[cfg(test)]
@@ -135,8 +161,11 @@ mod tests {
         assert!(!safe(EntryProblem::Duplicate, PathOrigin::System));
         assert!(!safe(EntryProblem::Duplicate, PathOrigin::Process));
         // Cleaning an entry can make a dead folder live, so it is not safe.
+        let applies = |p, unsafe_fixes| for_entry(p, &entry(PathOrigin::User)).unwrap().applies(unsafe_fixes);
         assert!(!safe(EntryProblem::Whitespace, PathOrigin::User));
-        assert!(!safe(EntryProblem::StrayQuote, PathOrigin::User));
+        assert!(!applies(EntryProblem::StrayQuote, false));
+        assert_eq!(applies(EntryProblem::StrayQuote, true), cfg!(windows));
+        assert!(!applies(EntryProblem::Missing, true));
     }
 
     #[test]
@@ -146,8 +175,11 @@ mod tests {
     }
 
     #[test]
-    fn app_path_advice_marks_machine_keys() {
+    fn only_user_app_paths_can_be_deleted_and_only_unsafely() {
+        assert!(!for_app_path(r"HKLM\SOFTWARE\x").applies(true));
         assert!(for_app_path(r"HKLM\SOFTWARE\x").message.ends_with("(needs admin)"));
-        assert!(!for_app_path(r"HKCU\SOFTWARE\x").message.contains("admin"));
+        let hkcu = for_app_path(r"HKCU\SOFTWARE\x");
+        assert!(!hkcu.applies(false));
+        assert!(hkcu.applies(true));
     }
 }

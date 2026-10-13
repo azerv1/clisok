@@ -71,6 +71,12 @@ mod tests {
     }
 
     #[test]
+    fn unsafe_fixes_need_fix() {
+        assert!(Cli::try_parse_from(["clisok", "check", "--fix", "--unsafe-fixes"]).is_ok());
+        assert!(Cli::try_parse_from(["clisok", "check", "--unsafe-fixes"]).is_err());
+    }
+
+    #[test]
     fn ignore_takes_known_codes_only() {
         assert!(Cli::try_parse_from(["clisok", "check", "--ignore", "CLI007", "--ignore", "cli203"]).is_ok());
         assert!(Cli::try_parse_from(["clisok", "check", "--ignore", "CLI999"]).is_err());

@@ -10,7 +10,7 @@ use winreg::types::FromRegValue;
 use winreg::{RegKey, RegValue};
 
 use super::expand_vars;
-use crate::pathenv::{self, EntryProblem, PathEntry, PathOrigin};
+use crate::pathenv::{self, EntryEdit, EntryProblem, PathEntry, PathOrigin};
 
 const SYSTEM_ENV: &str = r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment";
 const USER_ENV: &str = "Environment";
@@ -32,11 +32,11 @@ fn saved_values() -> Vec<(String, PathOrigin)> {
         .collect()
 }
 
-/// Remove the entries of the saved user PATH whose problem is in `drop`, and
-/// return the removed raw entries and the backup of the old value. The old
-/// value is saved first; the value type (`REG_EXPAND_SZ` or not) and every
-/// other entry are kept as they are. HKLM is never touched.
-pub fn fix_user_path(drop: &[EntryProblem]) -> Result<Option<(Vec<String>, PathBuf)>, String> {
+/// Fix the entries of the saved user PATH whose problem is in `fixable` (see
+/// `pathenv::fix_entries`), and return what changed and the backup of the old
+/// value. The old value is saved first; the value type (`REG_EXPAND_SZ` or
+/// not) and every other entry are kept as they are. HKLM is never touched.
+pub fn fix_user_path(fixable: &[EntryProblem]) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
     let key = RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey_with_flags(USER_ENV, KEY_READ | KEY_SET_VALUE)
         .map_err(|e| format!("can't open the user PATH: {e}"))?;
@@ -45,10 +45,7 @@ pub fn fix_user_path(drop: &[EntryProblem]) -> Result<Option<(Vec<String>, PathB
         .filter(|(_, origin)| *origin == PathOrigin::System)
         .flat_map(|(r, origin)| pathenv::parse_path(&expand_vars(&r), origin))
         .collect();
-    let backups = std::env::var_os("LOCALAPPDATA")
-        .map(|d| PathBuf::from(d).join("clisok").join("backups"))
-        .ok_or("LOCALAPPDATA is not set, so there is nowhere to save a backup")?;
-    let fixed = fix_path_value(&key, &system, drop, &backups)?;
+    let fixed = fix_path_value(&key, &system, fixable, &backup_dir()?)?;
     if fixed.is_some() {
         broadcast_env_change();
     }
@@ -60,31 +57,60 @@ pub fn fix_user_path(drop: &[EntryProblem]) -> Result<Option<(Vec<String>, PathB
 fn fix_path_value(
     key: &RegKey,
     earlier: &[PathEntry],
-    drop: &[EntryProblem],
+    fixable: &[EntryProblem],
     backups: &Path,
-) -> Result<Option<(Vec<String>, PathBuf)>, String> {
+) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
     let fail = |what: &str, e: std::io::Error| format!("{what} the user PATH: {e}");
     let old = key.get_raw_value("Path").map_err(|e| fail("can't read", e))?;
     let raw = String::from_reg_value(&old).map_err(|e| fail("can't read", e))?;
-    let (new, removed) = pathenv::remove_entries(earlier, &raw, PathOrigin::User, expand_vars, drop);
-    if removed.is_empty() {
+    let (new, edits) = pathenv::fix_entries(earlier, &raw, PathOrigin::User, expand_vars, fixable);
+    if edits.is_empty() {
         return Ok(None);
     }
-    let backup = save_backup(backups, "user-Path", &raw)?;
+    let backup = backup_file(backups, "user-Path", "txt")?;
+    fs::write(&backup, &raw).map_err(|e| format!("can't save a backup to {}: {e}", backup.display()))?;
     let bytes: Vec<u8> = new.encode_utf16().chain([0]).flat_map(u16::to_le_bytes).collect();
     key.set_raw_value("Path", &RegValue { bytes: bytes.into(), vtype: old.vtype })
         .map_err(|e| fail("can't write", e))?;
-    Ok(Some((removed, backup)))
+    Ok(Some((edits, backup)))
 }
 
-/// Save `text` in `dir` before changing it.
-fn save_backup(dir: &Path, name: &str, text: &str) -> Result<PathBuf, String> {
+/// Delete an App Paths registration (`HKCU\...` only), after exporting it to
+/// a `.reg` file that `reg import` restores. Returns that file.
+pub fn delete_app_path(key: &str) -> Result<PathBuf, String> {
+    delete_key(key, &backup_dir()?)
+}
+
+/// `delete_app_path`, saving the backup in `backups`.
+fn delete_key(key: &str, backups: &Path) -> Result<PathBuf, String> {
+    let sub = key.strip_prefix(r"HKCU\").ok_or_else(|| format!("{key}: only HKCU keys are deleted"))?;
+    let name = sub.rsplit('\\').next().unwrap_or(sub);
+    let backup = backup_file(backups, &format!("app-path-{name}"), "reg")?;
+    let exported = std::process::Command::new("reg")
+        .args(["export", key])
+        .arg(&backup)
+        .arg("/y")
+        .output()
+        .map_err(|e| format!("can't run reg export: {e}"))?;
+    if !exported.status.success() {
+        return Err(format!("can't back up {key}: {}", String::from_utf8_lossy(&exported.stderr).trim()));
+    }
+    RegKey::predef(HKEY_CURRENT_USER).delete_subkey_all(sub).map_err(|e| format!("can't delete {key}: {e}"))?;
+    Ok(backup)
+}
+
+/// `%LOCALAPPDATA%\clisok\backups`, where old values are saved before a fix.
+fn backup_dir() -> Result<PathBuf, String> {
+    std::env::var_os("LOCALAPPDATA")
+        .map(|d| PathBuf::from(d).join("clisok").join("backups"))
+        .ok_or_else(|| "LOCALAPPDATA is not set, so there is nowhere to save a backup".into())
+}
+
+/// A new file name in `dir` (created if needed) for a backup.
+fn backup_file(dir: &Path, name: &str, ext: &str) -> Result<PathBuf, String> {
+    fs::create_dir_all(dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let file = dir.join(format!("{name}-{secs}.txt"));
-    fs::create_dir_all(dir)
-        .and_then(|()| fs::write(&file, text))
-        .map_err(|e| format!("can't save a backup to {}: {e}", file.display()))?;
-    Ok(file)
+    Ok(dir.join(format!("{name}-{secs}.{ext}")))
 }
 
 /// Tell Explorer and other running programs that the environment changed,
@@ -197,7 +223,8 @@ mod tests {
         let again = fix_path_value(&key, &[], &drop, backups.path());
         hkcu.delete_subkey_all(&name).unwrap();
 
-        let (removed, backup) = result.unwrap().unwrap();
+        let (edits, backup) = result.unwrap().unwrap();
+        let removed: Vec<&str> = edits.iter().map(|e| e.raw.as_str()).collect();
         assert_eq!(removed, ["", "%SYSTEMROOT%"]);
         assert_eq!(fs::read_to_string(backup).unwrap(), raw);
         let after = after.unwrap();
@@ -205,6 +232,30 @@ mod tests {
         assert_eq!(String::from_reg_value(&after).unwrap(), r"%SystemRoot%;C:\definitely\missing;");
         // Nothing left to fix: no write and no second backup.
         assert!(again.unwrap().is_none());
+    }
+
+    /// Runs against a throwaway key, never a real App Paths registration.
+    #[test]
+    fn deleting_a_key_exports_it_first() {
+        let name = format!(r"Software\clisok-test-key-{}\tool.exe", std::process::id());
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (key, _) = hkcu.create_subkey(&name).unwrap();
+        key.set_value("", &r"C:\definitely\missing\tool.exe").unwrap();
+        drop(key);
+        let backups = tempfile::tempdir().unwrap();
+
+        let result = delete_key(&format!(r"HKCU\{name}"), backups.path());
+        let gone = hkcu.open_subkey(&name).is_err();
+        let parent = name.rsplit_once('\\').unwrap().0;
+        hkcu.delete_subkey_all(parent).unwrap();
+
+        let backup = result.unwrap();
+        assert!(gone);
+        // reg export writes UTF-16 with a BOM.
+        let bytes = fs::read(&backup).unwrap();
+        let text = String::from_utf16_lossy(&bytes.chunks(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect::<Vec<_>>());
+        assert!(text.contains(r"definitely\\missing\\tool.exe"), "{text}");
+        assert!(delete_key(r"HKLM\SOFTWARE\x", backups.path()).is_err());
     }
 
     #[test]

@@ -13,7 +13,7 @@ use crate::codes::{Code, Severities, Severity};
 use crate::config::{Config, ConfigArgs};
 use crate::discover::{self, PathCommand, Tool};
 use crate::exec::{self, Outcome, ToolErrorKind};
-use crate::fix::{self, Applied, Fix};
+use crate::fix::Applied;
 use crate::inspect::{self, Kind};
 use crate::pathenv::{self, EntryProblem, PathEntry, PathIndex};
 use crate::platform::{self, path_key};
@@ -51,6 +51,10 @@ pub struct CheckArgs {
     /// find them
     #[arg(long)]
     fix: bool,
+    /// Also apply the unsafe fixes (`fix (unsafe):`): clean quotes and spaces
+    /// off user PATH entries, delete user App Paths keys
+    #[arg(long, requires = "fix")]
+    unsafe_fixes: bool,
     /// Drop findings with this code, e.g. CLI007 (repeatable)
     #[arg(long, value_name = "CODE")]
     ignore: Vec<Code>,
@@ -328,27 +332,38 @@ fn path_findings(entries: &[PathEntry], registry: bool, severities: &Severities)
     (path_problems, app_paths)
 }
 
-/// Apply the safe fixes among `path_problems`. Only reported problems are
-/// fixed, so a code turned off is never fixed.
-fn apply_fixes(path_problems: &[EntryIssue], severities: &Severities) -> Result<Vec<Applied>, String> {
-    let drop: Vec<EntryProblem> = fix::SAFE_PATH_PROBLEMS
-        .iter()
-        .copied()
-        .filter(|&p| path_problems.iter().any(|i| i.problem == p && i.fix.as_ref().is_some_and(Fix::is_safe)))
-        .filter(|p| severities.of(p.code()) != Severity::Off)
-        .collect();
-    if drop.is_empty() {
-        return Ok(Vec::new());
+/// Apply the reported fixes that `--fix` may apply. A code turned off is not
+/// reported, so it is never fixed. A fix that fails is reported on stderr and
+/// its finding stays in the report.
+fn apply_fixes(path_problems: &[EntryIssue], app_paths: &[AppPathIssue], unsafe_fixes: bool) -> Vec<Applied> {
+    let mut fixable: Vec<EntryProblem> = Vec::new();
+    for i in path_problems.iter().filter(|i| i.fix.as_ref().is_some_and(|f| f.applies(unsafe_fixes))) {
+        if !fixable.contains(&i.problem) {
+            fixable.push(i.problem);
+        }
     }
-    let Some((removed, backup)) = platform::fix_user_path(&drop)? else { return Ok(Vec::new()) };
-    Ok(removed
-        .into_iter()
-        .map(|raw| {
-            let (code, what) =
-                if raw.trim().is_empty() { (Code::Cli001, "empty entry") } else { (Code::Cli007, "duplicate entry") };
-            Applied { code, target: format!("(user) \"{raw}\""), message: format!("removed {what}"), backup: backup.clone() }
-        })
-        .collect())
+    let mut applied = Vec::new();
+    match platform::fix_user_path(&fixable) {
+        _ if fixable.is_empty() => {}
+        Ok(Some((edits, backup))) => applied.extend(edits.into_iter().map(|e| Applied {
+            code: e.problem.code(),
+            target: format!("(user) \"{}\"", e.raw),
+            message: e.new.map_or_else(|| "removed".into(), |new| format!("changed to \"{new}\"")),
+            backup: backup.clone(),
+        })),
+        Ok(None) => {}
+        Err(e) => eprintln!("clisok: {e}"),
+    }
+    for a in app_paths.iter().filter(|a| a.fix.applies(unsafe_fixes)) {
+        match platform::delete_app_path(&a.app_path.key) {
+            Ok(backup) => {
+                let target = a.app_path.key.clone();
+                applied.push(Applied { code: a.code, target, message: "deleted".into(), backup });
+            }
+            Err(e) => eprintln!("clisok: {e}"),
+        }
+    }
+    applied
 }
 
 pub fn check(args: &CheckArgs) -> ExitCode {
@@ -380,21 +395,11 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     let severities = severities(args, &config);
     let registry = check_registry(args, &config);
     let (mut path_problems, mut app_paths) = path_findings(&entries, registry, &severities);
-    let mut fixed = Vec::new();
-    if args.fix {
-        match apply_fixes(&path_problems, &severities) {
-            Ok(applied) if !applied.is_empty() => {
-                fixed = applied;
-                // Fixes change saved settings only, not this process's PATH,
-                // so only the saved-settings findings can have changed.
-                (path_problems, app_paths) = path_findings(&entries, registry, &severities);
-            }
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("clisok: {e}");
-                return ExitCode::from(2);
-            }
-        }
+    let fixed = if args.fix { apply_fixes(&path_problems, &app_paths, args.unsafe_fixes) } else { Vec::new() };
+    if !fixed.is_empty() {
+        // Fixes change saved settings only, not this process's PATH, so only
+        // the saved-settings findings can have changed.
+        (path_problems, app_paths) = path_findings(&entries, registry, &severities);
     }
 
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
@@ -710,20 +715,23 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn safe_fixes_are_marked_counted_and_reported_once_applied() {
-        let entry = pathenv::PathEntry { raw: "dup".into(), dir: PathBuf::from("dup"), origin: pathenv::PathOrigin::User };
+        let user = |raw: &str| pathenv::PathEntry { raw: raw.into(), dir: PathBuf::from(raw.trim()), origin: pathenv::PathOrigin::User };
         let sev = Severities::default();
+        let issues = [(user("dup"), EntryProblem::Duplicate), (user(" sp"), EntryProblem::Whitespace)];
         let mut report = Report {
             schema: SCHEMA_VERSION,
             command: "check",
             config: vec![],
             fixed: vec![],
-            path_problems: EntryIssue::new(entry, EntryProblem::Duplicate, &sev).into_iter().collect(),
+            path_problems: issues.into_iter().filter_map(|(e, p)| EntryIssue::new(e, p, &sev)).collect(),
             app_paths: vec![],
             tools: vec![],
         };
         let text = report.to_text(false);
         assert!(text.contains("[WARN]   CLI007 [*] (user) \"dup\" — duplicate entry\n         fix: remove it from the user PATH\n"));
-        assert!(text.ends_with("[*] 1 fixable with --fix.\n"));
+        // Unsafe fixes get no [*].
+        assert!(text.contains("[BROKEN] CLI006 (user) \" sp\" — has leading/trailing whitespace\n         fix (unsafe): trim the spaces in the user PATH\n"));
+        assert!(text.ends_with("[*] 1 fixable with --fix (1 more with --unsafe-fixes).\n"));
 
         report.path_problems.clear();
         report.fixed.push(Applied {
