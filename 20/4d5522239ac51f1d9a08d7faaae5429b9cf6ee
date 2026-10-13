@@ -1,0 +1,33 @@
+docs/src/codes.md
+  s_c4bc06634c72ab::t_83357c9587fa58 27,166-172
+  s_c4bc06634c72ab::t_fc0bfc35da589c 173
+src/platform/windows/script.rs
+  s_c4bc06634c72ab::t_169272c189f1dc 128-134
+  s_c4bc06634c72ab::t_3a84ae8d3a4af2 214-227
+  s_c4bc06634c72ab::t_7d3ed148bf2869 213
+src/codes.rs
+  s_c4bc06634c72ab::t_6f17d40d9a8dae 88-89
+src/fix.rs
+  s_c4bc06634c72ab::t_accff2a370c3db 256,268
+  s_c4bc06634c72ab::t_454e3189f893be 120
+src/inspect/mod.rs
+  s_c4bc06634c72ab::t_d4834e191ba3ca 36-38
+  s_c4bc06634c72ab::t_feaafe09105921 54
+  s_c4bc06634c72ab::t_62ce15f1d3b8c8 70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "204d5522239ac51f1d9a08d7faaae5429b9cf6ee",
+  "prompts": {},
+  "sessions": {
+    "s_c4bc06634c72ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "74d627b5-0263-4355-b751-d0aedcd9c332",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
