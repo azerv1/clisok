@@ -40,16 +40,31 @@ pub fn fix_user_path(fixable: &[EntryProblem]) -> Result<Option<(Vec<EntryEdit>,
     let key = RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey_with_flags(USER_ENV, KEY_READ | KEY_SET_VALUE)
         .map_err(|e| format!("can't open the user PATH: {e}"))?;
-    let system: Vec<PathEntry> = saved_values()
-        .into_iter()
-        .filter(|(_, origin)| *origin == PathOrigin::System)
-        .flat_map(|(r, origin)| pathenv::parse_path(&expand_vars(&r), origin))
-        .collect();
-    let fixed = fix_path_value(&key, &system, fixable, &backup_dir()?)?;
+    let fixed = fix_path_value(&key, &saved_system_entries(), fixable, &backup_dir()?)?;
     if fixed.is_some() {
         broadcast_env_change();
     }
     Ok(fixed)
+}
+
+/// What `fix_user_path` would change, without writing anything: the current
+/// value and the edits.
+pub fn preview_user_path(fixable: &[EntryProblem]) -> Result<Option<(String, Vec<EntryEdit>)>, String> {
+    let raw: String = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(USER_ENV)
+        .and_then(|k| k.get_value("Path"))
+        .map_err(|e| format!("can't read the user PATH: {e}"))?;
+    let (_, edits) = pathenv::fix_entries(&saved_system_entries(), &raw, PathOrigin::User, expand_vars, fixable);
+    Ok((!edits.is_empty()).then_some((raw, edits)))
+}
+
+/// The saved system PATH's entries, which come before the user's.
+fn saved_system_entries() -> Vec<PathEntry> {
+    saved_values()
+        .into_iter()
+        .filter(|(_, origin)| *origin == PathOrigin::System)
+        .flat_map(|(r, origin)| pathenv::parse_path(&expand_vars(&r), origin))
+        .collect()
 }
 
 /// `fix_user_path` on the `Path` value of `key`, saving the old value in

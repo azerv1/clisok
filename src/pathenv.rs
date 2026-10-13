@@ -142,9 +142,20 @@ fn entry_problems(entries: &[PathEntry]) -> Vec<Option<EntryProblem>> {
     out
 }
 
+/// `raw` split at the separator, and how many leading parts are entries: a
+/// single trailing separator is not one (see `parse_path`).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn split_saved(raw: &str) -> (Vec<&str>, usize) {
+    let parts: Vec<&str> = raw.split(platform::PATH_SEPARATOR).collect();
+    let n = if parts.len() > 1 && parts.last() == Some(&"") { parts.len() - 1 } else { parts.len() };
+    (parts, n)
+}
+
 /// One entry `fix_entries` changed: `new` is `None` when it was removed.
 #[derive(Debug, PartialEq)]
 pub struct EntryEdit {
+    /// Its position among the value's separator-split parts.
+    pub index: usize,
     pub problem: EntryProblem,
     pub raw: String,
     pub new: Option<String>,
@@ -163,9 +174,7 @@ pub fn fix_entries(
     expand: impl Fn(&str) -> String,
     fixable: &[EntryProblem],
 ) -> (String, Vec<EntryEdit>) {
-    let parts: Vec<&str> = raw.split(platform::PATH_SEPARATOR).collect();
-    // A single trailing separator is not an entry (see `parse_path`).
-    let n = if parts.len() > 1 && parts.last() == Some(&"") { parts.len() - 1 } else { parts.len() };
+    let (parts, n) = split_saved(raw);
     let mut entries = earlier.to_vec();
     entries.extend(parts[..n].iter().map(|p| {
         let x = expand(p);
@@ -184,7 +193,7 @@ pub fn fix_entries(
             _ => None,
         };
         kept.extend(new.clone());
-        edits.push(EntryEdit { problem, raw: part.to_string(), new });
+        edits.push(EntryEdit { index: i, problem, raw: part.to_string(), new });
     }
     (kept.join(&platform::PATH_SEPARATOR.to_string()), edits)
 }
@@ -270,20 +279,20 @@ mod tests {
         let expand = |s: &str| s.replace("%B%", &b);
         let drop = [EntryProblem::Empty, EntryProblem::Duplicate];
 
-        let removed = |problem, raw: &str| EntryEdit { problem, raw: raw.into(), new: None };
+        let removed = |index, problem, raw: &str| EntryEdit { index, problem, raw: raw.into(), new: None };
 
         let (kept, edits) = fix_entries(&system, &raw, PathOrigin::User, expand, &drop);
         assert_eq!(kept, "%B%; x;C:\\definitely\\missing;");
         let dup = EntryProblem::Duplicate;
         assert_eq!(
             edits,
-            [removed(EntryProblem::Empty, ""), removed(dup, &a), removed(dup, &b), removed(dup, "%B%")]
+            [removed(1, EntryProblem::Empty, ""), removed(2, dup, &a), removed(3, dup, &b), removed(6, dup, "%B%")]
         );
 
         // Only what is asked for goes.
         let (kept, edits) = fix_entries(&system, &raw, PathOrigin::User, expand, &[EntryProblem::Empty]);
         assert_eq!(kept, format!("%B%;{a};{b}; x;C:\\definitely\\missing;%B%;"));
-        assert_eq!(edits, [removed(EntryProblem::Empty, "")]);
+        assert_eq!(edits, [removed(1, EntryProblem::Empty, "")]);
         // Nothing to do leaves the value as it was.
         assert_eq!(fix_entries(&[], &b, PathOrigin::User, expand, &drop), (b.clone(), vec![]));
     }
@@ -294,7 +303,8 @@ mod tests {
         let fixable = [EntryProblem::Whitespace, EntryProblem::StrayQuote];
         let (kept, edits) = fix_entries(&[], raw, PathOrigin::User, |s: &str| s.replace("%X%", r"C:\x"), &fixable);
         assert_eq!(kept, r"C:\a;%X%\bin;C:\Program Files\b;C:\c");
-        let ws = EntryEdit { problem: EntryProblem::Whitespace, raw: r" %X%\bin ".into(), new: Some(r"%X%\bin".into()) };
+        let new = Some(r"%X%\bin".into());
+        let ws = EntryEdit { index: 1, problem: EntryProblem::Whitespace, raw: r" %X%\bin ".into(), new };
         assert_eq!(edits[0], ws);
         assert_eq!(edits[1].new.as_deref(), Some(r"C:\Program Files\b"));
         assert_eq!(edits.len(), 2);

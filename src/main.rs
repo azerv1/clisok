@@ -71,9 +71,15 @@ mod tests {
     }
 
     #[test]
-    fn unsafe_fixes_need_fix() {
-        assert!(Cli::try_parse_from(["clisok", "check", "--fix", "--unsafe-fixes"]).is_ok());
-        assert!(Cli::try_parse_from(["clisok", "check", "--unsafe-fixes"]).is_err());
+    fn fix_flags_need_fix_or_diff() {
+        let parses = |args: &[&str]| Cli::try_parse_from([&["clisok", "check"], args].concat()).is_ok();
+        assert!(parses(&["--fix", "--unsafe-fixes"]));
+        assert!(parses(&["--diff", "--unsafe-fixes"]));
+        assert!(parses(&["--fix", "--diff"]));
+        assert!(!parses(&["--unsafe-fixes"]));
+        assert!(parses(&["--fix", "--show-fixes", "--exit-non-zero-on-fix"]));
+        assert!(!parses(&["--show-fixes"]));
+        assert!(!parses(&["--diff", "--exit-non-zero-on-fix"]));
     }
 
     #[test]

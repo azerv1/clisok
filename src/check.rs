@@ -13,7 +13,7 @@ use crate::codes::{Code, Severities, Severity};
 use crate::config::{Config, ConfigArgs};
 use crate::discover::{self, PathCommand, Tool};
 use crate::exec::{self, Outcome, ToolErrorKind};
-use crate::fix::{Applied, Fix};
+use crate::fix::{self, Applied, Fix};
 use crate::inspect::{self, Kind};
 use crate::pathenv::{self, EntryProblem, PathEntry, PathIndex};
 use crate::platform::{self, path_key};
@@ -27,6 +27,7 @@ static INSTALLER_NAME: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)(uninst|^unins\d|^setup|^install)").unwrap());
 
 #[derive(clap::Args)]
+#[command(group(clap::ArgGroup::new("fix_mode").multiple(true).args(["fix", "diff"])))]
 pub struct CheckArgs {
     /// Also check the saved (registry) PATH and App Paths registrations
     #[cfg(windows)]
@@ -53,8 +54,18 @@ pub struct CheckArgs {
     fix: bool,
     /// Also apply the unsafe fixes (`fix (unsafe):`): clean quotes and spaces
     /// off user PATH entries, delete user App Paths keys
-    #[arg(long, requires = "fix")]
+    #[arg(long, requires = "fix_mode")]
     unsafe_fixes: bool,
+    /// Print what --fix would change as a diff, then exit without changing
+    /// or running anything; exit 1 if there is something to fix
+    #[arg(long)]
+    diff: bool,
+    /// List every fix --fix applied, not just how many
+    #[arg(long, requires = "fix")]
+    show_fixes: bool,
+    /// Exit 1 when --fix changed something, even if nothing is left
+    #[arg(long, requires = "fix")]
+    exit_non_zero_on_fix: bool,
     /// Drop findings with this code, e.g. CLI007 (repeatable)
     #[arg(long, value_name = "CODE")]
     ignore: Vec<Code>,
@@ -345,16 +356,50 @@ fn limit_fixes(config: &Config, path_problems: &mut [EntryIssue], app_paths: &mu
     }
 }
 
-/// Apply the reported fixes that `--fix` may apply. A code turned off is not
-/// reported, so it is never fixed. A fix that fails is reported on stderr and
-/// its finding stays in the report.
-fn apply_fixes(path_problems: &[EntryIssue], app_paths: &[AppPathIssue], unsafe_fixes: bool) -> Vec<Applied> {
-    let mut fixable: Vec<EntryProblem> = Vec::new();
+/// The PATH problems among the reported ones whose fix `--fix` may apply.
+fn fixable_problems(path_problems: &[EntryIssue], unsafe_fixes: bool) -> Vec<EntryProblem> {
+    let mut fixable = Vec::new();
     for i in path_problems.iter().filter(|i| i.fix.as_ref().is_some_and(|f| f.applies(unsafe_fixes))) {
         if !fixable.contains(&i.problem) {
             fixable.push(i.problem);
         }
     }
+    fixable
+}
+
+/// `--diff`: print what `apply_fixes` would change. Exit 1 when there is
+/// something, like Ruff.
+fn print_diff(path_problems: &[EntryIssue], app_paths: &[AppPathIssue], unsafe_fixes: bool) -> ExitCode {
+    let fixable = fixable_problems(path_problems, unsafe_fixes);
+    let mut out = String::new();
+    if !fixable.is_empty() {
+        match platform::preview_user_path(&fixable) {
+            Ok(Some((raw, edits))) => out.push_str(&fix::path_diff(&raw, &edits)),
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("clisok: {e}");
+                return ExitCode::from(2);
+            }
+        }
+    }
+    let keys: Vec<&str> =
+        app_paths.iter().filter(|a| a.fix.applies(unsafe_fixes)).map(|a| a.app_path.key.as_str()).collect();
+    if !keys.is_empty() {
+        out.push_str(&fix::app_paths_diff(&keys));
+    }
+    if out.is_empty() {
+        eprintln!("clisok: nothing to fix");
+        return ExitCode::SUCCESS;
+    }
+    print_stdout(&out);
+    ExitCode::from(1)
+}
+
+/// Apply the reported fixes that `--fix` may apply. A code turned off is not
+/// reported, so it is never fixed. A fix that fails is reported on stderr and
+/// its finding stays in the report.
+fn apply_fixes(path_problems: &[EntryIssue], app_paths: &[AppPathIssue], unsafe_fixes: bool) -> Vec<Applied> {
+    let fixable = fixable_problems(path_problems, unsafe_fixes);
     let mut applied = Vec::new();
     let path_fix = if fixable.is_empty() { Ok(None) } else { platform::fix_user_path(&fixable) };
     match path_fix {
@@ -414,6 +459,9 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     };
     let (mut path_problems, mut app_paths) = findings();
     let unsafe_fixes = args.unsafe_fixes || config.unsafe_fixes.unwrap_or(false);
+    if args.diff {
+        return print_diff(&path_problems, &app_paths, unsafe_fixes);
+    }
     let fixed = if args.fix { apply_fixes(&path_problems, &app_paths, unsafe_fixes) } else { Vec::new() };
     if !fixed.is_empty() {
         // Fixes change saved settings only, not this process's PATH, so only
@@ -500,9 +548,10 @@ pub fn check(args: &CheckArgs) -> ExitCode {
             }
         }
     } else {
-        print_stdout(&report.to_text(args.verbose));
+        print_stdout(&report.to_text(args.verbose, args.show_fixes));
     }
-    ExitCode::from(report.exit_code())
+    let fixed_any = args.exit_non_zero_on_fix && !report.fixed.is_empty();
+    ExitCode::from(report.exit_code().max(u8::from(fixed_any)))
 }
 
 #[cfg(test)]
@@ -584,7 +633,7 @@ mod tests {
                 tools: vec![res],
             };
         assert_eq!(report.exit_code(), 0);
-        let text = report.to_text(false);
+        let text = report.to_text(false, false);
         assert!(text.contains("[WARN]   tool  "));
         assert!(text.contains("         CLI107 hidden behind "));
     }
@@ -694,7 +743,7 @@ mod tests {
             app_paths: vec![],
             tools: vec![res],
         };
-        assert!(report.to_text(false).contains("Extra\n[BROKEN] tool  "));
+        assert!(report.to_text(false, false).contains("Extra\n[BROKEN] tool  "));
 
         // A program PATH already covers is not checked twice.
         let on_path = Tool { name: "tool".into(), path: file, shadowed: vec![], hidden_by: None };
@@ -720,14 +769,14 @@ mod tests {
 
         let default = report(&Severities::default());
         assert_eq!(default.exit_code(), 0);
-        assert!(default.to_text(false).contains(
+        assert!(default.to_text(false, false).contains(
             "[WARN]   CLI007 (process) \"dup\" — duplicate entry\n         help: remove this later copy (where this terminal's PATH is set)\n"
         ));
         let json = serde_json::to_value(&default).unwrap();
         assert_eq!(json["path_problems"][0]["fix"]["applicability"], "display-only");
         let strict = report(&severities(&[(Code::Cli007, Severity::Error)]));
         assert_eq!(strict.exit_code(), 1);
-        assert!(strict.to_text(false).contains("[BROKEN] CLI007 "));
+        assert!(strict.to_text(false, false).contains("[BROKEN] CLI007 "));
         assert!(report(&severities(&[(Code::Cli007, Severity::Off)])).path_problems.is_empty());
     }
 
@@ -746,7 +795,7 @@ mod tests {
             app_paths: vec![],
             tools: vec![],
         };
-        let text = report.to_text(false);
+        let text = report.to_text(false, false);
         assert!(text.contains("[WARN]   CLI007 [*] (user) \"dup\" — duplicate entry\n         fix: remove it from the user PATH\n"));
         // Unsafe fixes get no [*].
         assert!(text.contains("[BROKEN] CLI006 (user) \" sp\" — has leading/trailing whitespace\n         fix (unsafe): trim the spaces in the user PATH\n"));
@@ -756,12 +805,17 @@ mod tests {
         report.fixed.push(Applied {
             code: Code::Cli007,
             target: "(user) \"dup\"".into(),
-            message: "removed duplicate entry".into(),
+            message: "removed".into(),
             backup: PathBuf::from(r"C:\b\user-Path-1.txt"),
         });
-        let text = report.to_text(false);
+        // By default only the count and where the backups went.
+        let text = report.to_text(false, false);
+        assert!(!text.contains("[FIXED]"));
+        assert!(text.ends_with("Fixed 1 problem; backups in C:\\b.\n"));
+        // --show-fixes lists each one.
+        let text = report.to_text(false, true);
         assert!(text.starts_with(
-            "Fixed\n[FIXED]  CLI007 (user) \"dup\" — removed duplicate entry\n         backup of the old value: C:\\b\\user-Path-1.txt\n"
+            "Fixed\n[FIXED]  CLI007 (user) \"dup\" — removed\n         backup of the old value: C:\\b\\user-Path-1.txt\n"
         ));
         assert!(text.ends_with("Fixed 1 problem.\n"));
     }

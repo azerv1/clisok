@@ -30,7 +30,26 @@ Only saved settings that belong to you, and only on Windows:
 
 Saved-PATH and App Paths findings only appear with `--registry`. clisok never touches the system PATH or HKLM, never asks for admin rights, and never fixes anything on Unix. There a shell profile sets PATH, and it can't be edited safely.
 
-Only findings in the report are fixed, so a code turned off with `--ignore` or `[severity]` is never fixed. After fixing, the report shows a `Fixed` section and the findings that are left, and the exit status follows what is left. A fix that fails is reported on stderr, and its finding stays in the report.
+Only findings in the report are fixed, so a code turned off with `--ignore` or `[severity]` is never fixed. After fixing, the report shows the findings that are left and a `Fixed N problems` line; `--show-fixes` lists each fix. The exit status follows what is left, unless `--exit-non-zero-on-fix` is given. A fix that fails is reported on stderr, and its finding stays in the report.
+
+## Previewing
+
+`--diff` prints what `--fix` would change and exits without changing or running anything:
+
+```
+$ clisok check --registry --diff --unsafe-fixes
+--- HKCU\Environment\Path
++++ HKCU\Environment\Path (fixed)
+ "C:\Users\me\bin"
+-""
+-" C:\go\bin"
++"C:\go\bin"
+--- App Paths
++++ App Paths (fixed)
+-HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\old.exe
+```
+
+Entries are quoted so spaces show. The exit status is 1 when there is something to fix.
 
 ## Backups
 

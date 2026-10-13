@@ -128,6 +128,10 @@ pub fn fix_user_path(_fixable: &[EntryProblem]) -> Result<Option<(Vec<EntryEdit>
     Ok(None)
 }
 
+pub fn preview_user_path(_fixable: &[EntryProblem]) -> Result<Option<(String, Vec<EntryEdit>)>, String> {
+    Ok(None)
+}
+
 pub fn delete_app_path(key: &str) -> Result<PathBuf, String> {
     Err(format!("{key}: no App Paths on Unix"))
 }

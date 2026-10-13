@@ -1,13 +1,14 @@
 //! Fixes, the way Ruff has them: every finding may carry one, and its
 //! applicability decides whether `--fix` may apply it.
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use serde::Serialize;
 
 use crate::codes::Code;
 use crate::inspect::Reason;
-use crate::pathenv::{EntryProblem, PathEntry, PathOrigin};
+use crate::pathenv::{self, EntryEdit, EntryProblem, PathEntry, PathOrigin};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -140,6 +141,37 @@ pub fn for_app_path(key: &str) -> Fix {
     }
 }
 
+/// What `--fix` would do to the saved user PATH, one entry per line: ` `
+/// kept, `-` removed or replaced, `+` the replacement. Entries are quoted so
+/// spaces show.
+pub fn path_diff(raw: &str, edits: &[EntryEdit]) -> String {
+    let mut s = String::from("--- HKCU\\Environment\\Path\n+++ HKCU\\Environment\\Path (fixed)\n");
+    let (parts, n) = pathenv::split_saved(raw);
+    for (i, part) in parts[..n].iter().enumerate() {
+        match edits.iter().find(|e| e.index == i) {
+            Some(e) => {
+                let _ = writeln!(s, "-\"{part}\"");
+                if let Some(new) = &e.new {
+                    let _ = writeln!(s, "+\"{new}\"");
+                }
+            }
+            None => {
+                let _ = writeln!(s, " \"{part}\"");
+            }
+        }
+    }
+    s
+}
+
+/// What `--fix` would do to App Paths: delete these keys.
+pub fn app_paths_diff(keys: &[&str]) -> String {
+    let mut s = String::from("--- App Paths\n+++ App Paths (fixed)\n");
+    for k in keys {
+        let _ = writeln!(s, "-{k}");
+    }
+    s
+}
+
 /// The best fix a code can get and when, for the docs and `clisok rule`.
 /// `None`: the code has no fix, not even advice.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -233,6 +265,28 @@ mod tests {
         }
         // Every code is covered by one of the checks above or has no fix.
         assert_eq!(CODES.len(), problems.len() + 1 + 8 + 3);
+    }
+
+    #[test]
+    fn diff_marks_each_changed_entry_by_position() {
+        // The kept "a" and the removed later "a" have the same text.
+        let edit = |index, problem, raw: &str, new: Option<&str>| EntryEdit {
+            index,
+            problem,
+            raw: raw.into(),
+            new: new.map(Into::into),
+        };
+        let edits = [
+            edit(1, EntryProblem::Empty, "", None),
+            edit(2, EntryProblem::Duplicate, "a", None),
+            edit(3, EntryProblem::Whitespace, " b ", Some("b")),
+        ];
+        let sep = crate::platform::PATH_SEPARATOR;
+        let raw = ["a", "", "a", " b ", "c", ""].join(&sep.to_string());
+        let diff = path_diff(&raw, &edits);
+        let body: Vec<&str> = diff.lines().skip(2).collect();
+        assert_eq!(body, [r#" "a""#, r#"-"""#, r#"-"a""#, r#"-" b ""#, r#"+"b""#, r#" "c""#]);
+        assert_eq!(app_paths_diff(&["HKCU\\k"]).lines().last(), Some("-HKCU\\k"));
     }
 
     #[test]

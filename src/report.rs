@@ -194,10 +194,11 @@ impl Report {
             + self.tools.iter().flat_map(|t| &t.reasons).filter(|r| applies(r.fix.as_ref())).count()
     }
 
-    pub fn to_text(&self, verbose: bool) -> String {
+    /// `show_fixes`: list each fix `--fix` applied, not just how many.
+    pub fn to_text(&self, verbose: bool, show_fixes: bool) -> String {
         let mut s = String::new();
 
-        if !self.fixed.is_empty() {
+        if show_fixes && !self.fixed.is_empty() {
             s.push_str("Fixed\n");
             for f in &self.fixed {
                 let _ = writeln!(s, "[FIXED]  {} {} — {}", f.code, f.target, f.message);
@@ -295,9 +296,17 @@ impl Report {
             warns,
             self.app_paths.len(),
         );
-        if !self.fixed.is_empty() {
+        if let Some(first) = self.fixed.first() {
             let n = self.fixed.len();
-            let _ = writeln!(s, "Fixed {n} problem{}.", if n == 1 { "" } else { "s" });
+            let plural = if n == 1 { "" } else { "s" };
+            match first.backup.parent().filter(|_| !show_fixes) {
+                Some(dir) => {
+                    let _ = writeln!(s, "Fixed {n} problem{plural}; backups in {}.", dir.display());
+                }
+                None => {
+                    let _ = writeln!(s, "Fixed {n} problem{plural}.");
+                }
+            }
         }
         let (safe, unsafe_only) = (self.fixable(false), self.fixable(true) - self.fixable(false));
         if safe > 0 || unsafe_only > 0 {
