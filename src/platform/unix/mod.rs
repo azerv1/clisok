@@ -92,6 +92,12 @@ fn is_windows_program(path: &Path) -> bool {
     fs::File::open(path).and_then(|mut f| std::io::Read::read_exact(&mut f, &mut head)).is_ok() && &head == b"MZ"
 }
 
+/// Unix paths have one spelling; canonicalizing would resolve symlinks
+/// such as `/bin` -> `/usr/bin` and name a different place.
+pub fn display_case(p: &Path) -> PathBuf {
+    p.to_path_buf()
+}
+
 pub fn never_scan(dir: &Path) -> bool {
     on_windows_drive(dir)
 }

@@ -200,7 +200,7 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
     // Typing the name never reaches this copy, so by default it can't fail
     // the run; its static findings are still listed.
     if let Some(os_copy) = &res.hidden_by {
-        let note = format!("hidden behind {}, which runs instead", os_copy.display());
+        let note = format!("hidden behind {}, which runs instead", platform::display_case(os_copy).display());
         res.verdict = note_finding(&mut res, Code::Cli107, note, Verdict::Warn, &ctx.severities);
         return res;
     }

@@ -9,7 +9,7 @@
 //! - static checks: `inspect`
 //! - saved configuration: `persisted_path`, `truncated_saved_paths`, `broken_app_paths`, `AppPath`,
 //!   `fix_user_path`, `preview_user_path`, `delete_app_path`
-//! - terminal: `cursor_visible`
+//! - terminal: `cursor_visible`, `display_case`
 
 #[cfg(windows)]
 mod windows;

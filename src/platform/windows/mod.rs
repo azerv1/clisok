@@ -172,8 +172,30 @@ pub fn inspect(path: &Path, index: &PathIndex, path_dirs: &[PathBuf], insp: &mut
     }
 }
 
+/// The path spelled as it is on disk; PATH entries often aren't
+/// (`C:\windows\system32`). The path itself if it can't be read.
+pub fn display_case(p: &Path) -> PathBuf {
+    fs::canonicalize(p).map_or_else(|_| p.to_path_buf(), |real| display_path(&real))
+}
+
 /// Drop the `\\?\` prefix that canonicalize adds.
 fn display_path(p: &Path) -> PathBuf {
     let s = p.to_string_lossy();
     PathBuf::from(s.strip_prefix(r"\\?\").unwrap_or(&s))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_case_spells_the_path_as_on_disk() {
+        let root = std::env::var("SystemRoot").unwrap();
+        let typed = PathBuf::from(format!(r"{}\system32\CMD.EXE", root.to_lowercase()));
+        let shown = display_case(&typed).display().to_string();
+        // %SystemRoot% itself may be spelled `C:\WINDOWS`, so only the tail is known.
+        assert!(shown.eq_ignore_ascii_case(&typed.display().to_string()), "{shown}");
+        assert!(shown.ends_with(r"\System32\cmd.exe"), "{shown}");
+        assert_eq!(display_case(Path::new(r"C:\gone\x.exe")), PathBuf::from(r"C:\gone\x.exe"));
+    }
 }
