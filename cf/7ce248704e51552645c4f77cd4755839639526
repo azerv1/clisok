@@ -1,0 +1,57 @@
+src/pathenv.rs
+  s_77048c4b51552e::t_1d2592a6b2ee1f 149
+  s_77048c4b51552e::t_80cb7c6bebd98b 244-268
+  s_77048c4b51552e::t_96c682add9b91b 115-119,174
+  s_77048c4b51552e::t_4ec23868463348 140,145-148,150-173
+  s_77048c4b51552e::t_33e9e8f7742af4 175
+  s_77048c4b51552e::t_cb04fad7409b25 243
+src/fix.rs
+  s_77048c4b51552e::t_e2c4421c743957 2-4,8-9,18-19,33-37,41,46-60,71-74,130-141
+Cargo.toml
+  s_77048c4b51552e::t_b73d3d37669e73 18
+src/platform/unix/mod.rs
+  s_77048c4b51552e::t_b73d3d37669e73 18,126-130
+src/platform/windows/registry.rs
+  s_77048c4b51552e::t_dd0ecf14abde88 35-41,43-47,70-72,74-79,82-83,85-111
+  s_77048c4b51552e::t_f0540ba082156f 42,48-69,73,80-81,84
+  s_77048c4b51552e::t_1bc7b2296b63c9 181-209
+  s_77048c4b51552e::t_611383f7d3bbc5 5,8-10,13
+src/platform/mod.rs
+  s_77048c4b51552e::t_b73d3d37669e73 10-11
+src/platform/windows/mod.rs
+  s_77048c4b51552e::t_b73d3d37669e73 22
+src/check.rs
+  s_77048c4b51552e::t_c8aff44807dbd8 16,18,49-53,469
+  s_77048c4b51552e::t_9abaa360ae3ce1 557,668,691
+  s_77048c4b51552e::t_652fe673b7f9ae 739
+  s_77048c4b51552e::t_4cd48259b8f1d6 378,398,709-738,740
+  s_77048c4b51552e::t_cd8d166d3e58ee 289-292,301,305,312,317,327-353
+  s_77048c4b51552e::t_31244de3f000e2 381-396
+  s_77048c4b51552e::t_44ccd9f5408823 354-356,375-377
+  s_77048c4b51552e::t_e0882410014314 379-380
+  s_77048c4b51552e::t_17308a55a8b30e 397
+  s_77048c4b51552e::t_53785943a9c8d2 357-374
+src/report.rs
+  s_77048c4b51552e::t_d41a88f93ba45b 299-300
+  s_77048c4b51552e::t_924b1d8afdb12f 210
+  s_77048c4b51552e::t_78f2ee52e89d05 11,169-171,189-196,200,202-209,211-212,217-219,298,301-305
+  s_77048c4b51552e::t_955f3a16208f5d 201
+docs/src/usage.md
+  s_77048c4b51552e::t_ca5962590d10b3 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cf7ce248704e51552645c4f77cd4755839639526",
+  "prompts": {},
+  "sessions": {
+    "s_77048c4b51552e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd36474c-a2ea-4dd1-8d82-904f90318286",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
