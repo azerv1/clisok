@@ -1,0 +1,36 @@
+docs/src/usage.md
+  s_77048c4b51552e::t_1221b89c2a64d2 17
+src/check.rs
+  s_77048c4b51552e::t_bc9f2fc3d99331 45-47
+  s_77048c4b51552e::t_9e6fd9879c40b6 546-551,553-564
+  s_77048c4b51552e::t_b67a691c6d7fa9 838-867
+  s_77048c4b51552e::t_ba591eec32d702 22
+  s_2772915ffaee08::t_6eccd6704cecfb 836-837
+src/report.rs
+  s_77048c4b51552e::t_393e91091dc1e6 225-259
+  s_77048c4b51552e::t_df6291423ecde6 157-184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "54a2c61b8edcf024cdfb3872250089a06f982df4",
+  "prompts": {},
+  "sessions": {
+    "s_2772915ffaee08": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fc47d7c8-bf4b-4efd-9034-b04a8656be9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_77048c4b51552e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd36474c-a2ea-4dd1-8d82-904f90318286",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
