@@ -35,6 +35,11 @@ impl Fix {
         Fix { applicability, message: message.into() }
     }
 
+    /// Keep the message but never apply it (`[fix] unfixable`).
+    pub fn make_advice(&mut self) {
+        self.applicability = Applicability::DisplayOnly;
+    }
+
     pub fn is_safe(&self) -> bool {
         self.applicability == Applicability::Safe
     }

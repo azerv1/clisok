@@ -31,6 +31,9 @@ pub const KEYS: &[(&str, &str, &str)] = &[
         "Files or folders off PATH to check statically; never run. Globs allowed. Also listed by `list`.",
     ),
     ("severity.CLInnn", "\"error\", \"warn\" or \"off\"", "Override a code's severity. `off` drops it, like `--ignore`."),
+    ("fix.fixable", "list of codes", "Only these codes' fixes may be applied by `--fix`; default all."),
+    ("fix.unfixable", "list of codes", "These codes' fixes are never applied; they stay advice."),
+    ("fix.unsafe-fixes", "boolean", "With `--fix`, also apply unsafe fixes, like `--unsafe-fixes`."),
 ];
 
 #[derive(Debug, Default, Deserialize)]
@@ -40,6 +43,16 @@ struct File {
     check: CheckFile,
     #[serde(default)]
     severity: HashMap<Code, Severity>,
+    #[serde(default)]
+    fix: FixFile,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+struct FixFile {
+    fixable: Option<Vec<Code>>,
+    unfixable: Option<Vec<Code>>,
+    unsafe_fixes: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -64,6 +77,9 @@ pub struct Config {
     pub registry: Option<bool>,
     pub extra: Option<Vec<String>>,
     pub severity: HashMap<Code, Severity>,
+    pub fixable: Option<Vec<Code>>,
+    pub unfixable: Option<Vec<Code>>,
+    pub unsafe_fixes: Option<bool>,
     /// The files read, in order.
     pub files: Vec<PathBuf>,
 }
@@ -148,6 +164,9 @@ impl Config {
         self.registry = other.registry.or(self.registry);
         self.extra = other.extra.or(self.extra.take());
         self.severity.extend(other.severity);
+        self.fixable = other.fixable.or(self.fixable.take());
+        self.unfixable = other.unfixable.or(self.unfixable.take());
+        self.unsafe_fixes = other.unsafe_fixes.or(self.unsafe_fixes);
         self.files.push(file);
     }
 }
@@ -176,6 +195,9 @@ fn parse(src: &str, path: &Path, lookup: &dyn Fn(&str) -> Option<String>) -> Res
         registry: c.registry,
         extra: expand_all(c.extra)?,
         severity: file.severity,
+        fixable: file.fix.fixable,
+        unfixable: file.fix.unfixable,
+        unsafe_fixes: file.fix.unsafe_fixes,
         files: Vec::new(),
     })
 }
@@ -256,6 +278,17 @@ mod tests {
         assert_eq!(c.extra, Some(vec!["/home/me/tools".to_string()]));
         assert_eq!(c.severity[&Code::Cli007], Severity::Error);
         assert_eq!(c.severity[&Code::Cli008], Severity::Off);
+    }
+
+    #[test]
+    fn parses_the_fix_table() {
+        let src = "[fix]\nfixable = [\"CLI001\", \"cli007\"]\nunfixable = [\"CLI301\"]\nunsafe-fixes = true\n";
+        let c = parse(src, Path::new("t.toml"), &vars).unwrap();
+        assert_eq!(c.fixable, Some(vec![Code::Cli001, Code::Cli007]));
+        assert_eq!(c.unfixable, Some(vec![Code::Cli301]));
+        assert_eq!(c.unsafe_fixes, Some(true));
+        assert!(parse("[fix]\nunfixable = [\"CLI999\"]\n", Path::new("t.toml"), &vars).unwrap_err().contains("CLI999"));
+        assert!(parse("[fix]\nunsafe_fixes = true\n", Path::new("t.toml"), &vars).is_err());
     }
 
     #[test]

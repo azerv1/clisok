@@ -13,7 +13,7 @@ use crate::codes::{Code, Severities, Severity};
 use crate::config::{Config, ConfigArgs};
 use crate::discover::{self, PathCommand, Tool};
 use crate::exec::{self, Outcome, ToolErrorKind};
-use crate::fix::Applied;
+use crate::fix::{Applied, Fix};
 use crate::inspect::{self, Kind};
 use crate::pathenv::{self, EntryProblem, PathEntry, PathIndex};
 use crate::platform::{self, path_key};
@@ -332,6 +332,19 @@ fn path_findings(entries: &[PathEntry], registry: bool, severities: &Severities)
     (path_problems, app_paths)
 }
 
+/// `[fix] fixable` and `unfixable`: a fix for a code left out stays advice.
+fn limit_fixes(config: &Config, path_problems: &mut [EntryIssue], app_paths: &mut [AppPathIssue]) {
+    let allowed = |c: Code| {
+        config.fixable.as_ref().is_none_or(|f| f.contains(&c)) && !config.unfixable.as_ref().is_some_and(|u| u.contains(&c))
+    };
+    for p in path_problems.iter_mut().filter(|p| !allowed(p.code)) {
+        p.fix.iter_mut().for_each(Fix::make_advice);
+    }
+    for a in app_paths.iter_mut().filter(|a| !allowed(a.code)) {
+        a.fix.make_advice();
+    }
+}
+
 /// Apply the reported fixes that `--fix` may apply. A code turned off is not
 /// reported, so it is never fixed. A fix that fails is reported on stderr and
 /// its finding stays in the report.
@@ -394,12 +407,18 @@ pub fn check(args: &CheckArgs) -> ExitCode {
 
     let severities = severities(args, &config);
     let registry = check_registry(args, &config);
-    let (mut path_problems, mut app_paths) = path_findings(&entries, registry, &severities);
-    let fixed = if args.fix { apply_fixes(&path_problems, &app_paths, args.unsafe_fixes) } else { Vec::new() };
+    let findings = || {
+        let (mut path_problems, mut app_paths) = path_findings(&entries, registry, &severities);
+        limit_fixes(&config, &mut path_problems, &mut app_paths);
+        (path_problems, app_paths)
+    };
+    let (mut path_problems, mut app_paths) = findings();
+    let unsafe_fixes = args.unsafe_fixes || config.unsafe_fixes.unwrap_or(false);
+    let fixed = if args.fix { apply_fixes(&path_problems, &app_paths, unsafe_fixes) } else { Vec::new() };
     if !fixed.is_empty() {
         // Fixes change saved settings only, not this process's PATH, so only
         // the saved-settings findings can have changed.
-        (path_problems, app_paths) = path_findings(&entries, registry, &severities);
+        (path_problems, app_paths) = findings();
     }
 
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
@@ -745,5 +764,30 @@ mod tests {
             "Fixed\n[FIXED]  CLI007 (user) \"dup\" — removed duplicate entry\n         backup of the old value: C:\\b\\user-Path-1.txt\n"
         ));
         assert!(text.ends_with("Fixed 1 problem.\n"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn unfixable_codes_keep_their_advice_but_are_never_applied() {
+        let user = |raw: &str| pathenv::PathEntry { raw: raw.into(), dir: PathBuf::from(raw), origin: pathenv::PathOrigin::User };
+        let sev = Severities::default();
+        let issues = || -> Vec<EntryIssue> {
+            [(user(""), EntryProblem::Empty), (user("dup"), EntryProblem::Duplicate)]
+                .into_iter()
+                .filter_map(|(e, p)| EntryIssue::new(e, p, &sev))
+                .collect()
+        };
+        let applies = |p: &[EntryIssue]| -> Vec<bool> { p.iter().map(|i| i.fix.as_ref().unwrap().applies(true)).collect() };
+
+        let mut p = issues();
+        let config = Config { unfixable: Some(vec![Code::Cli007]), ..Config::default() };
+        limit_fixes(&config, &mut p, &mut []);
+        assert_eq!(applies(&p), [true, false]);
+        assert_eq!(p[1].fix.as_ref().unwrap().message, "remove it from the user PATH");
+
+        let mut p = issues();
+        let config = Config { fixable: Some(vec![Code::Cli007]), ..Config::default() };
+        limit_fixes(&config, &mut p, &mut []);
+        assert_eq!(applies(&p), [false, true]);
     }
 }

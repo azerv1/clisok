@@ -9,3 +9,6 @@
 | `check.registry` | boolean | Windows only: also check the saved PATH and App Paths, like `--registry`. |
 | `check.extra` | list of strings | Files or folders off PATH to check statically; never run. Globs allowed. Also listed by `list`. |
 | `severity.CLInnn` | "error", "warn" or "off" | Override a code's severity. `off` drops it, like `--ignore`. |
+| `fix.fixable` | list of codes | Only these codes' fixes may be applied by `--fix`; default all. |
+| `fix.unfixable` | list of codes | These codes' fixes are never applied; they stay advice. |
+| `fix.unsafe-fixes` | boolean | With `--fix`, also apply unsafe fixes, like `--unsafe-fixes`. |

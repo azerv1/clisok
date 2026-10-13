@@ -14,6 +14,9 @@ extra   = [
 [severity]
 CLI007 = "error"   # duplicates fail the run
 CLI008 = "off"     # don't report stale terminals
+
+[fix]
+unfixable = ["CLI301"]   # never delete App Paths keys, even with --unsafe-fixes
 ```
 
 ## Where clisok looks
@@ -21,7 +24,7 @@ CLI008 = "off"     # don't report stale terminals
 1. **User file** — `%APPDATA%\clisok\config.toml` on Windows, `$XDG_CONFIG_HOME/clisok/config.toml` elsewhere (default `~/.config/clisok/config.toml`).
 2. **Project file** — `.clisok.toml` in the current folder or the nearest folder above it. The search stops at a folder holding `.git`, or at your home folder.
 
-The project file is read after the user file, and its settings replace the user file's. `[severity]` entries merge per code. `--config FILE` reads only that file; `--no-config` reads none. Both reports list the files read under `config` in JSON.
+The project file is read after the user file, and its settings replace the user file's. `[severity]` entries merge per code; `[fix]` lists are replaced as a whole. `--config FILE` reads only that file; `--no-config` reads none. Both reports list the files read under `config` in JSON.
 
 ## Variables
 
