@@ -1,0 +1,61 @@
+.github/workflows/action-test.yml
+  s_77048c4b51552e::t_c47bc52be29bf7 29
+src/check.rs
+  s_77048c4b51552e::t_7f0589ae574781 552-560,562-564
+  s_77048c4b51552e::t_596b22522c49f0 364-368
+  s_77048c4b51552e::t_165ca08e78a608 43-45
+  s_77048c4b51552e::t_4575923c82d7e1 17
+README.md
+  s_77048c4b51552e::t_c47bc52be29bf7 9
+action.yml
+  s_77048c4b51552e::t_c47bc52be29bf7 12
+src/main.rs
+  s_77048c4b51552e::t_455972f6cc2fd7 14,73-89,95,120-121
+src/rule.rs
+  s_77048c4b51552e::t_8777bf0e3bef20 20-28,63
+docs/src/github-action.md
+  s_77048c4b51552e::t_c47bc52be29bf7 11-18
+docs/src/introduction.md
+  s_77048c4b51552e::t_c47bc52be29bf7 9
+src/output.rs
+  s_77048c4b51552e::t_5484cfaec6c6a5 1-286
+src/report.rs
+  s_77048c4b51552e::t_82bd5559f52432 374-375,379-384
+  s_2772915ffaee08::t_c70f1d19b3331a 385
+src/list.rs
+  s_77048c4b51552e::t_8777bf0e3bef20 13-18,25-27,71
+src/config.rs
+  s_77048c4b51552e::t_7b294a4a0fe9b7 295-300
+  s_77048c4b51552e::t_fbc2f52502ae75 16,28-32,73-74,87,175,207
+  s_2772915ffaee08::t_35ef174b102976 294
+docs/src/config-keys.md
+  s_77048c4b51552e::t_58859f7647090d 9
+docs/src/usage.md
+  s_77048c4b51552e::t_c47bc52be29bf7 16-22,43,52
+PLAN.md
+  s_77048c4b51552e::t_c47bc52be29bf7 27,39,74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f3c0123f91c3c3498528d5368bd34c63f97ca59d",
+  "prompts": {},
+  "sessions": {
+    "s_2772915ffaee08": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fc47d7c8-bf4b-4efd-9034-b04a8656be9a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_77048c4b51552e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd36474c-a2ea-4dd1-8d82-904f90318286",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
