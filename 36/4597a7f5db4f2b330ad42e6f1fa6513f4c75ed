@@ -1,0 +1,50 @@
+src/platform/unix/mod.rs
+  s_77048c4b51552e::t_7c03e619679e59 131-134
+src/check.rs
+  s_77048c4b51552e::t_63b45187b9b748 808,811-816,818
+  s_77048c4b51552e::t_b6bd1ab222aec8 30
+  s_77048c4b51552e::t_5864d71ca29830 553-554
+  s_77048c4b51552e::t_ee9e4abf9a51c7 402
+  s_77048c4b51552e::t_709b76396593e4 359-361,367-397
+  s_77048c4b51552e::t_659d1ae7df69ff 57,59-68
+  s_77048c4b51552e::t_dbf263e9339a55 462-464
+  s_77048c4b51552e::t_a1a5f4faf8b49e 398-401
+  s_77048c4b51552e::t_a9571ff9f4eed8 16,551,636,746,772,779,798
+src/platform/mod.rs
+  s_77048c4b51552e::t_7c03e619679e59 11
+src/main.rs
+  s_77048c4b51552e::t_adcfca91cb3cc6 74-82
+src/platform/windows/mod.rs
+  s_77048c4b51552e::t_7c03e619679e59 22
+src/platform/windows/registry.rs
+  s_77048c4b51552e::t_7c03e619679e59 43,50-68
+  s_77048c4b51552e::t_1f9c9f849917d8 69
+docs/src/usage.md
+  s_77048c4b51552e::t_9951ad8aedeffa 21-23
+src/report.rs
+  s_77048c4b51552e::t_88dea5f42a5260 197-198,201
+  s_77048c4b51552e::t_580ebd5ca40b47 299,301-309
+src/fix.rs
+  s_77048c4b51552e::t_7c03e619679e59 4,11,144-174,270-290
+  s_77048c4b51552e::t_38758231220be5 291
+docs/src/fixes.md
+  s_77048c4b51552e::t_58e863e6a912f1 33-52
+src/pathenv.rs
+  s_77048c4b51552e::t_7c03e619679e59 145-153,157-158,177,196,282,289,295,306-307
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "364597a7f5db4f2b330ad42e6f1fa6513f4c75ed",
+  "prompts": {},
+  "sessions": {
+    "s_77048c4b51552e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd36474c-a2ea-4dd1-8d82-904f90318286",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
