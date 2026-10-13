@@ -179,10 +179,11 @@ fn looks_like_help(output: &str) -> bool {
     HELP_TEXT.is_match(output) || output.lines().filter(|l| FLAG_LINE.is_match(l)).count() >= 2
 }
 
-/// The tool quoted our flag back in an error ("not a repository: --help"),
-/// so it started and simply took the flag as an ordinary argument.
+/// The tool quoted our flag back in an error ("not a repository: --help",
+/// "No module named fontTools.--help"), so it started and simply took the
+/// flag as an ordinary argument.
 fn echoes_arg(output: &str, arg: &str) -> bool {
-    let pat = format!(r#"(?m)(^|[\s:'"(]){}($|[\s'")])"#, regex::escape(arg));
+    let pat = format!(r#"(?m)(^|[\s:'"(./\\]){}($|[\s'")])"#, regex::escape(arg));
     Regex::new(&pat).is_ok_and(|re| re.is_match(output))
 }
 
@@ -353,6 +354,9 @@ operable program or batch file."#))));
     fn echoed_flag_counts_as_started() {
         assert_eq!(judge(&run(1, "Error: not a repository: --help\n")), Judgement::Usage);
         assert_eq!(judge(&run(1, "Could not detect anything for --help\n")), Judgement::Usage);
+        // fonttools takes its first argument as a submodule name.
+        assert_eq!(judge(&run(1, "ImportError: No module named fontTools.--help\n")), Judgement::Usage);
+        assert_eq!(judge(&run(1, "error: no such file: C:\\tools\\--help\n")), Judgement::Usage);
         // A word that merely contains the flag text is not an echo.
         assert_eq!(judge(&run(1, "Error: unsupported --helper mode\n")), Judgement::Fail);
     }
