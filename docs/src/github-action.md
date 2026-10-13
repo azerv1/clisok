@@ -8,6 +8,14 @@ Check the runner's PATH, for example after your setup steps:
     args: check --skip some-noisy-tool
 ```
 
+To show each finding as an annotation on the run, add `--output-format github`:
+
+```yaml
+- uses: azerv1/clisok@0.4.0
+  with:
+    args: check --output-format github
+```
+
 | Input     | Default | Meaning |
 |-----------|---------|---------|
 | `args`    | `check` | Arguments passed to clisok, split on whitespace |

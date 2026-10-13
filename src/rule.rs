@@ -17,9 +17,15 @@ pub struct RuleArgs {
     /// Explain every code
     #[arg(long)]
     all: bool,
-    /// Print as JSON
-    #[arg(long)]
-    json: bool,
+    /// How to print it
+    #[arg(long, value_enum, value_name = "FORMAT", default_value_t = RuleFormat::Text)]
+    output_format: RuleFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum RuleFormat {
+    Text,
+    Json,
 }
 
 #[derive(Serialize)]
@@ -54,7 +60,7 @@ pub fn rule(args: &RuleArgs) -> ExitCode {
         Some(c) => vec![c.info()],
         None => CODES.iter().collect(),
     };
-    let out = if args.json {
+    let out = if args.output_format == RuleFormat::Json {
         let rules: Vec<Rule> = infos.into_iter().map(Rule::new).collect();
         let json = if args.all { serde_json::to_string_pretty(&rules) } else { serde_json::to_string_pretty(&rules[0]) };
         match json {

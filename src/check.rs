@@ -14,6 +14,7 @@ use crate::config::{Config, ConfigArgs};
 use crate::discover::{self, PathCommand, Tool};
 use crate::exec::{self, Outcome, ToolErrorKind};
 use crate::fix::{self, Applied, Fix};
+use crate::output::{self, OutputFormat};
 use crate::inspect::{self, Kind};
 use crate::pathenv::{self, EntryProblem, PathEntry, PathIndex};
 use crate::platform::{self, path_key};
@@ -39,9 +40,9 @@ pub struct CheckArgs {
     /// static checks only, nothing there is run
     #[arg(long)]
     system: bool,
-    /// Print the report as JSON
-    #[arg(long)]
-    json: bool,
+    /// How to print the report [default: full]
+    #[arg(long, value_enum, value_name = "FORMAT")]
+    output_format: Option<OutputFormat>,
     /// Print how many findings each code has instead of the findings
     #[arg(long)]
     statistics: bool,
@@ -360,6 +361,11 @@ fn limit_fixes(config: &Config, path_problems: &mut [EntryIssue], app_paths: &mu
     }
 }
 
+/// Pretty JSON and a final newline.
+fn to_json(value: &impl serde::Serialize) -> Result<String, String> {
+    serde_json::to_string_pretty(value).map(|j| format!("{j}\n")).map_err(|e| e.to_string())
+}
+
 /// The PATH problems among the reported ones whose fix `--fix` may apply.
 fn fixable_problems(path_problems: &[EntryIssue], unsafe_fixes: bool) -> Vec<EntryProblem> {
     let mut fixable = Vec::new();
@@ -543,25 +549,22 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     platform::cleanup();
     let report =
         Report { schema: SCHEMA_VERSION, command: "check", config: config.files, fixed, path_problems, app_paths, tools };
-    let json = match (args.json, args.statistics) {
-        (true, true) => Some(serde_json::to_string_pretty(&report.statistics())),
-        (true, false) => Some(serde_json::to_string_pretty(&report)),
-        (false, true) => {
-            print_stdout(&statistics_text(&report.statistics()));
-            None
-        }
-        (false, false) => {
-            print_stdout(&report.to_text(args.verbose, args.show_fixes));
-            None
-        }
+    let format = args.output_format.or(config.output_format).unwrap_or(OutputFormat::Full);
+    let out = match (format, args.statistics) {
+        (OutputFormat::Json, true) => to_json(&report.statistics()),
+        (_, true) => Ok(statistics_text(&report.statistics())),
+        (OutputFormat::Full, false) => Ok(report.to_text(args.verbose, args.show_fixes)),
+        (OutputFormat::Concise, false) => Ok(output::concise(&report)),
+        (OutputFormat::Json, false) => to_json(&report),
+        (OutputFormat::Github, false) => Ok(output::github(&report)),
+        (OutputFormat::Sarif, false) => to_json(&output::sarif(&report)),
     };
-    match json {
-        Some(Ok(j)) => print_stdout(&format!("{j}\n")),
-        Some(Err(e)) => {
+    match out {
+        Ok(text) => print_stdout(&text),
+        Err(e) => {
             eprintln!("clisok: {e}");
             return ExitCode::from(2);
         }
-        None => {}
     }
     let fixed_any = args.exit_non_zero_on_fix && !report.fixed.is_empty();
     ExitCode::from(report.exit_code().max(u8::from(fixed_any)))

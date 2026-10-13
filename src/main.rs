@@ -11,6 +11,7 @@ mod exec;
 mod fix;
 mod inspect;
 mod list;
+mod output;
 mod pathenv;
 mod platform;
 mod pool;
@@ -69,15 +70,29 @@ mod tests {
 
     #[test]
     fn check_options_live_under_check() {
-        let cli = Cli::try_parse_from(["clisok", "check", "--json", "-v", "--skip", "a", "--skip", "b"]).unwrap();
-        assert!(matches!(cli.command, Some(Command::Check(_))));
-        assert!(Cli::try_parse_from(["clisok", "--json"]).is_err());
+        let args = ["clisok", "check", "--output-format", "sarif", "-v", "--skip", "a", "--skip", "b"];
+        assert!(matches!(Cli::try_parse_from(args).unwrap().command, Some(Command::Check(_))));
+        assert!(Cli::try_parse_from(["clisok", "--output-format", "json"]).is_err());
+    }
+
+    #[test]
+    fn output_formats_are_per_command() {
+        let parses = |args: &[&str]| Cli::try_parse_from([&["clisok"], args].concat()).is_ok();
+        for f in ["full", "concise", "json", "github", "sarif"] {
+            assert!(parses(&["check", "--output-format", f]), "{f}");
+        }
+        assert!(!parses(&["check", "--json"]));
+        assert!(!parses(&["check", "--output-format", "text"]));
+        assert!(parses(&["list", "--output-format", "json"]));
+        assert!(!parses(&["list", "--output-format", "sarif"]));
+        assert!(parses(&["rule", "CLI001", "--output-format", "text"]));
+        assert!(!parses(&["rule", "CLI001", "--output-format", "full"]));
     }
 
     #[test]
     fn rule_takes_one_code_or_all() {
         assert!(matches!(Cli::try_parse_from(["clisok", "rule", "cli202"]).unwrap().command, Some(Command::Rule(_))));
-        assert!(Cli::try_parse_from(["clisok", "rule", "--all", "--json"]).is_ok());
+        assert!(Cli::try_parse_from(["clisok", "rule", "--all", "--output-format", "json"]).is_ok());
         assert!(Cli::try_parse_from(["clisok", "rule"]).is_err());
         assert!(Cli::try_parse_from(["clisok", "rule", "CLI999"]).is_err());
         assert!(Cli::try_parse_from(["clisok", "rule", "CLI001", "--all"]).is_err());
@@ -102,8 +117,8 @@ mod tests {
     }
 
     #[test]
-    fn list_takes_system_and_json_only() {
-        let cli = Cli::try_parse_from(["clisok", "list", "--system", "--json"]).unwrap();
+    fn list_takes_system_and_output_format_only() {
+        let cli = Cli::try_parse_from(["clisok", "list", "--system", "--output-format", "json"]).unwrap();
         assert!(matches!(cli.command, Some(Command::List(_))));
         assert!(Cli::try_parse_from(["clisok", "list", "--verbose"]).is_err());
     }

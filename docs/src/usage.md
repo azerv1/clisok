@@ -13,8 +13,13 @@ Tools
          help: reinstall the tool so it uses an installed interpreter, or remove this launcher
 ```
 
-- **`--json`** — print the report as JSON on stdout; progress stays on stderr.
-- **`--statistics`** — print how many findings each code has, most first, instead of the findings: `19  CLI107  [ ] hidden behind an OS copy`. `[*]` means `--fix` fixes all of them, `[-]` some. With `--json`, a list of `code`, `name`, `count` and `fixable`. The exit status is the same as without it.
+- **`--output-format FORMAT`** — how to print the report; progress always goes to stderr:
+  - `full` (default) — grouped by PATH entries, App Paths and tools, with fixes and a summary.
+  - `concise` — one line per finding: `<tool path or PATH entry>: CODE message`, `[*]` when `--fix` fixes it.
+  - `json` — the whole report; see [JSON](#json).
+  - `github` — [GitHub Actions annotations](github-action.md), `::error` or `::warning` per finding.
+  - `sarif` — SARIF 2.1.0 for code-scanning tools: every code is a rule, and a finding's fix is under `properties.fix`.
+- **`--statistics`** — print how many findings each code has, most first, instead of the findings: `19  CLI107  [ ] hidden behind an OS copy`. `[*]` means `--fix` fixes all of them, `[-]` some. With `--output-format json`, a list of `code`, `name`, `count` and `fixable`. The exit status is the same as without it.
 - **`-v`, `--verbose`** — also list passing and skipped tools, and shadowed copies.
 - **`--skip NAME`** — don't run this tool. Repeatable.
 - **`--fix`** — apply the safe fixes, marked `[*]` and shown as `fix:` lines. On Windows that removes empty and repeated entries from the saved user PATH (they need `--registry` to show up). The old value is saved under `%LOCALAPPDATA%\clisok\backups\` first, and the report shows what is left afterwards. Advice (`help:` lines) is never applied.
@@ -35,7 +40,7 @@ Exit status: 0 when nothing fails, 1 when something does, 2 when clisok itself c
 
 Lists every command on PATH and the copies it shadows. Nothing is run. Commands found only in the OS's own folders are left out unless `--system` is given. OS copies are marked `[OS]`, and programs from the config's `extra` places are marked `[EXTRA]`.
 
-- **`--json`** — print the list as JSON.
+- **`--output-format full|json`** — print the list as text (default) or JSON.
 - **`--system`** — include commands found only in the OS's own folders.
 - **`--config FILE`**, **`--no-config`** — as for `check`.
 
@@ -44,7 +49,7 @@ Lists every command on PATH and the copies it shadows. Nothing is run. Commands 
 Explains a code, as `ruff rule` does: what it means, its default severity, what `--fix` can do about it, and how to resolve it. The same text is on the [codes page](codes.md).
 
 - **`--all`** — explain every code.
-- **`--json`** — print as JSON: `code`, `title`, `default`, `fix` (`safe`, `unsafe`, `display-only` or `null`), `fix_safety` and `explanation`.
+- **`--output-format text|json`** — print as text (default) or JSON: `code`, `title`, `default`, `fix` (`safe`, `unsafe`, `display-only` or `null`), `fix_safety` and `explanation`.
 
 ## JSON
 

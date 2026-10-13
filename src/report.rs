@@ -371,12 +371,17 @@ impl Report {
                 }
             }
         }
-        let (safe, unsafe_only) = (self.fixable(false), self.fixable(true) - self.fixable(false));
-        if safe > 0 || unsafe_only > 0 {
-            let more = if unsafe_only > 0 { format!(" ({unsafe_only} more with --unsafe-fixes)") } else { String::new() };
-            let _ = writeln!(s, "[*] {safe} fixable with --fix{more}.");
+        if let Some(line) = self.fixable_line() {
+            let _ = writeln!(s, "{line}");
         }
         s
+    }
+
+    /// `[*] N fixable with --fix (M more with --unsafe-fixes).`, when any is.
+    pub fn fixable_line(&self) -> Option<String> {
+        let (safe, unsafe_only) = (self.fixable(false), self.fixable(true) - self.fixable(false));
+        let more = if unsafe_only > 0 { format!(" ({unsafe_only} more with --unsafe-fixes)") } else { String::new() };
+        (safe > 0 || unsafe_only > 0).then(|| format!("[*] {safe} fixable with --fix{more}."))
     }
 }
 

@@ -6,6 +6,7 @@
 | `check.timeout` | integer | Seconds before a test run is killed, like `--timeout`. |
 | `check.jobs` | integer | Tools checked in parallel, like `--jobs`. |
 | `check.system` | boolean | Also check the OS's own folders, like `--system`. Also applies to `list`. |
+| `check.output-format` | `full`, `concise`, `json`, `github` or `sarif` | How `check` prints the report, like `--output-format`. |
 | `check.registry` | boolean | Windows only: also check the saved PATH and App Paths, like `--registry`. |
 | `check.extra` | list of strings | Files or folders off PATH to check statically; never run. Globs allowed. Also listed by `list`. |
 | `severity.CLInnn` | "error", "warn" or "off" | Override a code's severity. `off` drops it, like `--ignore`. |

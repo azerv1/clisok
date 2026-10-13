@@ -13,6 +13,7 @@ use serde::Deserialize;
 use toml::Spanned;
 
 use crate::codes::{Code, Severity};
+use crate::output::OutputFormat;
 
 /// The project file's name.
 pub const FILE_NAME: &str = ".clisok.toml";
@@ -24,6 +25,11 @@ pub const KEYS: &[(&str, &str, &str)] = &[
     ("check.timeout", "integer", "Seconds before a test run is killed, like `--timeout`."),
     ("check.jobs", "integer", "Tools checked in parallel, like `--jobs`."),
     ("check.system", "boolean", "Also check the OS's own folders, like `--system`. Also applies to `list`."),
+    (
+        "check.output-format",
+        "`full`, `concise`, `json`, `github` or `sarif`",
+        "How `check` prints the report, like `--output-format`.",
+    ),
     ("check.registry", "boolean", "Windows only: also check the saved PATH and App Paths, like `--registry`."),
     (
         "check.extra",
@@ -64,6 +70,8 @@ struct CheckFile {
     system: Option<bool>,
     registry: Option<bool>,
     extra: Option<Vec<Spanned<String>>>,
+    #[serde(rename = "output-format")]
+    output_format: Option<OutputFormat>,
 }
 
 /// Settings from every config file read, merged, with variables expanded.
@@ -76,6 +84,7 @@ pub struct Config {
     #[cfg_attr(not(windows), allow(dead_code))]
     pub registry: Option<bool>,
     pub extra: Option<Vec<String>>,
+    pub output_format: Option<OutputFormat>,
     pub severity: HashMap<Code, Severity>,
     pub fixable: Option<Vec<Code>>,
     pub unfixable: Option<Vec<Code>>,
@@ -163,6 +172,7 @@ impl Config {
         self.system = other.system.or(self.system);
         self.registry = other.registry.or(self.registry);
         self.extra = other.extra.or(self.extra.take());
+        self.output_format = other.output_format.or(self.output_format);
         self.severity.extend(other.severity);
         self.fixable = other.fixable.or(self.fixable.take());
         self.unfixable = other.unfixable.or(self.unfixable.take());
@@ -194,6 +204,7 @@ fn parse(src: &str, path: &Path, lookup: &dyn Fn(&str) -> Option<String>) -> Res
         system: c.system,
         registry: c.registry,
         extra: expand_all(c.extra)?,
+        output_format: c.output_format,
         severity: file.severity,
         fixable: file.fix.fixable,
         unfixable: file.fix.unfixable,
@@ -278,6 +289,13 @@ mod tests {
         assert_eq!(c.extra, Some(vec!["/home/me/tools".to_string()]));
         assert_eq!(c.severity[&Code::Cli007], Severity::Error);
         assert_eq!(c.severity[&Code::Cli008], Severity::Off);
+    }
+
+    #[test]
+    fn parses_the_output_format() {
+        let c = parse("[check]\noutput-format = \"github\"\n", Path::new("t.toml"), &vars).unwrap();
+        assert_eq!(c.output_format, Some(OutputFormat::Github));
+        assert!(parse("[check]\noutput-format = \"text\"\n", Path::new("t.toml"), &vars).is_err());
     }
 
     #[test]

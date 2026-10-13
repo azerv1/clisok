@@ -26,4 +26,4 @@ jobs:
         uses: ./
         continue-on-error: true
         with:
-          args: check --json
+          args: check --output-format json

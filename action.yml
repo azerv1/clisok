@@ -9,7 +9,7 @@ inputs:
     description: Release to use, e.g. 0.4.0. Defaults to the ref this action is used at, or the latest release.
     default: ''
   args:
-    description: Arguments passed to clisok, split on whitespace (e.g. "check --json --skip foo").
+    description: Arguments passed to clisok, split on whitespace (e.g. "check --output-format github --skip foo").
     default: check
 
 runs:

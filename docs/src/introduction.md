@@ -6,7 +6,7 @@ A tidy PATH isn't the same as a working system. Every folder on PATH can exist w
 
 ```
 clisok check            # check PATH entries and every tool on PATH
-clisok check --json     # same, as JSON on stdout
+clisok check --output-format json  # same, as JSON on stdout
 clisok list             # list every command and the copies it shadows; runs nothing
 ```
 

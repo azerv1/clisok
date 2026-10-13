@@ -10,15 +10,21 @@ use crate::pathenv::{self, PathIndex};
 use crate::platform::path_key;
 use crate::report::{ExtraFile, ListReport, SCHEMA_VERSION, print_stdout};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ListFormat {
+    Full,
+    Json,
+}
+
 #[derive(clap::Args)]
 pub struct ListArgs {
     #[cfg_attr(windows, doc = "Also list commands found only in Windows' own folder (%SystemRoot%)")]
     #[cfg_attr(unix, doc = "Also list commands found only in the distro's own folders (/usr/bin, /bin, /usr/sbin, /sbin)")]
     #[arg(long)]
     system: bool,
-    /// Print the list as JSON
-    #[arg(long)]
-    json: bool,
+    /// How to print the list
+    #[arg(long, value_enum, value_name = "FORMAT", default_value_t = ListFormat::Full)]
+    output_format: ListFormat,
     #[command(flatten)]
     config: ConfigArgs,
 }
@@ -62,7 +68,7 @@ pub fn list(args: &ListArgs) -> ExitCode {
     };
 
     let report = ListReport { schema: SCHEMA_VERSION, command: "list", config: config.files, commands, extra };
-    if args.json {
+    if args.output_format == ListFormat::Json {
         match serde_json::to_string_pretty(&report) {
             Ok(j) => print_stdout(&format!("{j}\n")),
             Err(e) => {

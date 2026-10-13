@@ -24,7 +24,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **`clisok`** — print help and exit successfully. The old flat flags move under `check`; used bare, they get clap's standard unknown-argument error. clisok was never released, so old invocations get no special handling.
 
-- **`clisok check [existing options]`** — preserve the current PATH, launcher, dependency, and test-run checks (`--version`, then `--help`), including `--json`, `--verbose`, `--skip`, `--jobs`, `--timeout`, Windows `--registry`, and `--system` (now on every platform).
+- **`clisok check [existing options]`** — preserve the current PATH, launcher, dependency, and test-run checks (`--version`, then `--help`), including `--output-format`, `--verbose`, `--skip`, `--jobs`, `--timeout`, Windows `--registry`, and `--system` (now on every platform).
   - **Repair preview** (done) — each finding may carry a fix, printed under it; JSON carries the same. Plain `check` is the preview. See **Fixes**.
   - **Hidden behind an OS copy** — when an OS-owned copy is active and hides a user-installed copy, report a tool-level `[WARN]`. The OS copy is never run, the hidden copy gets static inspection only, and the exit code is unaffected. Today the whole command is dropped (`src/discover.rs:58`).
 
@@ -36,7 +36,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **Name and scope** (done) — renamed from pathsok, then binok, to clisok, since the tool checks the system's CLI tools, not only PATH. Codes moved from `PATHnnn` to `CLInnn` before any of them was released. PATH-entry checks and `list` stay even though pathlint and patholog also cover them: PATH entries are one input to the executables check.
 
-- **`clisok list [--system] [--json]`** — enumerate every active command and all shadowed copies without executing tools. By default, omit commands that exist only in OS-owned directories, but list any command with at least one non-OS copy, including when the OS copy is the active one. `--system` lists everything. OS copies are always marked.
+- **`clisok list [--system] [--output-format full|json]`** — enumerate every active command and all shadowed copies without executing tools. By default, omit commands that exist only in OS-owned directories, but list any command with at least one non-OS copy, including when the OS copy is the active one. `--system` lists everything. OS copies are always marked.
 
 - **`clisok check --fix`** — repair only generated artifacts with unambiguous manager ownership, using the manager's own offline operation where one exists. Remain offline and never modify an unowned executable. Orphan shims, whose package the manager confirms is absent, are skipped with the exact manager command to remove them, e.g. `npm rm -g foo`.
 
@@ -71,7 +71,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **PATH invariant** — clisok never breaks PATH. Before writing, resolve every command name under the old and new persisted PATH (machine + user, expanded). If any previously reachable name would resolve to a different file or disappear, abort the write and report `skipped: would change resolution of X`. The backup stays as a safety net; there is no restore command.
 
-- **Reporting** — every finding carries its `code` and effective `severity` (done). Add a JSON schema version, command mode, inventory entries, planned and applied repair actions, final verdicts, and backup location where applicable. Under `--json`, stdout contains JSON only; progress and diagnostics remain on stderr. This already holds today (`src/main.rs:291`, `src/progress.rs`).
+- **Reporting** — every finding carries its `code` and effective `severity` (done). Add a JSON schema version, command mode, inventory entries, planned and applied repair actions, final verdicts, and backup location where applicable. Under `--output-format json`, stdout contains JSON only; progress and diagnostics remain on stderr. This already holds today (`src/main.rs:291`, `src/progress.rs`).
 
 **Platform path** — common Unix behavior → OS-specific binary inspection → OS-specific safety rules.
 
