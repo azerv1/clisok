@@ -63,6 +63,14 @@ static QUIET_LOG: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)"level"\s*:\s*"(trace|debug|info)"|\blevel=(trace|debug|info)\b"#).unwrap()
 });
 
+/// The exception line that ends a Python traceback (never indented, unlike
+/// the source lines quoted above it).
+static PY_EXCEPTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[\w.]*(Error|Exception)\b").unwrap());
+
+/// Python exceptions that mean something is missing, not that the tool crashed.
+static PY_MISSING: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(\w+\.)*(ModuleNotFoundError|ImportError)\b").unwrap());
+
 /// Output that means the tool started but doesn't take the flag we passed.
 static USAGE: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
@@ -166,8 +174,9 @@ pub fn judge(a: &Attempt) -> Judgement {
     }
     // A line quoting our flag back ("can't open script "--help"") is the tool
     // misreading the flag, not something missing.
-    if let Some(line) =
-        a.output.lines().find(|l| BROKEN.is_match(l) && !echoes_arg(l, &a.arg) && !QUIET_LOG.is_match(l))
+    if let Some(line) = broken_candidates(&a.output)
+        .into_iter()
+        .find(|l| BROKEN.is_match(l) && !echoes_arg(l, &a.arg) && !QUIET_LOG.is_match(l))
     {
         return Judgement::Broken(clip(line.trim(), 200));
     }
@@ -181,6 +190,16 @@ pub fn judge(a: &Attempt) -> Judgement {
         return Judgement::Usage;
     }
     Judgement::Fail
+}
+
+/// Lines that may say something is missing. A Python traceback quotes source
+/// lines ("Failed to locate a test script ...") that only matter if they are
+/// raised, so only its exception line counts, and only a missing-thing one.
+fn broken_candidates(output: &str) -> Vec<&str> {
+    if !output.contains("Traceback (most recent call last)") {
+        return output.lines().collect();
+    }
+    output.lines().rfind(|l| PY_EXCEPTION.is_match(l)).filter(|l| PY_MISSING.is_match(l)).into_iter().collect()
 }
 
 fn looks_like_help(output: &str) -> bool {
@@ -352,6 +371,8 @@ operable program or batch file."#))));
         assert!(is_broken(judge(&run(1, "lua: tool.lua:1: module 'somerock' not found:\n\tno field package.preload['somerock']\n"))));
         assert!(is_broken(judge(&run(2, "Can't locate Some/Module.pm in @INC (you may need to install the Some::Module module)\n"))));
         assert!(is_broken(judge(&run(1, "Error: Cannot find module 'C:\\lib\\tool.js'\n"))));
+        let nested = "Traceback (most recent call last):\n  File \"x.py\", line 3, in <module>\n    import yaml\n  File \"y.py\", line 1\nModuleNotFoundError: No module named 'yaml'\n";
+        assert_eq!(judge(&run(1, nested)), Judgement::Broken("ModuleNotFoundError: No module named 'yaml'".into()));
         assert!(is_broken(judge(&run(1, "error while loading shared libraries: libfoo.so.1: cannot open shared object file: No such file or directory\n"))));
     }
 
@@ -429,6 +450,8 @@ operable program or batch file."#))));
             run(127, "sh: 1: tool: Permission denied\n"),
             run(-1073741819, ""),
             run(1, "Traceback (most recent call last):\n  File \"x.py\", line 1\nKeyError: 'a'\n"),
+            // pywin32_testall: the quoted source line is not the error.
+            run(1, "Traceback (most recent call last):\n  File \"pywin32_testall.py\", line 38, in main\n    \"Failed to locate a test script in one of %s\" % possible_locations\nRuntimeError: Failed to locate a test script in one of ['C:\\\\x']\n"),
             run(1, "AttributeError: module 'x' has no attribute 'y'\n"),
             run(101, "thread 'main' panicked at src/main.rs:1:1:\n"),
         ];
