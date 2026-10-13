@@ -174,7 +174,6 @@ pub fn app_paths_diff(keys: &[&str]) -> String {
 
 /// The best fix a code can get and when, for the docs and `clisok rule`.
 /// `None`: the code has no fix, not even advice.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn safety(code: Code) -> (Option<Applicability>, &'static str) {
     use Applicability::*;
     match code {

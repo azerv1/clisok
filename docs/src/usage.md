@@ -38,6 +38,13 @@ Lists every command on PATH and the copies it shadows. Nothing is run. Commands 
 - **`--system`** — include commands found only in the OS's own folders.
 - **`--config FILE`**, **`--no-config`** — as for `check`.
 
+## `clisok rule CODE`
+
+Explains a code, as `ruff rule` does: what it means, its default severity, what `--fix` can do about it, and how to resolve it. The same text is on the [codes page](codes.md).
+
+- **`--all`** — explain every code.
+- **`--json`** — print as JSON: `code`, `title`, `default`, `fix` (`safe`, `unsafe`, `display-only` or `null`), `fix_safety` and `explanation`.
+
 ## JSON
 
 Both commands print a `schema` version and the `command` that produced the report. The version goes up only when a field is removed or changes meaning; new fields don't change it. Each finding carries its `code` and its effective `severity`. A finding may also carry a `fix`: its `applicability` and a `message`. Right now every fix is `display-only` advice, printed as a `help:` line under the finding.

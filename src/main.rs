@@ -16,6 +16,7 @@ mod platform;
 mod pool;
 mod progress;
 mod report;
+mod rule;
 
 use std::process::ExitCode;
 
@@ -34,6 +35,8 @@ enum Command {
     Check(check::CheckArgs),
     /// List every command on PATH and the copies it shadows, without running anything
     List(list::ListArgs),
+    /// Explain a code: what it means, its default severity and its fix
+    Rule(rule::RuleArgs),
 }
 
 fn main() -> ExitCode {
@@ -41,6 +44,7 @@ fn main() -> ExitCode {
     match cli.command {
         Some(Command::Check(args)) => check::check(&args),
         Some(Command::List(args)) => list::list(&args),
+        Some(Command::Rule(args)) => rule::rule(&args),
         // Nothing to do yet: say what there is to do, and succeed.
         None => {
             let _ = Cli::command().print_help();
@@ -68,6 +72,15 @@ mod tests {
         let cli = Cli::try_parse_from(["clisok", "check", "--json", "-v", "--skip", "a", "--skip", "b"]).unwrap();
         assert!(matches!(cli.command, Some(Command::Check(_))));
         assert!(Cli::try_parse_from(["clisok", "--json"]).is_err());
+    }
+
+    #[test]
+    fn rule_takes_one_code_or_all() {
+        assert!(matches!(Cli::try_parse_from(["clisok", "rule", "cli202"]).unwrap().command, Some(Command::Rule(_))));
+        assert!(Cli::try_parse_from(["clisok", "rule", "--all", "--json"]).is_ok());
+        assert!(Cli::try_parse_from(["clisok", "rule"]).is_err());
+        assert!(Cli::try_parse_from(["clisok", "rule", "CLI999"]).is_err());
+        assert!(Cli::try_parse_from(["clisok", "rule", "CLI001", "--all"]).is_err());
     }
 
     #[test]

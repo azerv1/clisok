@@ -9,6 +9,7 @@ clisok check            # check PATH entries and every tool on PATH
 clisok check --json     # same, as JSON on stdout
 clisok check --registry --fix   # also apply safe fixes to the saved user PATH (Windows)
 clisok list             # list every command and the copies it shadows; runs nothing
+clisok rule CLI007      # explain a code
 ```
 
 `clisok check` exits 0 when everything is fine, nonzero when it finds problems.

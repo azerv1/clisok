@@ -22,8 +22,7 @@ pub enum Severity {
     Off,
 }
 
-/// The text fields are read by the docs generator, which runs as a test.
-#[cfg_attr(not(test), allow(dead_code))]
+/// The text fields are read by `clisok rule` and the docs generator.
 pub struct CodeInfo {
     pub code: Code,
     pub number: u16,
@@ -101,6 +100,28 @@ codes! {
 impl Code {
     pub fn info(self) -> &'static CodeInfo {
         &CODES[self as usize]
+    }
+}
+
+impl CodeInfo {
+    /// Its default severity in a word: `error`, `warning`, `tool error` or `off`.
+    pub fn default_name(&self) -> &'static str {
+        match (self.tool_error, self.default) {
+            (true, _) => "tool error",
+            (_, Severity::Error) => "error",
+            (_, Severity::Warn) => "warning",
+            (_, Severity::Off) => "off",
+        }
+    }
+
+    /// Its default severity and what that does to the run.
+    pub fn default_long(&self) -> &'static str {
+        match (self.tool_error, self.default) {
+            (true, _) => "tool error, shown as `[ERROR]`; doesn't fail the run",
+            (_, Severity::Error) => "error; fails the run",
+            (_, Severity::Warn) => "warning; doesn't fail the run",
+            (_, Severity::Off) => "off",
+        }
     }
 }
 

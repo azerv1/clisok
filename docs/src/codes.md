@@ -4,7 +4,7 @@
 
 Every finding has a code. A code keeps its meaning forever and is never reused, so scripts, ignore lists and config files can rely on it. The first digit names the group.
 
-Change what a code does with `--ignore CODE` or a [`[severity]`](configuration.md) entry. The Fix column says what [`--fix`](fixes.md) can do about it.
+Change what a code does with `--ignore CODE` or a [`[severity]`](configuration.md) entry. The Fix column says what [`--fix`](fixes.md) can do about it. `clisok rule CODE` prints a code's entry in the terminal.
 
 | Code | Default | Fix | Meaning |
 |---|---|---|---|
