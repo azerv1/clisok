@@ -1,0 +1,24 @@
+src/exec.rs
+  s_77048c4b51552e::t_9576c01b39f3cf 177-179
+  s_77048c4b51552e::t_d434515646a60c 453-454
+  s_77048c4b51552e::t_889cea871a3eea 66-71,73
+  s_77048c4b51552e::t_5331cd4683c1db 195-204
+  s_77048c4b51552e::t_2143917f0171b6 374-375
+  s_77048c4b51552e::t_ec19bfa7a1d153 72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d4130ee9e2fa90799f33ce005c9fc762991eea16",
+  "prompts": {},
+  "sessions": {
+    "s_77048c4b51552e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd36474c-a2ea-4dd1-8d82-904f90318286",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
