@@ -640,7 +640,11 @@ mod tests {
 
         let default = report(&Severities::default());
         assert_eq!(default.exit_code(), 0);
-        assert!(default.to_text(false).contains("[WARN]   CLI007 (process) \"dup\" — duplicate entry"));
+        assert!(default.to_text(false).contains(
+            "[WARN]   CLI007 (process) \"dup\" — duplicate entry\n         help: remove this later copy (where this terminal's PATH is set)\n"
+        ));
+        let json = serde_json::to_value(&default).unwrap();
+        assert_eq!(json["path_problems"][0]["fix"]["applicability"], "display-only");
         let strict = report(&severities(&[(Code::Cli007, Severity::Error)]));
         assert_eq!(strict.exit_code(), 1);
         assert!(strict.to_text(false).contains("[BROKEN] CLI007 "));

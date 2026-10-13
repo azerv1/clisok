@@ -6,9 +6,11 @@ Checks PATH entries, then every tool on PATH: static checks first, then a test r
 
 ```
 [BROKEN] CLI002 (user) "C:\gone" — directory does not exist
+         help: remove the entry if the program is gone; reconnect the drive or share if not (user PATH)
 Tools
 [BROKEN] ruff  C:\Users\me\.local\bin\ruff.exe
          CLI103 interpreter does not exist: C:\Python311\python.exe
+         help: reinstall the tool so it uses an installed interpreter, or remove this launcher
 ```
 
 - **`--json`** — print the report as JSON on stdout; progress stays on stderr.
@@ -33,4 +35,4 @@ Lists every command on PATH and the copies it shadows. Nothing is run. Commands 
 
 ## JSON
 
-Both commands print a `schema` version and the `command` that produced the report. The version goes up only when a field is removed or changes meaning; new fields don't change it. Each finding carries its `code` and its effective `severity`.
+Both commands print a `schema` version and the `command` that produced the report. The version goes up only when a field is removed or changes meaning; new fields don't change it. Each finding carries its `code` and its effective `severity`. A finding may also carry a `fix`: its `applicability` and a `message`. Right now every fix is `display-only` advice, printed as a `help:` line under the finding.

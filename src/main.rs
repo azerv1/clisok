@@ -8,6 +8,7 @@ mod discover;
 #[cfg(test)]
 mod docs;
 mod exec;
+mod fix;
 mod inspect;
 mod list;
 mod pathenv;

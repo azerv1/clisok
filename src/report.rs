@@ -8,6 +8,7 @@ use serde::Serialize;
 use crate::codes::{Code, Severities, Severity};
 use crate::discover::PathCommand;
 use crate::exec::Attempt;
+use crate::fix::{self, Fix};
 use crate::inspect::{Kind, Reason};
 use crate::pathenv::{EntryProblem, PathEntry};
 use crate::platform::AppPath;
@@ -73,6 +74,8 @@ pub struct Finding {
     pub severity: Severity,
     #[serde(flatten)]
     pub reason: Reason,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<Fix>,
 }
 
 impl Finding {
@@ -81,7 +84,7 @@ impl Finding {
         let code = reason.code();
         match sev.of(code) {
             Severity::Off => None,
-            severity => Some(Finding { code, severity, reason }),
+            severity => Some(Finding { code, severity, fix: fix::for_reason(&reason), reason }),
         }
     }
 }
@@ -98,6 +101,8 @@ pub struct EntryIssue {
     pub problem: EntryProblem,
     pub code: Code,
     pub severity: Severity,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<Fix>,
 }
 
 impl EntryIssue {
@@ -106,7 +111,7 @@ impl EntryIssue {
         let code = problem.code();
         match sev.of(code) {
             Severity::Off => None,
-            severity => Some(EntryIssue { entry, problem, code, severity }),
+            severity => Some(EntryIssue { fix: fix::for_entry(problem, &entry), entry, problem, code, severity }),
         }
     }
 }
@@ -117,6 +122,7 @@ pub struct AppPathIssue {
     pub app_path: AppPath,
     pub code: Code,
     pub severity: Severity,
+    pub fix: Fix,
 }
 
 impl AppPathIssue {
@@ -125,8 +131,15 @@ impl AppPathIssue {
         let code = Code::Cli301;
         match sev.of(code) {
             Severity::Off => None,
-            severity => Some(AppPathIssue { app_path, code, severity }),
+            severity => Some(AppPathIssue { fix: fix::for_app_path(&app_path.key), app_path, code, severity }),
         }
+    }
+}
+
+/// The indented `help:` / `fix:` line under a finding.
+fn write_fix(s: &mut String, fix: Option<&Fix>) {
+    if let Some(f) = fix {
+        let _ = writeln!(s, "         {} {}", f.label(), f.message);
     }
 }
 
@@ -178,6 +191,7 @@ impl Report {
             for p in &self.path_problems {
                 let tag = severity_tag(p.severity);
                 let _ = writeln!(s, "{tag} {} ({}) \"{}\" — {}", p.code, p.entry.origin, p.entry.raw, p.problem);
+                write_fix(&mut s, p.fix.as_ref());
             }
             s.push('\n');
         }
@@ -187,6 +201,7 @@ impl Report {
             for a in &self.app_paths {
                 let (tag, key, target) = (severity_tag(a.severity), &a.app_path.key, a.app_path.target.display());
                 let _ = writeln!(s, "{tag} {} {key}\n         target does not exist: {target}", a.code);
+                write_fix(&mut s, Some(&a.fix));
             }
             s.push('\n');
         }
@@ -212,6 +227,7 @@ impl Report {
             let _ = writeln!(s, "{} {}  {}", t.verdict.tag(), t.name, t.path.display());
             for r in &t.reasons {
                 let _ = writeln!(s, "         {r}");
+                write_fix(&mut s, r.fix.as_ref());
             }
             match (&t.note, t.code) {
                 (Some(n), Some(c)) => {
