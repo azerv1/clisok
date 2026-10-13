@@ -1,0 +1,44 @@
+src/fix.rs
+  s_77048c4b51552e::t_018105862b7e44 39-41,57,97
+  s_77048c4b51552e::t_5f4537c3f12fb4 1,4-27,29-38,42-56,58-96,98-112
+  s_77048c4b51552e::t_db617eb971c874 28
+  s_77048c4b51552e::t_2460c707625ec8 2-3
+src/report.rs
+  s_77048c4b51552e::t_342b333c44b34e 139-145
+  s_77048c4b51552e::t_41bbbee9fb5e88 194
+  s_77048c4b51552e::t_161a993cddd651 134
+  s_77048c4b51552e::t_0e4d304faf3b68 204
+  s_77048c4b51552e::t_468fb55f1a4882 104-105
+  s_77048c4b51552e::t_4dac1b49c7cce7 230
+  s_77048c4b51552e::t_7e557fe70f8541 11
+  s_77048c4b51552e::t_864444762cb8f2 125
+  s_77048c4b51552e::t_20953dfb6da3af 87
+  s_77048c4b51552e::t_833daba5a56192 77-78
+  s_77048c4b51552e::t_4754f455f6f8a6 114
+src/pathenv.rs
+  s_77048c4b51552e::t_75f6298dd48663 85
+src/check.rs
+  s_77048c4b51552e::t_018105862b7e44 644
+  s_77048c4b51552e::t_32962fe056e661 643,645-647
+docs/src/usage.md
+  s_77048c4b51552e::t_89661105de8ece 13,38
+  s_77048c4b51552e::t_018105862b7e44 9
+src/main.rs
+  s_77048c4b51552e::t_c2e9c23874ed42 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "83dd6e2095d1f8a38599b3b8255dcae82a8f1f73",
+  "prompts": {},
+  "sessions": {
+    "s_77048c4b51552e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd36474c-a2ea-4dd1-8d82-904f90318286",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
