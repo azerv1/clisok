@@ -356,8 +356,8 @@ fn apply_fixes(path_problems: &[EntryIssue], app_paths: &[AppPathIssue], unsafe_
         }
     }
     let mut applied = Vec::new();
-    match platform::fix_user_path(&fixable) {
-        _ if fixable.is_empty() => {}
+    let path_fix = if fixable.is_empty() { Ok(None) } else { platform::fix_user_path(&fixable) };
+    match path_fix {
         Ok(Some((edits, backup))) => applied.extend(edits.into_iter().map(|e| Applied {
             code: e.problem.code(),
             target: format!("(user) \"{}\"", e.raw),
