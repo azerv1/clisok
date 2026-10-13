@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use crate::codes::{CODES, Severity};
 use crate::config;
+use crate::fix::{self, Applicability};
 
 const NOTICE: &str = "<!-- Generated from the source by `UPDATE_DOCS=1 cargo test`. Don't edit by hand. -->";
 
@@ -27,11 +28,13 @@ fn codes_page() -> String {
     s.push_str(
         "Every finding has a code. A code keeps its meaning forever and is never reused, \
          so scripts, ignore lists and config files can rely on it. The first digit names the group.\n\n\
-         Change what a code does with `--ignore CODE` or a [`[severity]`](configuration.md) entry.\n\n\
-         | Code | Default | Meaning |\n|---|---|---|\n",
+         Change what a code does with `--ignore CODE` or a [`[severity]`](configuration.md) entry. \
+         The Fix column says what [`--fix`](fixes.md) can do about it.\n\n\
+         | Code | Default | Fix | Meaning |\n|---|---|---|---|\n",
     );
     for c in CODES {
-        let _ = writeln!(s, "| [{}](#{}) | {} | {} |", c.code, c.code.to_string().to_lowercase(), default(c), c.title);
+        let (code, id, fix) = (c.code, c.code.to_string().to_lowercase(), fix_short(c.code));
+        let _ = writeln!(s, "| [{code}](#{id}) | {} | {fix} | {} |", default(c), c.title);
     }
     let mut last = "";
     for c in CODES {
@@ -42,8 +45,18 @@ fn codes_page() -> String {
         }
         let id = c.code.to_string().to_lowercase();
         let _ = writeln!(s, "\n### {} — {} {{#{id}}}\n\n**Default:** {}\n\n{}", c.code, c.title, default_long(c), c.help);
+        let _ = writeln!(s, "\n**Fix:** {}", fix::safety(c.code).1);
     }
     s
+}
+
+fn fix_short(code: crate::codes::Code) -> &'static str {
+    match fix::safety(code).0 {
+        Some(Applicability::Safe) => "safe",
+        Some(Applicability::Unsafe) => "unsafe",
+        Some(Applicability::DisplayOnly) => "advice",
+        None => "—",
+    }
 }
 
 fn default(c: &crate::codes::CodeInfo) -> &'static str {

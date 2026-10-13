@@ -7,6 +7,7 @@ tool that is safe to run. Runs on Windows and Linux.
 ```
 clisok check            # check PATH entries and every tool on PATH
 clisok check --json     # same, as JSON on stdout
+clisok check --registry --fix   # also apply safe fixes to the saved user PATH (Windows)
 clisok list             # list every command and the copies it shadows; runs nothing
 ```
 
@@ -16,6 +17,7 @@ Every problem has a stable code like `CLI002`.
 **Docs:** [azerv1.github.io/clisok](https://azerv1.github.io/clisok/) —
 [usage](https://azerv1.github.io/clisok/usage.html),
 [`.clisok.toml` configuration](https://azerv1.github.io/clisok/configuration.html),
+[fixes](https://azerv1.github.io/clisok/fixes.html),
 [error codes](https://azerv1.github.io/clisok/codes.html),
 [GitHub Action](https://azerv1.github.io/clisok/github-action.html).
 

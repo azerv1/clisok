@@ -140,6 +140,28 @@ pub fn for_app_path(key: &str) -> Fix {
     }
 }
 
+/// The best fix a code can get and when, for the docs and `clisok rule`.
+/// `None`: the code has no fix, not even advice.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn safety(code: Code) -> (Option<Applicability>, &'static str) {
+    use Applicability::*;
+    match code {
+        Code::Cli001 | Code::Cli007 => {
+            (Some(Safe), "Safe: `--fix` removes it from the saved user PATH (Windows). Elsewhere it is advice.")
+        }
+        Code::Cli005 | Code::Cli006 => (
+            Some(Unsafe),
+            "Unsafe: `--fix --unsafe-fixes` cleans it in the saved user PATH (Windows). A cleaned entry that names a real folder starts to work and can change which program runs. Elsewhere it is advice.",
+        ),
+        Code::Cli301 => (
+            Some(Unsafe),
+            "Unsafe: `--fix --unsafe-fixes` deletes an HKCU key after exporting it to a `.reg` file; the program may only be on an unplugged drive. HKLM keys get advice.",
+        ),
+        Code::Cli107 | Code::Cli201 | Code::Cli202 | Code::Cli203 | Code::Cli204 => (None, "None."),
+        _ => (Some(DisplayOnly), "Advice only, shown as a `help:` line."),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -171,6 +193,46 @@ mod tests {
         assert!(!applies(EntryProblem::StrayQuote, false));
         assert_eq!(applies(EntryProblem::StrayQuote, true), cfg!(windows));
         assert!(!applies(EntryProblem::Missing, true));
+    }
+
+    /// `safety` matches what the rules give in the best case: a user PATH
+    /// entry on Windows, an HKCU key.
+    #[cfg(windows)]
+    #[test]
+    fn safety_matches_the_rules() {
+        use crate::codes::CODES;
+        let problems = [
+            EntryProblem::Empty,
+            EntryProblem::Missing,
+            EntryProblem::NotDir,
+            EntryProblem::UnexpandedVar,
+            EntryProblem::StrayQuote,
+            EntryProblem::Whitespace,
+            EntryProblem::Duplicate,
+            EntryProblem::NotInSession,
+            EntryProblem::Truncated,
+        ];
+        for p in problems {
+            let got = for_entry(p, &entry(PathOrigin::User)).map(|f| f.applicability);
+            assert_eq!(got, safety(p.code()).0, "{}", p.code());
+        }
+        assert_eq!(Some(for_app_path(r"HKCU\x").applicability), safety(Code::Cli301).0);
+        let r = |reason: Reason| (reason.code(), for_reason(&reason).map(|f| f.applicability));
+        let path = PathBuf::from("x");
+        for (code, got) in [
+            r(Reason::MissingTarget { path: path.clone() }),
+            r(Reason::MissingLibrary { name: "x".into(), needed_by: path.clone() }),
+            r(Reason::MissingInterpreter { path: path.clone() }),
+            r(Reason::MissingModule { module: "x".into(), python: path }),
+            r(Reason::UnresolvedCommand { name: "x".into() }),
+            r(Reason::AppNotInstalled { package: "x".into() }),
+            r(Reason::FailedToStart { error: "x".into() }),
+            r(Reason::Output { line: "x".into() }),
+        ] {
+            assert_eq!(got, safety(code).0, "{code}");
+        }
+        // Every code is covered by one of the checks above or has no fix.
+        assert_eq!(CODES.len(), problems.len() + 1 + 8 + 3);
     }
 
     #[test]

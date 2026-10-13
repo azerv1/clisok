@@ -10,14 +10,13 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 ## Phases
 
-**Release order** — CLI and inventory → macOS and FreeBSD → repair framework + uv → npm and pnpm → cargo → `--fix-paths`. Each phase ships as a usable release, and the CI matrix grows with each one.
+**Release order** — CLI and inventory → macOS and FreeBSD → repair framework + uv → npm and pnpm → cargo. Each phase ships as a usable release, and the CI matrix grows with each one. Windows user PATH repair, planned last as `--fix-paths`, landed early as Ruff-style fixes (see **Fixes**).
 
 1. **CLI and inventory** — `check` and `list` subcommands, inventory models, versioned JSON schema; Linux and Windows.
 2. **macOS and FreeBSD** — static inspection on macOS; full checks on FreeBSD.
-3. **Repair framework + uv** — `--fix`, `--reinstall-broken`, repair reporting, and the uv tool adapter.
+3. **Repair framework + uv** — `--reinstall-broken` and the uv tool adapter, on top of the fix framework (done).
 4. **npm and pnpm** — global packages, including fnm-managed Node layouts.
 5. **cargo** — `cargo install` binaries.
-6. **`--fix-paths`** — Windows user PATH repair.
 
 **Later, on demand** — Scoop, pipx, bun, Homebrew, and mise adapters. None is installed on the development machine, so none can be tested against real installs yet.
 
@@ -26,7 +25,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 - **`clisok`** — print help and exit successfully. The old flat flags move under `check`; used bare, they get clap's standard unknown-argument error. clisok was never released, so old invocations get no special handling.
 
 - **`clisok check [existing options]`** — preserve the current PATH, launcher, dependency, and test-run checks (`--version`, then `--help`), including `--json`, `--verbose`, `--skip`, `--jobs`, `--timeout`, Windows `--registry`, and `--system` (now on every platform).
-  - **Repair preview** — each finding shows the repair `--fix` would apply and the flag it needs, e.g. `fix: uv tool install --reinstall ruff [needs --reinstall-broken]`. JSON carries the same planned action. Plain `check` is the preview, so there is no `--dry-run`.
+  - **Repair preview** (done) — each finding may carry a fix, printed under it; JSON carries the same. Plain `check` is the preview. See **Fixes**.
   - **Hidden behind an OS copy** — when an OS-owned copy is active and hides a user-installed copy, report a tool-level `[WARN]`. The OS copy is never run, the hidden copy gets static inspection only, and the exit code is unaffected. Today the whole command is dropped (`src/discover.rs:58`).
 
 - **Error codes** (done) — every finding has a permanent code: CLI0xx PATH entries, CLI1xx tool checks, CLI2xx the test run, CLI3xx registry. A code is never renumbered or reused. `--ignore CODE` drops a code; the list lives in `src/codes.rs`.
@@ -48,15 +47,15 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
   Try `--offline` first where the manager supports it. Skip ambiguous or unreconstructable installations. Never invoke OS package managers, winget, or Chocolatey, request elevation, or repair system packages.
 
-- **`clisok check --fix --fix-paths`** — on Windows, back up and repair only `HKCU\Environment\Path`, and only entries that are certainly garbage:
-  - **Removed** — empty entries, and duplicates within HKCU or of an entry already in the machine PATH.
-  - **Cleaned** — leading and trailing whitespace trimmed; stray quotes stripped.
-  - **Reported, never removed** — missing directories, non-directories, and unexpanded variables. A missing directory may be an unplugged drive, an offline network share, or a manager bin directory not created yet.
-  - **Added** — existing bin directories confirmed by supported manager metadata, appended at the end so no existing command changes resolution.
+- **Fixes** (done, modeled on Ruff) — a fix's applicability is safe (`--fix`, `[*]`, `fix:`), unsafe (`--fix --unsafe-fixes`, `fix (unsafe):`) or advice (`help:`, never applied). `[fix] fixable`/`unfixable`/`unsafe-fixes` in `.clisok.toml` narrow or widen it. Rules live in `src/fix.rs`; `fix::safety` feeds the codes page. Windows only, HKCU only, backups under `%LOCALAPPDATA%\clisok\backups\`:
+  - **Safe** — remove empty entries and later copies of a folder (within HKCU or of a machine PATH entry) from `HKCU\Environment\Path`.
+  - **Unsafe** — clean quotes and surrounding whitespace off those entries (a cleaned entry can start to work and change resolution); delete HKCU App Paths keys whose target is missing (exported to `.reg` first).
+  - **Advice only** — missing directories, non-directories and unexpanded variables (an unplugged drive or a manager bin directory not created yet may come back), and everything outside HKCU.
+  - **Not yet** — adding existing bin directories confirmed by manager metadata, appended at the end so no command changes resolution.
 
-  Preserve entry order, registry value type, and expandable values; never touch machine PATH. Store the original value under `%LOCALAPPDATA%\clisok\backups\` before writing and broadcast the environment change afterward. On Unix, report the action as skipped because the originating shell configuration cannot be identified safely.
+  Entry order, value type and `%VARS%` are preserved and the change is broadcast. After fixing, the saved-settings findings are re-checked (tool results can't change: this process's PATH doesn't) and the exit status follows the final state. A failed fix is reported on stderr and its finding stays. On Unix every fix is advice, because the shell configuration that set PATH can't be identified safely.
 
-`--fix-paths` and `--reinstall-broken` require `--fix`. Text and JSON output record every repair as applied, skipped, or failed. After repairs, `check` performs one complete scan and returns an exit status based on the final state.
+`--reinstall-broken` requires `--fix`; its reinstalls will be unsafe fixes.
 
 ## Core Implementation
 
@@ -68,7 +67,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **Manager adapters** — identify ownership from canonical paths and manager metadata, never executable names alone. Conflicting ownership produces a skipped repair. Each adapter implements both tiers: offline repair where the manager has one, and reinstall behind `--reinstall-broken`.
 
-- **Repair policy** — allow generated shim or launcher repair by default. Require `--reinstall-broken` for reinstallation and network access, and `--fix-paths` for PATH persistence. clisok never deletes or moves a file. Prohibit shell-profile editing, administrator access, and system-package changes.
+- **Repair policy** — allow generated shim or launcher repair by default. Require `--reinstall-broken` for reinstallation and network access, and `--unsafe-fixes` for any fix that may change what runs. clisok never deletes or moves a file. Prohibit shell-profile editing, administrator access, and system-package changes.
 
 - **PATH invariant** — clisok never breaks PATH. Before writing, resolve every command name under the old and new persisted PATH (machine + user, expanded). If any previously reachable name would resolve to a different file or disappear, abort the write and report `skipped: would change resolution of X`. The backup stays as a safety net; there is no restore command.
 
@@ -87,8 +86,8 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 - **FreeBSD** — ELF inspection using FreeBSD loader hints and defaults, plus base-system directory rules.
 
 - **Windows** — retain PE, DLL, and App Execution Alias behavior; add user-registry PATH backup and repair.
-  - **Value type** — read the Path value's type. A `REG_SZ` value containing `%VAR%` is a new PATH problem, because Windows expands only `REG_EXPAND_SZ`. `persisted_path()` (`src/platform/windows/registry.rs`) currently expands regardless of type. `--fix-paths` reports this but never changes the type.
-  - **Truncation** (done) — a saved PATH at a known cut length (setx 1024; NSIS 1023, 4095, 8191; old dialogs 2047) or ending mid-name is reported as cut off, because every entry after the cut is lost silently. The lost entries can't be recovered from the value itself, so `--fix-paths` only reports it; never treat the cut-off stub as an ordinary dead entry to remove.
+  - **Value type** — read the Path value's type. A `REG_SZ` value containing `%VAR%` is a new PATH problem, because Windows expands only `REG_EXPAND_SZ`. `persisted_path()` (`src/platform/windows/registry.rs`) currently expands regardless of type. `--fix` reports this but never changes the type.
+  - **Truncation** (done) — a saved PATH at a known cut length (setx 1024; NSIS 1023, 4095, 8191; old dialogs 2047) or ending mid-name is reported as cut off, because every entry after the cut is lost silently. The lost entries can't be recovered from the value itself, so it gets advice only; never treat the cut-off stub as an ordinary dead entry to remove.
 
 - **System tools** — never execute OS-owned tools, even when `--system` includes them for static inspection or listing. On Windows the OS-owned directory is `%SystemRoot%`.
 
