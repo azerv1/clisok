@@ -1,0 +1,73 @@
+docs/src/codes.md
+  s_77048c4b51552e::t_8466d962342c05 11-35,41,47,53,59,65,71,77,83,89,91,97,103,109,115,121,127,133,135,141,147,153,159,161
+src/inspect/mod.rs
+  s_77048c4b51552e::t_8466d962342c05 50-57
+src/main.rs
+  s_77048c4b51552e::t_8466d962342c05 1,62,67,69,74-75,80,82
+src/discover.rs
+  s_77048c4b51552e::t_8466d962342c05 79
+src/platform/windows/spawn.rs
+  s_77048c4b51552e::t_8466d962342c05 66,80,335
+src/pathenv.rs
+  s_77048c4b51552e::t_8466d962342c05 62-70
+.github/workflows/release.yml
+  s_77048c4b51552e::t_8466d962342c05 35,37,47
+src/platform/unix/spawn.rs
+  s_77048c4b51552e::t_8466d962342c05 35,143
+src/platform/windows/mod.rs
+  s_77048c4b51552e::t_8466d962342c05 106
+src/report.rs
+  s_77048c4b51552e::t_8466d962342c05 125,137,260
+README.md
+  s_77048c4b51552e::t_8466d962342c05 1,8-10,13-14,16-20,24,30
+Cargo.toml
+  s_77048c4b51552e::t_8466d962342c05 2
+src/config.rs
+  s_77048c4b51552e::t_8466d962342c05 1,18,33,111,119,123,252,257-258,266-267,273-274
+docs/src/introduction.md
+  s_77048c4b51552e::t_8466d962342c05 1,3,5,8-10,13,17
+action.yml
+  s_77048c4b51552e::t_8466d962342c05 1,12,18,26-28,33,36,39-40,43-44,50
+docs/book.toml
+  s_77048c4b51552e::t_8466d962342c05 2,8-9
+docs/src/related-tools.md
+  s_77048c4b51552e::t_8466d962342c05 3,5-6,8
+docs/src/config-keys.md
+  s_77048c4b51552e::t_8466d962342c05 11
+docs/src/github-action.md
+  s_77048c4b51552e::t_8466d962342c05 6,13,16
+PLAN.md
+  s_77048c4b51552e::t_52516c875da821 38
+  s_77048c4b51552e::t_8466d962342c05 1,26,28,32,34,40,42,44,51,57,71,73
+src/check.rs
+  s_77048c4b51552e::t_8466d962342c05 1,48,175,203-204,287,305,353,357,391,421,511,530,536,539,546,567,572,582,590,643-644,646-647
+docs/src/configuration.md
+  s_77048c4b51552e::t_8466d962342c05 3,15-16,19,21-22,38
+src/docs.rs
+  s_77048c4b51552e::t_8466d962342c05 17-20
+src/list.rs
+  s_77048c4b51552e::t_8466d962342c05 1,35,42,59,69
+src/codes.rs
+  s_77048c4b51552e::t_8466d962342c05 1,4-5,57,59,61,63,65,67,69,71,73,75,77,79,81,83,85,87,89,91,93,95,97,117,175-176
+  s_77048c4b51552e::t_cbd93410ff7323 109,118,177
+docs/src/usage.md
+  s_77048c4b51552e::t_8466d962342c05 3,8,11,17,24,26
+Cargo.lock
+  s_77048c4b51552e::t_85fe7c0258b7d5 1-600
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f92c9f0330e996fd1fdbcbd921d82c25be7086da",
+  "prompts": {},
+  "sessions": {
+    "s_77048c4b51552e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd36474c-a2ea-4dd1-8d82-904f90318286",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
