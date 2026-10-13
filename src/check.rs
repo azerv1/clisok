@@ -19,6 +19,7 @@ use crate::pathenv::{self, EntryProblem, PathEntry, PathIndex};
 use crate::platform::{self, path_key};
 use crate::report::{
     AppPathIssue, EntryIssue, Finding, Origin, Report, SCHEMA_VERSION, ToolResult, Verdict, print_stdout,
+    statistics_text,
 };
 use crate::{pool, progress};
 
@@ -41,6 +42,9 @@ pub struct CheckArgs {
     /// Print the report as JSON
     #[arg(long)]
     json: bool,
+    /// Print how many findings each code has instead of the findings
+    #[arg(long)]
+    statistics: bool,
     /// Also list passing and skipped tools, and shadowed copies
     #[arg(short, long)]
     verbose: bool,
@@ -539,16 +543,25 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     platform::cleanup();
     let report =
         Report { schema: SCHEMA_VERSION, command: "check", config: config.files, fixed, path_problems, app_paths, tools };
-    if args.json {
-        match serde_json::to_string_pretty(&report) {
-            Ok(j) => print_stdout(&format!("{j}\n")),
-            Err(e) => {
-                eprintln!("clisok: {e}");
-                return ExitCode::from(2);
-            }
+    let json = match (args.json, args.statistics) {
+        (true, true) => Some(serde_json::to_string_pretty(&report.statistics())),
+        (true, false) => Some(serde_json::to_string_pretty(&report)),
+        (false, true) => {
+            print_stdout(&statistics_text(&report.statistics()));
+            None
         }
-    } else {
-        print_stdout(&report.to_text(args.verbose, args.show_fixes));
+        (false, false) => {
+            print_stdout(&report.to_text(args.verbose, args.show_fixes));
+            None
+        }
+    };
+    match json {
+        Some(Ok(j)) => print_stdout(&format!("{j}\n")),
+        Some(Err(e)) => {
+            eprintln!("clisok: {e}");
+            return ExitCode::from(2);
+        }
+        None => {}
     }
     let fixed_any = args.exit_non_zero_on_fix && !report.fixed.is_empty();
     ExitCode::from(report.exit_code().max(u8::from(fixed_any)))
@@ -818,6 +831,38 @@ mod tests {
             "Fixed\n[FIXED]  CLI007 (user) \"dup\" — removed\n         backup of the old value: C:\\b\\user-Path-1.txt\n"
         ));
         assert!(text.ends_with("Fixed 1 problem.\n"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn statistics_count_codes_and_mark_how_many_fix_fixes() {
+        use pathenv::PathOrigin::{Process, User};
+        let entry = |raw: &str, origin| pathenv::PathEntry { raw: raw.into(), dir: PathBuf::from(raw), origin };
+        let sev = Severities::default();
+        let issues = [
+            (entry("a", User), EntryProblem::Duplicate),
+            (entry("b", Process), EntryProblem::Duplicate),
+            (entry("c", User), EntryProblem::Empty),
+            (entry("d", User), EntryProblem::Empty),
+            (entry("e", Process), EntryProblem::Missing),
+        ];
+        let report = Report {
+            schema: SCHEMA_VERSION,
+            command: "check",
+            config: vec![],
+            fixed: vec![],
+            path_problems: issues.into_iter().filter_map(|(e, p)| EntryIssue::new(e, p, &sev)).collect(),
+            app_paths: vec![],
+            tools: vec![],
+        };
+        // Ties keep code order.
+        assert_eq!(
+            statistics_text(&report.statistics()),
+            "2  CLI001  [*] empty entry\n2  CLI007  [-] duplicate entry\n1  CLI002  [ ] directory does not exist\n"
+        );
+        let json = serde_json::to_value(report.statistics()).unwrap();
+        assert_eq!(json[0], serde_json::json!({"code": "CLI001", "name": "empty entry", "count": 2, "fixable": true}));
+        assert_eq!(json[1]["fixable"], false);
     }
 
     #[cfg(windows)]

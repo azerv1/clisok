@@ -14,6 +14,7 @@ Tools
 ```
 
 - **`--json`** — print the report as JSON on stdout; progress stays on stderr.
+- **`--statistics`** — print how many findings each code has, most first, instead of the findings: `19  CLI107  [ ] hidden behind an OS copy`. `[*]` means `--fix` fixes all of them, `[-]` some. With `--json`, a list of `code`, `name`, `count` and `fixable`. The exit status is the same as without it.
 - **`-v`, `--verbose`** — also list passing and skipped tools, and shadowed copies.
 - **`--skip NAME`** — don't run this tool. Repeatable.
 - **`--fix`** — apply the safe fixes, marked `[*]` and shown as `fix:` lines. On Windows that removes empty and repeated entries from the saved user PATH (they need `--registry` to show up). The old value is saved under `%LOCALAPPDATA%\clisok\backups\` first, and the report shows what is left afterwards. Advice (`help:` lines) is never applied.

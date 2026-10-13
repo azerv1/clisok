@@ -154,6 +154,34 @@ pub fn print_stdout(text: &str) {
     let _ = std::io::stdout().lock().write_all(text.as_bytes());
 }
 
+/// One line of `--statistics`.
+#[derive(Debug, Serialize)]
+pub struct Statistic {
+    pub code: Code,
+    pub name: &'static str,
+    pub count: usize,
+    /// `--fix` fixes every one of them.
+    pub fixable: bool,
+    #[serde(skip)]
+    fixed_by_fix: usize,
+}
+
+/// `--statistics` as text: count, code, `[*]` when `--fix` fixes them all,
+/// `[-]` when it fixes some, then the code's title.
+pub fn statistics_text(stats: &[Statistic]) -> String {
+    let width = stats.iter().map(|s| s.count.to_string().len()).max().unwrap_or(1);
+    let mut s = String::new();
+    for st in stats {
+        let mark = match st.fixed_by_fix {
+            0 => "[ ]",
+            n if n == st.count => "[*]",
+            _ => "[-]",
+        };
+        let _ = writeln!(s, "{:>width$}  {}  {mark} {}", st.count, st.code, st.name);
+    }
+    s
+}
+
 /// Version of the JSON output's shape. Bumped when a field is removed or
 /// changes meaning; new fields don't bump it.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -192,6 +220,41 @@ impl Report {
         self.path_problems.iter().filter(|p| applies(p.fix.as_ref())).count()
             + self.app_paths.iter().filter(|a| applies(Some(&a.fix))).count()
             + self.tools.iter().flat_map(|t| &t.reasons).filter(|r| applies(r.fix.as_ref())).count()
+    }
+
+    /// Every finding's code, and whether `--fix` would fix it.
+    fn codes(&self) -> impl Iterator<Item = (Code, bool)> + '_ {
+        let safe = |f: Option<&Fix>| f.is_some_and(Fix::is_safe);
+        let entries = self.path_problems.iter().map(move |p| (p.code, safe(p.fix.as_ref())));
+        let app_paths = self.app_paths.iter().map(|a| (a.code, a.fix.is_safe()));
+        let reasons = self.tools.iter().flat_map(|t| &t.reasons).map(move |r| (r.code, safe(r.fix.as_ref())));
+        let notes = self.tools.iter().filter_map(|t| t.code).map(|c| (c, false));
+        entries.chain(app_paths).chain(reasons).chain(notes)
+    }
+
+    /// `--statistics`: how many findings each code has, most first.
+    pub fn statistics(&self) -> Vec<Statistic> {
+        let mut stats: Vec<Statistic> = Vec::new();
+        for (code, fixable) in self.codes() {
+            match stats.iter_mut().find(|s| s.code == code) {
+                Some(s) => {
+                    s.count += 1;
+                    s.fixed_by_fix += usize::from(fixable);
+                }
+                None => stats.push(Statistic {
+                    code,
+                    name: code.info().title,
+                    count: 1,
+                    fixable: false,
+                    fixed_by_fix: usize::from(fixable),
+                }),
+            }
+        }
+        for s in &mut stats {
+            s.fixable = s.fixed_by_fix == s.count;
+        }
+        stats.sort_by(|a, b| b.count.cmp(&a.count).then(a.code.cmp(&b.code)));
+        stats
     }
 
     /// `show_fixes`: list each fix `--fix` applied, not just how many.
