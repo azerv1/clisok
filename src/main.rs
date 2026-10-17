@@ -36,7 +36,7 @@ enum Command {
     Check(check::CheckArgs),
     /// List every command on PATH and the copies it shadows, without running anything
     List(list::ListArgs),
-    /// Explain a code: what it means, its default severity and its fix
+    /// List rules or explain a code, its default severity and its fix
     Rule(rule::RuleArgs),
 }
 
@@ -96,6 +96,49 @@ mod tests {
         assert!(Cli::try_parse_from(["clisok", "rule"]).is_err());
         assert!(Cli::try_parse_from(["clisok", "rule", "CLI999"]).is_err());
         assert!(Cli::try_parse_from(["clisok", "rule", "CLI001", "--all"]).is_err());
+    }
+
+    #[test]
+    fn rule_subcommands_take_their_own_arguments() {
+        let parses = |args: &[&str]| Cli::try_parse_from([&["clisok", "rule"], args].concat()).is_ok();
+        for args in [vec!["list"], vec!["show", "cli007"], vec!["show", "--all"]] {
+            assert!(parses(&args), "{args:?}");
+            for format in ["text", "json"] {
+                let mut formatted = args.clone();
+                formatted.extend(["--output-format", format]);
+                assert!(parses(&formatted), "{formatted:?}");
+            }
+        }
+        for args in [
+            vec!["show"],
+            vec!["show", "CLI999"],
+            vec!["show", "CLI001", "--all"],
+            vec!["list", "--all"],
+            vec!["list", "CLI001"],
+            vec!["list", "--output-format", "full"],
+            vec!["--all", "list"],
+            vec!["CLI001", "list"],
+        ] {
+            let error = Cli::try_parse_from([&["clisok", "rule"], args.as_slice()].concat()).err().unwrap();
+            assert_eq!(error.exit_code(), 2, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn rule_help_describes_each_operation() {
+        for command in ["list", "show"] {
+            let error = Cli::try_parse_from(["clisok", "rule", command, "--help"]).err().unwrap();
+            assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+            assert_eq!(error.exit_code(), 0);
+            let help = error.to_string();
+            assert!(help.contains(&format!("Usage: clisok rule {command}")), "{help}");
+            assert!(help.contains("--output-format"));
+            assert_eq!(help.contains("--all"), command == "show");
+        }
+        let error = Cli::try_parse_from(["clisok", "rule"]).err().unwrap();
+        assert_eq!(error.exit_code(), 2);
+        let help = error.to_string();
+        assert!(help.contains("list") && help.contains("show"), "{help}");
     }
 
     #[test]

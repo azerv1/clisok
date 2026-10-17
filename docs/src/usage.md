@@ -44,12 +44,22 @@ Lists every command on PATH and the copies it shadows. Nothing is run. Commands 
 - **`--system`** — include commands found only in the OS's own folders.
 - **`--config FILE`**, **`--no-config`** — as for `check`.
 
-## `clisok rule CODE`
+## `clisok rule`
 
-Explains a code, as `ruff rule` does: what it means, its default severity, what `--fix` can do about it, and how to resolve it. The same text is on the [codes page](codes.md).
+### `clisok rule list`
 
-- **`--all`** — explain every code.
-- **`--output-format text|json`** — print as text (default) or JSON: `code`, `title`, `default`, `fix` (`safe`, `unsafe`, `display-only` or `null`), `fix_safety` and `explanation`.
+Lists every built-in rule in code order, with columns for Code, Default, Fix and Title. The catalog is the same on every platform and does not depend on configuration. Fix availability is `safe`, `unsafe`, `advice` or `—` when there is no fix.
+
+- **`--output-format text|json`** — print the table (default) or the same JSON array as `clisok rule show --all --output-format json`, including full explanations.
+
+### `clisok rule show CODE`
+
+Explains a code: what it means, its default severity, what `--fix` can do about it, and how to resolve it. The same text is on the [codes page](codes.md).
+
+- **`--all`** — explain every code instead of specifying one code.
+- **`--output-format text|json`** — print as text (default) or JSON: `code`, `title`, `default`, `fix` (`safe`, `unsafe`, `display-only` or `null`), `fix_safety` and `explanation`. One code produces an object; `--all` produces an array.
+
+`clisok rule CODE` and `clisok rule --all` remain available as shortcuts for `show`.
 
 ## JSON
 
