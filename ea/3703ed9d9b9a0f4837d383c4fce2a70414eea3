@@ -1,0 +1,28 @@
+src/main.rs
+  s_db5280e2a28a79::t_a33ef262b2fd45 101-143
+  s_db5280e2a28a79::t_b3c9c586657318 39
+src/rule.rs
+  s_db5280e2a28a79::t_a33ef262b2fd45 134-186
+  s_db5280e2a28a79::t_b3c9c586657318 1,15-38,83-104,108,110-113,115-125
+  s_db5280e2a28a79::t_542d15643e72c6 13
+docs/src/usage.md
+  s_db5280e2a28a79::t_a33ef262b2fd45 47,49,51-62
+README.md
+  s_db5280e2a28a79::t_a33ef262b2fd45 12-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ea3703ed9d9b9a0f4837d383c4fce2a70414eea3",
+  "prompts": {},
+  "sessions": {
+    "s_db5280e2a28a79": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148de-35f5-7943-8ec6-e12634bbacee",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
