@@ -1,0 +1,64 @@
+.github/workflows/fuzz.yml
+  s_db5280e2a28a79::t_bcae8406fdee14 30-35,51
+  s_db5280e2a28a79::t_1eea7a7c7a3f9c 1-29,36-50,52-74
+tools/fuzz_evidence.py
+  s_db5280e2a28a79::t_ec5cac0d29000d 1-36
+.github/platforms.json
+  s_db5280e2a28a79::t_f768b38c3030cb 1-27
+.github/workflows/bench.yml
+  s_db5280e2a28a79::t_1eea7a7c7a3f9c 1-28
+tools/github_setup.py
+  s_db5280e2a28a79::t_f768b38c3030cb 1-45
+tools/reproducible.py
+  s_db5280e2a28a79::t_58b6d3d4e2b16e 23
+  s_db5280e2a28a79::t_2f9101acc288ab 1-22,24-59
+tools/readiness_report.py
+  s_db5280e2a28a79::t_54f5974ea5a4b3 1-264
+tools/security_checks.py
+  s_db5280e2a28a79::t_54f5974ea5a4b3 1-68,71-108,110-112,114-134,151-181,185-227
+  s_db5280e2a28a79::t_3e01a6323fd892 69-70
+  s_db5280e2a28a79::t_fe01713d7bf524 109,113,135-150,182-184
+.github/workflows/ci.yml
+  s_db5280e2a28a79::t_1cb529c273e2cf 1-128
+.github/branch-protection.json
+  s_db5280e2a28a79::t_f768b38c3030cb 1-15
+tools/evidence.py
+  s_db5280e2a28a79::t_1eea7a7c7a3f9c 1-22
+.github/workflows/docs.yml
+  s_db5280e2a28a79::t_f768b38c3030cb 5,7,13-15,17-25,30-33,35
+tools/mutation_score.py
+  s_db5280e2a28a79::t_ec5cac0d29000d 1-70
+.github/workflows/reproducible.yml
+  s_db5280e2a28a79::t_2f9101acc288ab 1-24
+.github/workflows/assurance.yml
+  s_db5280e2a28a79::t_1eea7a7c7a3f9c 1-65
+tests/release/test_readiness.py
+  s_db5280e2a28a79::t_6bb0c95089cb9a 1-112
+osv-scanner.toml
+  s_db5280e2a28a79::t_54f5974ea5a4b3 1-7
+security/semgrep.yml
+  s_db5280e2a28a79::t_54f5974ea5a4b3 1-19
+.github/workflows/mutation.yml
+  s_db5280e2a28a79::t_1eea7a7c7a3f9c 1-33
+tools/benchmark_fixture.py
+  s_db5280e2a28a79::t_1eea7a7c7a3f9c 1-58
+deny.toml
+  s_db5280e2a28a79::t_54f5974ea5a4b3 1-26,28-42
+  s_db5280e2a28a79::t_03aab50d55b46a 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "915cda69288c1b76f276b32367e013e7bbce20a9",
+  "prompts": {},
+  "sessions": {
+    "s_db5280e2a28a79": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148de-35f5-7943-8ec6-e12634bbacee",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
