@@ -1,0 +1,32 @@
+fuzz/fuzz_targets/python_entry.rs
+  s_db5280e2a28a79::t_3e01a6323fd892 1-10
+tests/cli.rs
+  s_db5280e2a28a79::t_b9178c267a19c2 19-22,24-27
+  s_db5280e2a28a79::t_70e6510847aab4 1-18,23,28-66
+fuzz/Cargo.toml
+  s_db5280e2a28a79::t_3e01a6323fd892 1-29
+fuzz/fuzz_targets/config_expansion.rs
+  s_db5280e2a28a79::t_3e01a6323fd892 1-10
+fuzz/seeds/config_expansion/variables.txt
+  s_db5280e2a28a79::t_bcae8406fdee14 1
+fuzz/seeds/python_entry/import.txt
+  s_db5280e2a28a79::t_bcae8406fdee14 1-2
+fuzz/Cargo.lock
+  s_db5280e2a28a79::t_860d0da2e1ecce 1-603
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f6bd83bfd966631a4440d4a8d28422ff792dfdb5",
+  "prompts": {},
+  "sessions": {
+    "s_db5280e2a28a79": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148de-35f5-7943-8ec6-e12634bbacee",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
