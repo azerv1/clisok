@@ -1,0 +1,24 @@
+README.md
+  s_db5280e2a28a79::t_03aab50d55b46a 92-93
+  s_db5280e2a28a79::t_58b6d3d4e2b16e 89-91
+  s_db5280e2a28a79::t_b5249d4207946c 70,74-79,85
+  s_db5280e2a28a79::t_9a75f0e1db36e4 31-34,44-69,71-73,80-84,86-88
+PLAN.md
+  s_db5280e2a28a79::t_9a75f0e1db36e4 3-6,122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9310aa17042c3cfbe8d050a4bb7d19a038b73c6c",
+  "prompts": {},
+  "sessions": {
+    "s_db5280e2a28a79": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148de-35f5-7943-8ec6-e12634bbacee",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
