@@ -2,6 +2,17 @@
 name = "clisok"
 version = "0.3.0"
 edition = "2024"
+rust-version = "1.88"
+description = "Check PATH entries, executable dependencies, launchers, and headless tool startup."
+authors = ["azerv1"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/azerv1/clisok"
+documentation = "https://azerv1.github.io/clisok/"
+readme = "README.md"
+keywords = ["cli", "path", "diagnostics"]
+categories = ["command-line-utilities", "development-tools"]
+publish = false
+include = ["src/**", "tests/**/*.rs", "tests/fixtures/**", "Cargo.toml", "Cargo.lock", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }
@@ -21,5 +32,10 @@ winreg = "0.56.0"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[[bench]]
+name = "parsing"
+harness = false
+
 [dev-dependencies]
+criterion = { version = "=0.8.2", default-features = false, features = ["cargo_bench_support"] }
 tempfile = "3.27.0"

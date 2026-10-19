@@ -1,3 +1,24 @@
 /target
 /docs/book
 /.claude/
+
+# Local tools, evidence and secrets
+/.venv/
+/.pytest_cache/
+/.mypy_cache/
+/.ruff_cache/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+**/.env*
+*.key
+*.pem
+/security-reports/
+/evidence/
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/
+/mutants.out/
+/mutants.out.old/
+/lcov.info
