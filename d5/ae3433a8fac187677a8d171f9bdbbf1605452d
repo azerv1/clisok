@@ -1,0 +1,58 @@
+.github/workflows/release.yml
+  s_db5280e2a28a79::t_1cb529c273e2cf 5,8-12,14,16-35,37,40,42,45-46,51-57,61-89,91-96,98-142,145-147,151,153-156,158,161-163,165,170-173
+tests/release/conftest.py
+  s_db5280e2a28a79::t_6bb0c95089cb9a 1-23
+tools/release_manifest.py
+  s_db5280e2a28a79::t_54f5974ea5a4b3 1-73
+pyproject.toml
+  s_db5280e2a28a79::t_54f5974ea5a4b3 1-30
+tools/release_check.py
+  s_db5280e2a28a79::t_132f6e401d5a8e 1-35,37-67,70-84,89-117
+  s_db5280e2a28a79::t_37a9e58c178daa 68-69,85-88
+  s_db5280e2a28a79::t_58b6d3d4e2b16e 36
+SECURITY.md
+  s_db5280e2a28a79::t_9a75f0e1db36e4 3,6,8,14-15,17,19-20,25-34,36-40
+  s_db5280e2a28a79::t_70e6510847aab4 1-2,4-5,7,9-13,16,18,21-24,35
+CITATION.cff
+  s_db5280e2a28a79::t_03aab50d55b46a 9
+  s_db5280e2a28a79::t_54f5974ea5a4b3 1-8,10
+tests/release/test_artifacts.py
+  s_db5280e2a28a79::t_6bb0c95089cb9a 1-142
+  s_db5280e2a28a79::t_58a5b800a37df1 143-177
+action.yml
+  s_db5280e2a28a79::t_1cb529c273e2cf 2,9-10,12,14-16,21,27-29,31-33,35-36,42-44
+.github/workflows/action-test.yml
+  s_db5280e2a28a79::t_1cb529c273e2cf 1,4-11,13,19,21-22,24,26-27,29-41
+tools/check_citation.py
+  s_db5280e2a28a79::t_54f5974ea5a4b3 1-32
+docs/src/github-action.md
+  s_db5280e2a28a79::t_b5249d4207946c 25-35
+tools/bump_hook.py
+  s_db5280e2a28a79::t_f768b38c3030cb 1-28
+tests/release/test_helpers.py
+  s_db5280e2a28a79::t_6bb0c95089cb9a 1-150
+  s_db5280e2a28a79::t_b905925c73c2c9 151-163
+.cz.toml
+  s_db5280e2a28a79::t_f768b38c3030cb 8-9
+tools/action_install.py
+  s_db5280e2a28a79::t_132f6e401d5a8e 1-17,19-51,53-85,88,91-92,95-139
+  s_db5280e2a28a79::t_3e01a6323fd892 18,52,86-87,89-90,93-94
+uv.lock
+  s_db5280e2a28a79::t_4475701434d5d9 1-244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d5ae3433a8fac187677a8d171f9bdbbf1605452d",
+  "prompts": {},
+  "sessions": {
+    "s_db5280e2a28a79": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148de-35f5-7943-8ec6-e12634bbacee",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
