@@ -21,25 +21,61 @@ pub const FILE_NAME: &str = ".clisok.toml";
 /// Every setting, for the docs generator (a test): key, value type, meaning.
 #[cfg_attr(not(test), allow(dead_code))]
 pub const KEYS: &[(&str, &str, &str)] = &[
-    ("check.skip", "list of strings", "Don't run these tools, like `--skip`."),
-    ("check.timeout", "integer", "Seconds before a test run is killed, like `--timeout`."),
-    ("check.jobs", "integer", "Tools checked in parallel, like `--jobs`."),
-    ("check.system", "boolean", "Also check the OS's own folders, like `--system`. Also applies to `list`."),
+    (
+        "check.skip",
+        "list of strings",
+        "Don't run these tools, like `--skip`.",
+    ),
+    (
+        "check.timeout",
+        "integer",
+        "Seconds before a test run is killed, like `--timeout`.",
+    ),
+    (
+        "check.jobs",
+        "integer",
+        "Tools checked in parallel, like `--jobs`.",
+    ),
+    (
+        "check.system",
+        "boolean",
+        "Also check the OS's own folders, like `--system`. Also applies to `list`.",
+    ),
     (
         "check.output-format",
         "`full`, `concise`, `json`, `github` or `sarif`",
         "How `check` prints the report, like `--output-format`.",
     ),
-    ("check.registry", "boolean", "Windows only: also check the saved PATH and App Paths, like `--registry`."),
+    (
+        "check.registry",
+        "boolean",
+        "Windows only: also check the saved PATH and App Paths, like `--registry`.",
+    ),
     (
         "check.extra",
         "list of strings",
         "Files or folders off PATH to check statically; never run. Globs allowed. Also listed by `list`.",
     ),
-    ("severity.CLInnn", "\"error\", \"warn\" or \"off\"", "Override a code's severity. `off` drops it, like `--ignore`."),
-    ("fix.fixable", "list of codes", "Only these codes' fixes may be applied by `--fix`; default all."),
-    ("fix.unfixable", "list of codes", "These codes' fixes are never applied; they stay advice."),
-    ("fix.unsafe-fixes", "boolean", "With `--fix`, also apply unsafe fixes, like `--unsafe-fixes`."),
+    (
+        "severity.CLInnn",
+        "\"error\", \"warn\" or \"off\"",
+        "Override a code's severity. `off` drops it, like `--ignore`.",
+    ),
+    (
+        "fix.fixable",
+        "list of codes",
+        "Only these codes' fixes may be applied by `--fix`; default all.",
+    ),
+    (
+        "fix.unfixable",
+        "list of codes",
+        "These codes' fixes are never applied; they stay advice.",
+    ),
+    (
+        "fix.unsafe-fixes",
+        "boolean",
+        "With `--fix`, also apply unsafe fixes, like `--unsafe-fixes`.",
+    ),
 ];
 
 #[derive(Debug, Default, Deserialize)]
@@ -139,7 +175,10 @@ fn user_file() -> Option<PathBuf> {
     let dir = if cfg!(windows) {
         PathBuf::from(env_var("APPDATA")?)
     } else {
-        env_var("XDG_CONFIG_HOME").filter(|d| !d.is_empty()).map(PathBuf::from).or_else(|| Some(home()?.join(".config")))?
+        env_var("XDG_CONFIG_HOME")
+            .filter(|d| !d.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| Some(home()?.join(".config")))?
     };
     Some(dir.join("clisok").join("config.toml"))
 }
@@ -182,7 +221,11 @@ impl Config {
 }
 
 /// Parse one file and expand its variables. Errors name the file and line.
-fn parse(src: &str, path: &Path, lookup: &dyn Fn(&str) -> Option<String>) -> Result<Config, String> {
+fn parse(
+    src: &str,
+    path: &Path,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Config, String> {
     let file: File = toml::from_str(src).map_err(|e| format!("{}: {e}", path.display()))?;
     let expand_all = |list: Option<Vec<Spanned<String>>>| -> Result<Option<Vec<String>>, String> {
         list.map(|items| {
@@ -190,7 +233,8 @@ fn parse(src: &str, path: &Path, lookup: &dyn Fn(&str) -> Option<String>) -> Res
                 .into_iter()
                 .map(|s| {
                     let line = src[..s.span().start].matches('\n').count() + 1;
-                    expand(s.get_ref(), lookup).map_err(|e| format!("{}:{line}: {e}", path.display()))
+                    expand(s.get_ref(), lookup)
+                        .map_err(|e| format!("{}:{line}: {e}", path.display()))
                 })
                 .collect()
         })
@@ -215,40 +259,7 @@ fn parse(src: &str, path: &Path, lookup: &dyn Fn(&str) -> Option<String>) -> Res
 
 /// Expand `${VAR}`, `${VAR:-default}` and `$$`. A variable that is unset (or
 /// empty) and has no default is an error, as is any other use of `$`.
-pub fn expand(s: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Result<String, String> {
-    let mut out = String::new();
-    let mut rest = s;
-    while let Some(i) = rest.find('$') {
-        out.push_str(&rest[..i]);
-        rest = &rest[i + 1..];
-        if let Some(r) = rest.strip_prefix('$') {
-            out.push('$');
-            rest = r;
-            continue;
-        }
-        let Some(body) = rest.strip_prefix('{') else {
-            return Err(format!("'$' must start ${{VAR}}, or be written $$: {s}"));
-        };
-        let Some(end) = body.find('}') else {
-            return Err(format!("unclosed ${{: {s}"));
-        };
-        let (name, default) = match body[..end].split_once(":-") {
-            Some((n, d)) => (n, Some(d)),
-            None => (&body[..end], None),
-        };
-        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return Err(format!("bad variable name '{name}': {s}"));
-        }
-        match (lookup(name).filter(|v| !v.is_empty()), default) {
-            (Some(v), _) => out.push_str(&v),
-            (None, Some(d)) => out.push_str(d),
-            (None, None) => return Err(format!("variable {name} is not set: {s}")),
-        }
-        rest = &body[end + 1..];
-    }
-    out.push_str(rest);
-    Ok(out)
-}
+pub use clisok::parsing::expand;
 
 #[cfg(test)]
 mod tests {
@@ -267,13 +278,20 @@ mod tests {
         assert_eq!(expand("${HOME}/bin", &vars).unwrap(), "/home/me/bin");
         assert_eq!(expand("${NOPE:-gradle}", &vars).unwrap(), "gradle");
         assert_eq!(expand("${EMPTY:-x}", &vars).unwrap(), "x");
-        assert_eq!(expand("cost $$5 ${HOME}", &vars).unwrap(), "cost $5 /home/me");
+        assert_eq!(
+            expand("cost $$5 ${HOME}", &vars).unwrap(),
+            "cost $5 /home/me"
+        );
         assert_eq!(expand("plain", &vars).unwrap(), "plain");
     }
 
     #[test]
     fn rejects_unset_and_malformed_variables() {
-        assert!(expand("${NOPE}", &vars).unwrap_err().contains("NOPE is not set"));
+        assert!(
+            expand("${NOPE}", &vars)
+                .unwrap_err()
+                .contains("NOPE is not set")
+        );
         assert!(expand("$HOME/bin", &vars).is_err());
         assert!(expand("${HOME", &vars).is_err());
         assert!(expand("${}", &vars).is_err());
@@ -293,9 +311,21 @@ mod tests {
 
     #[test]
     fn parses_the_output_format() {
-        let c = parse("[check]\noutput-format = \"github\"\n", Path::new("t.toml"), &vars).unwrap();
+        let c = parse(
+            "[check]\noutput-format = \"github\"\n",
+            Path::new("t.toml"),
+            &vars,
+        )
+        .unwrap();
         assert_eq!(c.output_format, Some(OutputFormat::Github));
-        assert!(parse("[check]\noutput-format = \"text\"\n", Path::new("t.toml"), &vars).is_err());
+        assert!(
+            parse(
+                "[check]\noutput-format = \"text\"\n",
+                Path::new("t.toml"),
+                &vars
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -305,17 +335,48 @@ mod tests {
         assert_eq!(c.fixable, Some(vec![Code::Cli001, Code::Cli007]));
         assert_eq!(c.unfixable, Some(vec![Code::Cli301]));
         assert_eq!(c.unsafe_fixes, Some(true));
-        assert!(parse("[fix]\nunfixable = [\"CLI999\"]\n", Path::new("t.toml"), &vars).unwrap_err().contains("CLI999"));
+        assert!(
+            parse(
+                "[fix]\nunfixable = [\"CLI999\"]\n",
+                Path::new("t.toml"),
+                &vars
+            )
+            .unwrap_err()
+            .contains("CLI999")
+        );
         assert!(parse("[fix]\nunsafe_fixes = true\n", Path::new("t.toml"), &vars).is_err());
     }
 
     #[test]
     fn errors_name_the_file_and_line() {
-        let err = parse("[check]\n\nskip = [\"a\", \"${NOPE}\"]\n", Path::new("t.toml"), &vars).unwrap_err();
-        assert!(err.starts_with("t.toml:3: variable NOPE is not set"), "{err}");
-        assert!(parse("[check]\nbogus = 1\n", Path::new("t.toml"), &vars).unwrap_err().contains("bogus"));
-        assert!(parse("[severity]\nCLI999 = \"off\"\n", Path::new("t.toml"), &vars).unwrap_err().contains("CLI999"));
-        assert!(parse("[severity]\nCLI007 = \"loud\"\n", Path::new("t.toml"), &vars).is_err());
+        let err = parse(
+            "[check]\n\nskip = [\"a\", \"${NOPE}\"]\n",
+            Path::new("t.toml"),
+            &vars,
+        )
+        .unwrap_err();
+        assert!(
+            err.starts_with("t.toml:3: variable NOPE is not set"),
+            "{err}"
+        );
+        assert!(
+            parse("[check]\nbogus = 1\n", Path::new("t.toml"), &vars)
+                .unwrap_err()
+                .contains("bogus")
+        );
+        assert!(
+            parse("[severity]\nCLI999 = \"off\"\n", Path::new("t.toml"), &vars)
+                .unwrap_err()
+                .contains("CLI999")
+        );
+        assert!(
+            parse(
+                "[severity]\nCLI007 = \"loud\"\n",
+                Path::new("t.toml"),
+                &vars
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -342,10 +403,19 @@ mod tests {
         fs::write(&user, "").unwrap();
         // Above the repo: not found, because the search stops at .git.
         fs::write(tmp.path().join(FILE_NAME), "").unwrap();
-        assert_eq!(discover(&deep, Some(user.clone()), None), std::slice::from_ref(&user));
+        assert_eq!(
+            discover(&deep, Some(user.clone()), None),
+            std::slice::from_ref(&user)
+        );
 
         fs::write(repo.join(FILE_NAME), "").unwrap();
-        assert_eq!(discover(&deep, Some(user.clone()), None), [user, repo.join(FILE_NAME)]);
-        assert_eq!(discover(&deep, Some(tmp.path().join("missing.toml")), None), [repo.join(FILE_NAME)]);
+        assert_eq!(
+            discover(&deep, Some(user.clone()), None),
+            [user, repo.join(FILE_NAME)]
+        );
+        assert_eq!(
+            discover(&deep, Some(tmp.path().join("missing.toml")), None),
+            [repo.join(FILE_NAME)]
+        );
     }
 }
