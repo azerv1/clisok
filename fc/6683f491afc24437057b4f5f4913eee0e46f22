@@ -1,0 +1,31 @@
+benches/parsing.rs
+  s_db5280e2a28a79::t_3d117d25f64f54 1,9-13
+  s_db5280e2a28a79::t_f768b38c3030cb 2-8,14-19
+src/lib.rs
+  s_db5280e2a28a79::t_3e01a6323fd892 1-2
+src/inspect/python.rs
+  s_db5280e2a28a79::t_3e01a6323fd892 13
+  s_db5280e2a28a79::t_3d117d25f64f54 18-20,22-25,33-39,73-76,85-86,106-109,124-128,131-135
+src/parsing.rs
+  s_db5280e2a28a79::t_3e01a6323fd892 1-60,65-67
+  s_db5280e2a28a79::t_3d117d25f64f54 61-64
+src/config.rs
+  s_db5280e2a28a79::t_3e01a6323fd892 262
+  s_db5280e2a28a79::t_3d117d25f64f54 24-43,49-53,59-78,178-181,224-228,236-237,281-284,290-294,314-319,321-328,338-346,352-379,406-409,412-419
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fc6683f491afc24437057b4f5f4913eee0e46f22",
+  "prompts": {},
+  "sessions": {
+    "s_db5280e2a28a79": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148de-35f5-7943-8ec6-e12634bbacee",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
