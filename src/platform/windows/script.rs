@@ -41,7 +41,9 @@ pub fn is_shim(text: &str) -> bool {
     if text.contains("node_modules") && text.contains("%*") {
         return true; // npm / pnpm / bun generated shim
     }
-    let [line] = lines.as_slice() else { return false };
+    let [line] = lines.as_slice() else {
+        return false;
+    };
     if !line.contains("%*") {
         return false;
     }
@@ -96,7 +98,10 @@ fn resolve(raw: &str, script_dir: &Path) -> Option<PathBuf> {
     }
     // `%dp0%\x` doubles the separator; keep a leading `\\` (UNC) intact.
     let (head, tail) = s.split_at(if s.starts_with(r"\\") { 2 } else { 0 });
-    Some(PathBuf::from(format!("{head}{}", tail.replace(r"\\", r"\"))))
+    Some(PathBuf::from(format!(
+        "{head}{}",
+        tail.replace(r"\\", r"\")
+    )))
 }
 
 pub fn check(script: &Path, text: &str, index: &PathIndex) -> Vec<Reason> {
@@ -130,12 +135,23 @@ pub fn check(script: &Path, text: &str, index: &PathIndex) -> Vec<Reason> {
     let shim = is_shim(text);
     let mut reasons: Vec<Reason> = missing
         .into_iter()
-        .map(|path| if shim { Reason::MissingTarget { path } } else { Reason::MissingScriptCall { path } })
+        .map(|path| {
+            if shim {
+                Reason::MissingTarget { path }
+            } else {
+                Reason::MissingScriptCall { path }
+            }
+        })
         .collect();
 
     // npm-style shims fall back to `node` from PATH when there is no local node.exe.
-    if text.contains("node_modules") && !dir.join("node.exe").exists() && index.lookup("node").is_empty() {
-        reasons.push(Reason::UnresolvedCommand { name: "node".into() });
+    if text.contains("node_modules")
+        && !dir.join("node.exe").exists()
+        && index.lookup("node").is_empty()
+    {
+        reasons.push(Reason::UnresolvedCommand {
+            name: "node".into(),
+        });
     }
     reasons
 }
@@ -175,15 +191,23 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_
     fn recognizes_shims() {
         assert!(is_shim(NPM_SHIM));
         assert!(is_shim(PASS_THROUGH));
-        assert!(is_shim("@echo off\r\n:: launcher\r\n\"C:\\x\\y.exe\" %*\r\n"));
+        assert!(is_shim(
+            "@echo off\r\n:: launcher\r\n\"C:\\x\\y.exe\" %*\r\n"
+        ));
         assert!(!is_shim("@echo off\r\npy \"%~dp0backup.py\" %*\r\n"));
-        assert!(!is_shim("@echo off\r\nrobocopy C:\\a D:\\b /mir\r\ndel x.log\r\n"));
+        assert!(!is_shim(
+            "@echo off\r\nrobocopy C:\\a D:\\b /mir\r\ndel x.log\r\n"
+        ));
     }
 
     #[test]
     fn extracts_npm_target_but_not_if_exist_probe() {
         let paths = extract_paths(NPM_SHIM);
-        assert!(paths.iter().any(|p| p.ends_with(r"node_modules\pkg\bin\tool.js")));
+        assert!(
+            paths
+                .iter()
+                .any(|p| p.ends_with(r"node_modules\pkg\bin\tool.js"))
+        );
         // `SET "_prog=%dp0%\node.exe"` is guarded by `IF EXIST`, so a missing
         // local node.exe must not be flagged.
         let dir = tempfile::tempdir().unwrap();
@@ -193,7 +217,10 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_
         let targets: Vec<String> = reasons.iter().map(|r| r.to_string()).collect();
         assert!(targets.iter().any(|t| t.contains("tool.js")), "{targets:?}");
         assert!(targets.iter().any(|t| t.contains("'node'")), "{targets:?}");
-        assert!(!targets.iter().any(|t| t.contains("node.exe")), "{targets:?}");
+        assert!(
+            !targets.iter().any(|t| t.contains("node.exe")),
+            "{targets:?}"
+        );
     }
 
     #[test]
@@ -202,7 +229,11 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_
         let idx = PathIndex::build(&[]);
         let reasons = check(&dir.path().join("tool.cmd"), PASS_THROUGH, &idx);
         assert_eq!(reasons.len(), 1);
-        assert!(reasons[0].to_string().contains(r"C:\Tools\tool-1.0\tool.exe"));
+        assert!(
+            reasons[0]
+                .to_string()
+                .contains(r"C:\Tools\tool-1.0\tool.exe")
+        );
 
         let exe = dir.path().join("real.exe");
         std::fs::write(&exe, "").unwrap();
@@ -222,7 +253,9 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_
         );
         let idx = PathIndex::build(&[]);
         let reasons = check(&dir.path().join("yazi.cmd"), &text, &idx);
-        assert!(matches!(reasons.as_slice(), [Reason::MissingScriptCall { path }] if path.ends_with("gone.cmd")));
+        assert!(
+            matches!(reasons.as_slice(), [Reason::MissingScriptCall { path }] if path.ends_with("gone.cmd"))
+        );
     }
 
     #[test]
@@ -236,12 +269,24 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_
     fn ignores_temp_files_the_script_creates() {
         let text = "@echo off\r\n\"%WinDir%\\System32\\cscript.exe\" //nologo x.vbs\r\ncall \"%TEMP%\\_env.cmd\"\r\n";
         let idx = PathIndex::build(&[]);
-        assert!(check(Path::new(r"C:\ProgramData\vendor\bin\refresh.cmd"), text, &idx).is_empty());
+        assert!(
+            check(
+                Path::new(r"C:\ProgramData\vendor\bin\refresh.cmd"),
+                text,
+                &idx
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn parses_scoop_shim() {
-        let t = scoop_target("path = \"C:\\Users\\me\\scoop\\apps\\git\\current\\git.exe\"\nargs = -x\n");
-        assert_eq!(t, Some(PathBuf::from(r"C:\Users\me\scoop\apps\git\current\git.exe")));
+        let t = scoop_target(
+            "path = \"C:\\Users\\me\\scoop\\apps\\git\\current\\git.exe\"\nargs = -x\n",
+        );
+        assert_eq!(
+            t,
+            Some(PathBuf::from(r"C:\Users\me\scoop\apps\git\current\git.exe"))
+        );
     }
 }

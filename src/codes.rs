@@ -138,12 +138,20 @@ impl FromStr for Code {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let unknown = || format!("unknown code '{s}' (codes look like CLI002)");
-        let digits = s.get(..3).filter(|p| p.eq_ignore_ascii_case("CLI")).map(|_| &s[3..]).ok_or_else(unknown)?;
+        let digits = s
+            .get(..3)
+            .filter(|p| p.eq_ignore_ascii_case("CLI"))
+            .map(|_| &s[3..])
+            .ok_or_else(unknown)?;
         if digits.len() != 3 {
             return Err(unknown());
         }
         let n: u16 = digits.parse().map_err(|_| unknown())?;
-        CODES.iter().find(|c| c.number == n).map(|c| c.code).ok_or_else(unknown)
+        CODES
+            .iter()
+            .find(|c| c.number == n)
+            .map(|c| c.code)
+            .ok_or_else(unknown)
     }
 }
 

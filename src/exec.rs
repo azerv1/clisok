@@ -1,6 +1,6 @@
 //! The test run: `<tool> --version` (or help) and what the result means.
 
-use std::io;
+use std::io::{self, Read};
 use std::path::Path;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
@@ -27,17 +27,50 @@ pub const HEADLESS_ENV: &[(&str, &str)] = &[
 /// X11, Wayland (including the default socket under XDG_RUNTIME_DIR, which
 /// WSLg and desktop sessions provide) and the D-Bus session that could ask
 /// a running desktop service to open a window.
-pub const HEADLESS_ENV_REMOVE: &[&str] =
-    &["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"];
+pub const HEADLESS_ENV_REMOVE: &[&str] = &[
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+];
 
 /// Kept in the report for failed runs.
 const MAX_OUTPUT: usize = 4000;
+
+/// Maximum retained child output; excess bytes are drained to avoid blocking the child.
+pub const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
+
+/// Retain a bounded prefix while continuing to drain stdout/stderr until EOF.
+pub fn capture_output(mut reader: impl Read) -> (Vec<u8>, bool) {
+    let mut output = Vec::new();
+    let mut truncated = false;
+    let mut chunk = [0u8; 8192];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                let kept = n.min(MAX_CAPTURE_BYTES - output.len());
+                output.extend_from_slice(&chunk[..kept]);
+                truncated |= kept < n;
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(_) => {
+                truncated = true;
+                break;
+            }
+        }
+    }
+    (output, truncated)
+}
 
 /// Exit statuses raised by the Windows loader before the program runs.
 const LOADER_STATUS: &[(u32, &str)] = &[
     (0xC000_0135, "a required DLL was not found"),
     (0xC000_0139, "a DLL entry point was not found"),
-    (0xC000_007B, "bad image (DLL of the wrong architecture or corrupt)"),
+    (
+        0xC000_007B,
+        "bad image (DLL of the wrong architecture or corrupt)",
+    ),
 ];
 
 /// Output that means the tool (or something it needs) is missing. Worded
@@ -65,7 +98,8 @@ static QUIET_LOG: LazyLock<Regex> = LazyLock::new(|| {
 
 /// The exception line that ends a Python traceback (never indented, unlike
 /// the source lines quoted above it).
-static PY_EXCEPTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[\w.]*(Error|Exception)\b").unwrap());
+static PY_EXCEPTION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[\w.]*(Error|Exception)\b").unwrap());
 
 /// Python exceptions that mean something is missing, not that the tool crashed.
 static PY_MISSING: LazyLock<Regex> =
@@ -132,6 +166,8 @@ pub struct Attempt {
     pub exit: Option<i32>,
     pub timed_out: bool,
     pub output: String,
+    /// Capture or report output was incomplete.
+    pub output_truncated: bool,
     /// Wall-clock time of this run.
     pub ms: u64,
 }
@@ -154,6 +190,7 @@ pub fn run_capture(program: &Path, args: &[&str], timeout: Duration) -> io::Resu
         arg: args.join(" "),
         exit: out.exit,
         timed_out: out.timed_out,
+        output_truncated: out.truncated,
         output: String::from_utf8_lossy(&out.output).into_owned(),
         ms: start.elapsed().as_millis() as u64,
     })
@@ -204,7 +241,12 @@ fn broken_candidates(output: &str) -> Vec<&str> {
     if !output.contains("Traceback (most recent call last)") {
         return output.lines().collect();
     }
-    output.lines().rfind(|l| PY_EXCEPTION.is_match(l)).filter(|l| PY_MISSING.is_match(l)).into_iter().collect()
+    output
+        .lines()
+        .rfind(|l| PY_EXCEPTION.is_match(l))
+        .filter(|l| PY_MISSING.is_match(l))
+        .into_iter()
+        .collect()
 }
 
 fn looks_like_help(output: &str) -> bool {
@@ -250,14 +292,22 @@ pub fn run_probe(path: &Path, timeout: Duration) -> (Outcome, Vec<Attempt>) {
 
 /// A rejected flag (Usage) moves on too: a later `--help` runs more of the
 /// tool and can still find something missing.
-fn probe(mut run: impl FnMut(&str) -> io::Result<Attempt>, timeout: Duration) -> (Outcome, Vec<Attempt>) {
+fn probe(
+    mut run: impl FnMut(&str) -> io::Result<Attempt>,
+    timeout: Duration,
+) -> (Outcome, Vec<Attempt>) {
     let mut attempts: Vec<Attempt> = Vec::new();
     let mut usage = false;
     for arg in PROBES {
         let a = match run(arg) {
             Ok(a) => a,
             Err(e) if attempts.is_empty() => {
-                return (Outcome::Broken(Reason::FailedToStart { error: e.to_string() }), attempts);
+                return (
+                    Outcome::Broken(Reason::FailedToStart {
+                        error: e.to_string(),
+                    }),
+                    attempts,
+                );
             }
             Err(_) => break,
         };
@@ -268,9 +318,12 @@ fn probe(mut run: impl FnMut(&str) -> io::Result<Attempt>, timeout: Duration) ->
             Judgement::Broken(line) => broken(&line),
             Judgement::NeedsConsole => Outcome::Skip(CONSOLE_NOTE.into()),
             // Output before the hang shows it started, then waited (e.g. for a key).
-            _ if timed_out && attempts.len() == 1 && !attempts[0].output.trim().is_empty() => Outcome::Started(
-                format!("printed output, then didn't exit within {}s (likely waiting for input)", timeout.as_secs()),
-            ),
+            _ if timed_out && attempts.len() == 1 && !attempts[0].output.trim().is_empty() => {
+                Outcome::Started(format!(
+                    "printed output, then didn't exit within {}s (likely waiting for input)",
+                    timeout.as_secs()
+                ))
+            }
             _ if timed_out && attempts.len() == 1 => {
                 let note = format!("timed out after {}s", timeout.as_secs());
                 Outcome::ToolError(ToolErrorKind::TimedOut, note)
@@ -286,12 +339,18 @@ fn probe(mut run: impl FnMut(&str) -> io::Result<Attempt>, timeout: Duration) ->
     }
     // Nothing conclusive. A rejected flag still shows the tool started;
     // otherwise the first attempt explains what went wrong.
-    let first = if usage { Judgement::Usage } else { Judgement::Fail };
+    let first = if usage {
+        Judgement::Usage
+    } else {
+        Judgement::Fail
+    };
     (summarize(&first, &attempts[0]), attempts)
 }
 
 fn broken(line: &str) -> Outcome {
-    Outcome::Broken(Reason::Output { line: line.to_string() })
+    Outcome::Broken(Reason::Output {
+        line: line.to_string(),
+    })
 }
 
 fn summarize(j: &Judgement, a: &Attempt) -> Outcome {
@@ -299,16 +358,29 @@ fn summarize(j: &Judgement, a: &Attempt) -> Outcome {
         return Outcome::Pass;
     }
     let lines = || a.output.lines().map(str::trim).filter(|l| !l.is_empty());
-    let last = lines().rfind(|l| ERROR_LINE.is_match(l)).or_else(|| lines().next_back());
-    let exit = a.exit.map_or_else(|| "no exit code".into(), |c| format!("exit {c}"));
+    let last = lines()
+        .rfind(|l| ERROR_LINE.is_match(l))
+        .or_else(|| lines().next_back());
+    let exit = a
+        .exit
+        .map_or_else(|| "no exit code".into(), |c| format!("exit {c}"));
     if *j == Judgement::Fail && ran_own_code(a) {
-        return Outcome::Started(format!("started, but did not answer --version or --help ({exit})"));
+        return Outcome::Started(format!(
+            "started, but did not answer --version or --help ({exit})"
+        ));
     }
     let note = match last {
         Some(l) => format!("{exit}: {}", clip(l, 200)),
         None => exit,
     };
-    Outcome::ToolError(if a.timed_out { ToolErrorKind::TimedOut } else { ToolErrorKind::Exit }, note)
+    Outcome::ToolError(
+        if a.timed_out {
+            ToolErrorKind::TimedOut
+        } else {
+            ToolErrorKind::Exit
+        },
+        note,
+    )
 }
 
 /// The program exited on its own terms: no timeout, no crash status (negative
@@ -329,7 +401,9 @@ pub fn clip(s: &str, max: usize) -> String {
 
 /// Keep reports readable: trim long help output.
 pub fn trim_output(mut a: Attempt) -> Attempt {
-    a.output = clip(&a.output, MAX_OUTPUT);
+    let output = clip(&a.output, MAX_OUTPUT);
+    a.output_truncated |= output != a.output;
+    a.output = output;
     a
 }
 
@@ -338,7 +412,14 @@ mod tests {
     use super::*;
 
     fn run(exit: i32, output: &str) -> Attempt {
-        Attempt { arg: "--help".into(), exit: Some(exit), timed_out: false, output: output.into(), ms: 0 }
+        Attempt {
+            arg: "--help".into(),
+            exit: Some(exit),
+            timed_out: false,
+            output: output.into(),
+            output_truncated: false,
+            ms: 0,
+        }
     }
 
     fn is_broken(j: Judgement) -> bool {
@@ -350,85 +431,232 @@ mod tests {
     }
 
     #[test]
+    fn capture_keeps_a_bounded_prefix_and_drains_the_rest() {
+        let mut input = io::Cursor::new(vec![b'x'; MAX_CAPTURE_BYTES * 3]);
+        let (output, truncated) = capture_output(&mut input);
+        assert_eq!(output, vec![b'x'; MAX_CAPTURE_BYTES]);
+        assert!(truncated);
+        assert_eq!(input.position(), (MAX_CAPTURE_BYTES * 3) as u64);
+        let (output, truncated) = capture_output(&b"small"[..]);
+        assert_eq!(output, b"small");
+        assert!(!truncated);
+    }
+
+    #[test]
     fn broken_paths() {
-        assert!(is_broken(judge(&run(1, "The system cannot find the path specified.\r\n"))));
-        assert!(is_broken(judge(&run(1, r#"'"C:\Tools\tool.exe"' is not recognized as an internal or external command,
-operable program or batch file."#))));
+        assert!(is_broken(judge(&run(
+            1,
+            "The system cannot find the path specified.\r\n"
+        ))));
+        assert!(is_broken(judge(&run(
+            1,
+            r#"'"C:\Tools\tool.exe"' is not recognized as an internal or external command,
+operable program or batch file."#
+        ))));
         assert!(is_broken(judge(&run(-1073741515, ""))));
-        assert!(is_broken(judge(&run(1, r"Error: Cannot find module 'C:\lib\node_modules\pkg\bin\tool.js'"))));
-        assert!(is_broken(judge(&run(2, "Failed to find helper.exe in PATH or in the package.\n"))));
-        assert!(is_broken(judge(&run(1, "Traceback (most recent call last):\n  File ...\nModuleNotFoundError: No module named 'somepkg'\n"))));
+        assert!(is_broken(judge(&run(
+            1,
+            r"Error: Cannot find module 'C:\lib\node_modules\pkg\bin\tool.js'"
+        ))));
+        assert!(is_broken(judge(&run(
+            2,
+            "Failed to find helper.exe in PATH or in the package.\n"
+        ))));
+        assert!(is_broken(judge(&run(
+            1,
+            "Traceback (most recent call last):\n  File ...\nModuleNotFoundError: No module named 'somepkg'\n"
+        ))));
     }
 
     #[test]
     fn ordinary_tool_messages_are_not_broken() {
         // A tool reporting its own missing input or a missing peer app.
-        assert!(!is_broken(judge(&run(1, "tool: File 'tool.log' not found (OS errno 2 - No such file or directory)\n"))));
-        assert!(!is_broken(judge(&run(1, "The CLI is unable to find App. Please make sure App is running and try again.\n"))));
+        assert!(!is_broken(judge(&run(
+            1,
+            "tool: File 'tool.log' not found (OS errno 2 - No such file or directory)\n"
+        ))));
+        assert!(!is_broken(judge(&run(
+            1,
+            "The CLI is unable to find App. Please make sure App is running and try again.\n"
+        ))));
         // A debug log of an optional config search (process-compose).
         let log = r#"{"level":"debug","error":"could not locate `tool` in any of the following paths: [C:\\Users\\me\\.config]","time":"2026-10-12T20:46:19+03:00"}"#;
         assert!(!is_broken(judge(&run(1, log))));
-        assert!(!is_broken(judge(&run(1, "time=2026-10-12 level=info msg=\"unable to load plugins\"\n"))));
-        assert!(is_broken(judge(&run(1, r#"{"level":"error","msg":"could not load libfoo.so"}"#))));
+        assert!(!is_broken(judge(&run(
+            1,
+            "time=2026-10-12 level=info msg=\"unable to load plugins\"\n"
+        ))));
+        assert!(is_broken(judge(&run(
+            1,
+            r#"{"level":"error","msg":"could not load libfoo.so"}"#
+        ))));
         // The flag misread as a file name.
-        assert_eq!(judge(&run(1, "tool: Can't open script \"--help\": No such file or directory\n")), Judgement::Usage);
+        assert_eq!(
+            judge(&run(
+                1,
+                "tool: Can't open script \"--help\": No such file or directory\n"
+            )),
+            Judgement::Usage
+        );
     }
 
     #[test]
     fn missing_dependencies_in_any_language() {
-        assert!(is_broken(judge(&run(1, "<internal:require>:136:in 'require': cannot load such file -- somegem (LoadError)\n"))));
-        assert!(is_broken(judge(&run(1, "lua: tool.lua:1: module 'somerock' not found:\n\tno field package.preload['somerock']\n"))));
-        assert!(is_broken(judge(&run(2, "Can't locate Some/Module.pm in @INC (you may need to install the Some::Module module)\n"))));
-        assert!(is_broken(judge(&run(1, "Error: Cannot find module 'C:\\lib\\tool.js'\n"))));
+        assert!(is_broken(judge(&run(
+            1,
+            "<internal:require>:136:in 'require': cannot load such file -- somegem (LoadError)\n"
+        ))));
+        assert!(is_broken(judge(&run(
+            1,
+            "lua: tool.lua:1: module 'somerock' not found:\n\tno field package.preload['somerock']\n"
+        ))));
+        assert!(is_broken(judge(&run(
+            2,
+            "Can't locate Some/Module.pm in @INC (you may need to install the Some::Module module)\n"
+        ))));
+        assert!(is_broken(judge(&run(
+            1,
+            "Error: Cannot find module 'C:\\lib\\tool.js'\n"
+        ))));
         let nested = "Traceback (most recent call last):\n  File \"x.py\", line 3, in <module>\n    import yaml\n  File \"y.py\", line 1\nModuleNotFoundError: No module named 'yaml'\n";
-        assert_eq!(judge(&run(1, nested)), Judgement::Broken("ModuleNotFoundError: No module named 'yaml'".into()));
-        assert!(is_broken(judge(&run(1, "error while loading shared libraries: libfoo.so.1: cannot open shared object file: No such file or directory\n"))));
+        assert_eq!(
+            judge(&run(1, nested)),
+            Judgement::Broken("ModuleNotFoundError: No module named 'yaml'".into())
+        );
+        assert!(is_broken(judge(&run(
+            1,
+            "error while loading shared libraries: libfoo.so.1: cannot open shared object file: No such file or directory\n"
+        ))));
     }
 
     #[test]
     fn rejected_help_flag_still_counts_as_started() {
-        assert!(started(judge(&run(2, "usage: tool [--version | <uri>]\ntool: error: unrecognized arguments: --help\n"))));
-        assert_eq!(judge(&run(1, "GetoptError: option --help not recognized\n")), Judgement::Usage);
-        assert_eq!(judge(&run(1, "UnknownOptionError: Unknown option 'help'\n")), Judgement::Usage);
-        assert!(started(judge(&run(2, "usage: tool [options] inputfile\n\nERROR: option --help not recognized\n"))));
+        assert!(started(judge(&run(
+            2,
+            "usage: tool [--version | <uri>]\ntool: error: unrecognized arguments: --help\n"
+        ))));
+        assert_eq!(
+            judge(&run(1, "GetoptError: option --help not recognized\n")),
+            Judgement::Usage
+        );
+        assert_eq!(
+            judge(&run(1, "UnknownOptionError: Unknown option 'help'\n")),
+            Judgement::Usage
+        );
+        assert!(started(judge(&run(
+            2,
+            "usage: tool [options] inputfile\n\nERROR: option --help not recognized\n"
+        ))));
     }
 
     #[test]
     fn echoed_flag_counts_as_started() {
-        assert_eq!(judge(&run(1, "Error: not a repository: --help\n")), Judgement::Usage);
-        assert_eq!(judge(&run(1, "Could not detect anything for --help\n")), Judgement::Usage);
+        assert_eq!(
+            judge(&run(1, "Error: not a repository: --help\n")),
+            Judgement::Usage
+        );
+        assert_eq!(
+            judge(&run(1, "Could not detect anything for --help\n")),
+            Judgement::Usage
+        );
         // fonttools takes its first argument as a submodule name.
-        assert_eq!(judge(&run(1, "ImportError: No module named fontTools.--help\n")), Judgement::Usage);
-        assert_eq!(judge(&run(1, "error: no such file: C:\\tools\\--help\n")), Judgement::Usage);
+        assert_eq!(
+            judge(&run(1, "ImportError: No module named fontTools.--help\n")),
+            Judgement::Usage
+        );
+        assert_eq!(
+            judge(&run(1, "error: no such file: C:\\tools\\--help\n")),
+            Judgement::Usage
+        );
         // A word that merely contains the flag text is not an echo.
-        assert_eq!(judge(&run(1, "Error: unsupported --helper mode\n")), Judgement::Fail);
+        assert_eq!(
+            judge(&run(1, "Error: unsupported --helper mode\n")),
+            Judgement::Fail
+        );
     }
 
     #[test]
     fn help_text_with_nonzero_exit_passes() {
-        assert_eq!(judge(&run(1, "tool <command>\n\nUsage:\n\ntool install        install things\n")), Judgement::Pass);
-        assert_eq!(judge(&run(99, "tool version 25.0\nUsage: tool [options] <file>\n  -list : list entries\n")), Judgement::Pass);
+        assert_eq!(
+            judge(&run(
+                1,
+                "tool <command>\n\nUsage:\n\ntool install        install things\n"
+            )),
+            Judgement::Pass
+        );
+        assert_eq!(
+            judge(&run(
+                99,
+                "tool version 25.0\nUsage: tool [options] <file>\n  -list : list entries\n"
+            )),
+            Judgement::Pass
+        );
         // No "usage" line, but documents its flags.
-        assert_eq!(judge(&run(-1, "tool -b <base>\n\n-D sets the default conversion\n\n-f reads config from a file\n")), Judgement::Pass);
+        assert_eq!(
+            judge(&run(
+                -1,
+                "tool -b <base>\n\n-D sets the default conversion\n\n-f reads config from a file\n"
+            )),
+            Judgement::Pass
+        );
         assert_eq!(judge(&run(99, "")), Judgement::Fail);
     }
 
     #[test]
     fn console_only_programs_are_detected() {
-        assert_eq!(judge(&run(1, "Error: found xterm-256color, while expecting a Windows console.\n")), Judgement::NeedsConsole);
-        assert_eq!(judge(&run(1, "error: stdin is not a tty\n")), Judgement::NeedsConsole);
-        assert_eq!(judge(&run(1, "ScreenBufferError: No Windows console found. Are you running cmd.exe?\n")), Judgement::NeedsConsole);
-        assert_eq!(judge(&run(1, "This program requires an interactive terminal.\n")), Judgement::NeedsConsole);
-        assert_eq!(judge(&run(1, "Error: Can't open display: \n")), Judgement::NeedsConsole);
-        assert_eq!(judge(&run(1, "qt.qpa.xcb: could not connect to display\n")), Judgement::NeedsConsole);
-        assert_eq!(judge(&run(1, "Gtk-WARNING **: cannot open display: :0\n")), Judgement::NeedsConsole);
+        assert_eq!(
+            judge(&run(
+                1,
+                "Error: found xterm-256color, while expecting a Windows console.\n"
+            )),
+            Judgement::NeedsConsole
+        );
+        assert_eq!(
+            judge(&run(1, "error: stdin is not a tty\n")),
+            Judgement::NeedsConsole
+        );
+        assert_eq!(
+            judge(&run(
+                1,
+                "ScreenBufferError: No Windows console found. Are you running cmd.exe?\n"
+            )),
+            Judgement::NeedsConsole
+        );
+        assert_eq!(
+            judge(&run(1, "This program requires an interactive terminal.\n")),
+            Judgement::NeedsConsole
+        );
+        assert_eq!(
+            judge(&run(1, "Error: Can't open display: \n")),
+            Judgement::NeedsConsole
+        );
+        assert_eq!(
+            judge(&run(1, "qt.qpa.xcb: could not connect to display\n")),
+            Judgement::NeedsConsole
+        );
+        assert_eq!(
+            judge(&run(1, "Gtk-WARNING **: cannot open display: :0\n")),
+            Judgement::NeedsConsole
+        );
     }
 
     #[test]
     fn tool_bugs_are_failures() {
-        assert_eq!(judge(&run(1, "AttributeError: module 'x' has no attribute 'y'\n")), Judgement::Fail);
-        assert_eq!(judge(&run(1, "ImportError: cannot import name 'A' from 'pkg.mod'\n")), Judgement::Fail);
-        assert_eq!(judge(&run(1, "SyntaxError: Invalid regular expression\n")), Judgement::Fail);
+        assert_eq!(
+            judge(&run(1, "AttributeError: module 'x' has no attribute 'y'\n")),
+            Judgement::Fail
+        );
+        assert_eq!(
+            judge(&run(
+                1,
+                "ImportError: cannot import name 'A' from 'pkg.mod'\n"
+            )),
+            Judgement::Fail
+        );
+        assert_eq!(
+            judge(&run(1, "SyntaxError: Invalid regular expression\n")),
+            Judgement::Fail
+        );
     }
 
     fn summary(a: &Attempt) -> Outcome {
@@ -440,10 +668,22 @@ operable program or batch file."#))));
         // Real output from tools that reject --help in their own words.
         let cases = [
             run(3, "funzip error: input not a zip or gzip file\n"),
-            run(1, "2026/10/10 15:10:40.82 SQLDIAG Error parsing command line parameters\n"),
-            run(1, "The CLI is unable to find Obsidian. Please make sure Obsidian is running and try again.\n"),
-            run(1, r#"{"component":"sailor","level":"fatal","msg":"unmarshalling config: EOF"}"#),
-            run(1, r#"{"level":"debug","error":"could not locate `tool` in any of the following paths: [C:\\cfg]"}"#),
+            run(
+                1,
+                "2026/10/10 15:10:40.82 SQLDIAG Error parsing command line parameters\n",
+            ),
+            run(
+                1,
+                "The CLI is unable to find Obsidian. Please make sure Obsidian is running and try again.\n",
+            ),
+            run(
+                1,
+                r#"{"component":"sailor","level":"fatal","msg":"unmarshalling config: EOF"}"#,
+            ),
+            run(
+                1,
+                r#"{"level":"debug","error":"could not locate `tool` in any of the following paths: [C:\\cfg]"}"#,
+            ),
             run(1, ""),
         ];
         for a in &cases {
@@ -453,19 +693,33 @@ operable program or batch file."#))));
 
     #[test]
     fn crashes_and_hangs_stay_tool_errors() {
-        let timed_out = Attempt { timed_out: true, exit: None, ..run(0, "") };
+        let timed_out = Attempt {
+            timed_out: true,
+            exit: None,
+            ..run(0, "")
+        };
         let cases = [
             timed_out,
             run(127, "sh: 1: tool: Permission denied\n"),
             run(-1073741819, ""),
-            run(1, "Traceback (most recent call last):\n  File \"x.py\", line 1\nKeyError: 'a'\n"),
+            run(
+                1,
+                "Traceback (most recent call last):\n  File \"x.py\", line 1\nKeyError: 'a'\n",
+            ),
             // pywin32_testall: the quoted source line is not the error.
-            run(1, "Traceback (most recent call last):\n  File \"pywin32_testall.py\", line 38, in main\n    \"Failed to locate a test script in one of %s\" % possible_locations\nRuntimeError: Failed to locate a test script in one of ['C:\\\\x']\n"),
+            run(
+                1,
+                "Traceback (most recent call last):\n  File \"pywin32_testall.py\", line 38, in main\n    \"Failed to locate a test script in one of %s\" % possible_locations\nRuntimeError: Failed to locate a test script in one of ['C:\\\\x']\n",
+            ),
             run(1, "AttributeError: module 'x' has no attribute 'y'\n"),
             run(101, "thread 'main' panicked at src/main.rs:1:1:\n"),
         ];
         for a in &cases {
-            assert!(matches!(summary(a), Outcome::ToolError(..)), "{:?}", a.output);
+            assert!(
+                matches!(summary(a), Outcome::ToolError(..)),
+                "{:?}",
+                a.output
+            );
         }
     }
 
@@ -475,7 +729,10 @@ operable program or batch file."#))));
         let (outcome, attempts) = probe(
             |arg| {
                 let &(exit, output) = answers.next().expect("probed past the canned answers");
-                Ok(Attempt { arg: arg.into(), ..run(exit, output) })
+                Ok(Attempt {
+                    arg: arg.into(),
+                    ..run(exit, output)
+                })
             },
             Duration::from_secs(1),
         );
@@ -499,7 +756,11 @@ operable program or batch file."#))));
         assert!(matches!(outcome, Outcome::Pass));
         assert_eq!(args, ["--version", "-V", "--help"]);
         // --help can still find what --version didn't load.
-        let (outcome, _) = probe_with(&[(2, "unknown option --version\n"), (1, ""), (1, "No module named 'dep'\n")]);
+        let (outcome, _) = probe_with(&[
+            (2, "unknown option --version\n"),
+            (1, ""),
+            (1, "No module named 'dep'\n"),
+        ]);
         assert!(matches!(outcome, Outcome::Broken(_)));
     }
 
@@ -516,11 +777,19 @@ operable program or batch file."#))));
         let (outcome, attempts) = probe(
             |arg| {
                 calls += 1;
-                Ok(Attempt { arg: arg.into(), timed_out: true, exit: None, ..run(0, "") })
+                Ok(Attempt {
+                    arg: arg.into(),
+                    timed_out: true,
+                    exit: None,
+                    ..run(0, "")
+                })
             },
             Duration::from_secs(1),
         );
-        assert!(matches!(outcome, Outcome::ToolError(ToolErrorKind::TimedOut, _)));
+        assert!(matches!(
+            outcome,
+            Outcome::ToolError(ToolErrorKind::TimedOut, _)
+        ));
         assert_eq!((calls, attempts.len()), (1, 1));
     }
 
@@ -528,7 +797,14 @@ operable program or batch file."#))));
     fn timeout_after_output_started_unless_it_says_broken() {
         let probe_timeout = |output: &'static str| {
             probe(
-                |arg| Ok(Attempt { arg: arg.into(), timed_out: true, exit: None, ..run(0, output) }),
+                |arg| {
+                    Ok(Attempt {
+                        arg: arg.into(),
+                        timed_out: true,
+                        exit: None,
+                        ..run(0, output)
+                    })
+                },
                 Duration::from_secs(1),
             )
             .0
@@ -536,14 +812,26 @@ operable program or batch file."#))));
         // vimrun runs its argument as a command, then waits for a key.
         let vimrun = "'--version' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n";
         assert!(matches!(probe_timeout(vimrun), Outcome::Started(_)));
-        assert!(matches!(probe_timeout("No module named 'dep'\n"), Outcome::Broken(_)));
-        assert!(matches!(probe_timeout(" \r\n"), Outcome::ToolError(ToolErrorKind::TimedOut, _)));
+        assert!(matches!(
+            probe_timeout("No module named 'dep'\n"),
+            Outcome::Broken(_)
+        ));
+        assert!(matches!(
+            probe_timeout(" \r\n"),
+            Outcome::ToolError(ToolErrorKind::TimedOut, _)
+        ));
     }
 
     #[test]
     fn failing_to_start_is_broken() {
-        let (outcome, attempts) = probe(|_| Err(io::Error::other("bad image")), Duration::from_secs(1));
-        assert!(matches!(outcome, Outcome::Broken(Reason::FailedToStart { .. })));
+        let (outcome, attempts) = probe(
+            |_| Err(io::Error::other("bad image")),
+            Duration::from_secs(1),
+        );
+        assert!(matches!(
+            outcome,
+            Outcome::Broken(Reason::FailedToStart { .. })
+        ));
         assert!(attempts.is_empty());
     }
 
@@ -556,7 +844,12 @@ operable program or batch file."#))));
     #[cfg(windows)]
     #[test]
     fn runs_real_process() {
-        let a = run_capture(&system32("cmd.exe"), &["/d", "/c", "echo hi"], Duration::from_secs(10)).unwrap();
+        let a = run_capture(
+            &system32("cmd.exe"),
+            &["/d", "/c", "echo hi"],
+            Duration::from_secs(10),
+        )
+        .unwrap();
         assert_eq!(a.exit, Some(0));
         assert!(a.output.contains("hi"));
     }
@@ -565,7 +858,12 @@ operable program or batch file."#))));
     #[test]
     fn times_out_and_kills() {
         let start = Instant::now();
-        let a = run_capture(&system32("ping.exe"), &["-n", "30", "127.0.0.1"], Duration::from_millis(500)).unwrap();
+        let a = run_capture(
+            &system32("ping.exe"),
+            &["-n", "30", "127.0.0.1"],
+            Duration::from_millis(500),
+        )
+        .unwrap();
         assert!(a.timed_out);
         assert!(start.elapsed() < Duration::from_secs(5));
     }

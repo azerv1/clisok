@@ -7,7 +7,7 @@
 //! group is killed, so nothing a tool started outlives the run.
 
 use std::collections::HashSet;
-use std::io::{self, Read};
+use std::io;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -15,12 +15,13 @@ use std::sync::{Mutex, OnceLock, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::exec::{HEADLESS_ENV, HEADLESS_ENV_REMOVE};
+use crate::exec::{HEADLESS_ENV, HEADLESS_ENV_REMOVE, capture_output};
 
 pub struct Output {
     pub exit: Option<i32>,
     pub timed_out: bool,
     pub output: Vec<u8>,
+    pub truncated: bool,
 }
 
 /// Process groups of tools that are running right now.
@@ -91,7 +92,13 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
     }
     // SAFETY: setsid is async-signal-safe and touches nothing in the parent.
     unsafe {
-        cmd.pre_exec(|| if libc::setsid() == -1 { Err(io::Error::last_os_error()) } else { Ok(()) });
+        cmd.pre_exec(|| {
+            if libc::setsid() == -1 {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        });
     }
     let mut child = cmd.spawn()?;
     // The Command holds our copies of the pipe's write end; drop them so the
@@ -102,9 +109,7 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
 
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = reader.read_to_end(&mut buf);
-        let _ = tx.send(buf);
+        let _ = tx.send(capture_output(&mut reader));
     });
 
     let deadline = Instant::now() + timeout;
@@ -123,10 +128,17 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
     kill_group(pgid);
     track(pgid, false);
 
-    let output = rx.recv_timeout(Duration::from_secs(2)).unwrap_or_default();
+    let (output, truncated) = rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap_or_else(|_| (Vec::new(), true));
     // A signal death has no exit code; report it the way shells do (128 + signal).
     let exit = status.and_then(|s| s.code().or_else(|| s.signal().map(|sig| 128 + sig)));
-    Ok(Output { exit, timed_out: status.is_none(), output })
+    Ok(Output {
+        exit,
+        timed_out: status.is_none(),
+        output,
+        truncated,
+    })
 }
 
 #[cfg(test)]
@@ -135,8 +147,12 @@ mod tests {
 
     #[test]
     fn captures_output_env_and_cwd() {
-        let out = run(Path::new("/bin/sh"), &["-c", "echo $CI $TERM ${DISPLAY:-none}; pwd; echo err >&2"], Duration::from_secs(10))
-            .unwrap();
+        let out = run(
+            Path::new("/bin/sh"),
+            &["-c", "echo $CI $TERM ${DISPLAY:-none}; pwd; echo err >&2"],
+            Duration::from_secs(10),
+        )
+        .unwrap();
         let text = String::from_utf8_lossy(&out.output);
         assert_eq!(out.exit, Some(0));
         assert!(text.contains("1 dumb none"), "{text}");
@@ -148,7 +164,12 @@ mod tests {
     fn no_route_to_a_display_or_windows() {
         let script = "echo D=${DISPLAY:-} W=${WAYLAND_DISPLAY:-} X=${XDG_RUNTIME_DIR:-} B=${DBUS_SESSION_BUS_ADDRESS:-} BR=$BROWSER; \
                       case \":$PATH:\" in *:/mnt/[a-z]/*) echo winpath;; esac";
-        let out = run(Path::new("/bin/sh"), &["-c", script], Duration::from_secs(10)).unwrap();
+        let out = run(
+            Path::new("/bin/sh"),
+            &["-c", script],
+            Duration::from_secs(10),
+        )
+        .unwrap();
         let text = String::from_utf8_lossy(&out.output);
         assert!(text.contains("D= W= X= B= BR=true"), "{text}");
         assert!(!text.contains("winpath"), "{text}");
@@ -156,8 +177,12 @@ mod tests {
 
     #[test]
     fn has_no_controlling_terminal() {
-        let out = run(Path::new("/bin/sh"), &["-c", "test -t 0 || echo notty; ps -o tty= -p $$"], Duration::from_secs(10))
-            .unwrap();
+        let out = run(
+            Path::new("/bin/sh"),
+            &["-c", "test -t 0 || echo notty; ps -o tty= -p $$"],
+            Duration::from_secs(10),
+        )
+        .unwrap();
         let text = String::from_utf8_lossy(&out.output);
         assert!(text.contains("notty"), "{text}");
         assert!(text.contains('?'), "{text}");
@@ -166,14 +191,24 @@ mod tests {
     #[test]
     fn timeout_kills_the_whole_group() {
         let t = Instant::now();
-        let out = run(Path::new("/bin/sh"), &["-c", "sleep 30 & sleep 30"], Duration::from_millis(500)).unwrap();
+        let out = run(
+            Path::new("/bin/sh"),
+            &["-c", "sleep 30 & sleep 30"],
+            Duration::from_millis(500),
+        )
+        .unwrap();
         assert!(out.timed_out);
         assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
     }
 
     #[test]
     fn signal_death_has_an_exit_code() {
-        let out = run(Path::new("/bin/sh"), &["-c", "kill -9 $$"], Duration::from_secs(10)).unwrap();
+        let out = run(
+            Path::new("/bin/sh"),
+            &["-c", "kill -9 $$"],
+            Duration::from_secs(10),
+        )
+        .unwrap();
         assert_eq!(out.exit, Some(128 + 9));
     }
 }

@@ -11,7 +11,8 @@ use crate::codes::CODES;
 use crate::config;
 use crate::fix::{self, Applicability};
 
-const NOTICE: &str = "<!-- Generated from the source by `UPDATE_DOCS=1 cargo test`. Don't edit by hand. -->";
+const NOTICE: &str =
+    "<!-- Generated from the source by `UPDATE_DOCS=1 cargo test`. Don't edit by hand. -->";
 
 fn group(number: u16) -> &'static str {
     match number / 100 {
@@ -35,7 +36,12 @@ fn codes_page() -> String {
     );
     for c in CODES {
         let (code, id, fix) = (c.code, c.code.to_string().to_lowercase(), fix_short(c.code));
-        let _ = writeln!(s, "| [{code}](#{id}) | {} | {fix} | {} |", c.default_name(), c.title);
+        let _ = writeln!(
+            s,
+            "| [{code}](#{id}) | {} | {fix} | {} |",
+            c.default_name(),
+            c.title
+        );
     }
     let mut last = "";
     for c in CODES {
@@ -45,7 +51,14 @@ fn codes_page() -> String {
             last = g;
         }
         let id = c.code.to_string().to_lowercase();
-        let _ = writeln!(s, "\n### {} — {} {{#{id}}}\n\n**Default:** {}\n\n{}", c.code, c.title, c.default_long(), c.help);
+        let _ = writeln!(
+            s,
+            "\n### {} — {} {{#{id}}}\n\n**Default:** {}\n\n{}",
+            c.code,
+            c.title,
+            c.default_long(),
+            c.help
+        );
         let _ = writeln!(s, "\n**Fix:** {}", fix::safety(c.code).1);
     }
     s
@@ -69,13 +82,22 @@ fn config_keys_page() -> String {
 }
 
 fn check_page(rel: &str, want: String) {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("docs").join("src").join(rel);
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("docs")
+        .join("src")
+        .join(rel);
     if std::env::var_os("UPDATE_DOCS").is_some() {
         fs::write(&path, &want).unwrap();
         return;
     }
-    let have = fs::read_to_string(&path).unwrap_or_default().replace("\r\n", "\n");
-    assert!(have == want, "{} is out of date; run `UPDATE_DOCS=1 cargo test`", path.display());
+    let have = fs::read_to_string(&path)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
+    assert!(
+        have == want,
+        "{} is out of date; run `UPDATE_DOCS=1 cargo test`",
+        path.display()
+    );
 }
 
 #[test]

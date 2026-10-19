@@ -29,11 +29,17 @@ pub struct Fix {
 
 impl Fix {
     pub fn display_only(message: impl Into<String>) -> Self {
-        Fix { applicability: Applicability::DisplayOnly, message: message.into() }
+        Fix {
+            applicability: Applicability::DisplayOnly,
+            message: message.into(),
+        }
     }
 
     fn new(applicability: Applicability, message: impl Into<String>) -> Self {
-        Fix { applicability, message: message.into() }
+        Fix {
+            applicability,
+            message: message.into(),
+        }
     }
 
     /// Keep the message but never apply it (`[fix] unfixable`).
@@ -63,7 +69,6 @@ impl Fix {
         }
     }
 }
-
 
 /// What `--fix` changed.
 #[derive(Debug, Serialize)]
@@ -95,15 +100,23 @@ pub fn for_entry(problem: EntryProblem, entry: &PathEntry) -> Option<Fix> {
             EntryProblem::Empty | EntryProblem::Duplicate => {
                 return fix(Applicability::Safe, "remove it from the user PATH");
             }
-            EntryProblem::StrayQuote => return fix(Applicability::Unsafe, "remove the quotes in the user PATH"),
-            EntryProblem::Whitespace => return fix(Applicability::Unsafe, "trim the spaces in the user PATH"),
+            EntryProblem::StrayQuote => {
+                return fix(Applicability::Unsafe, "remove the quotes in the user PATH");
+            }
+            EntryProblem::Whitespace => {
+                return fix(Applicability::Unsafe, "trim the spaces in the user PATH");
+            }
             _ => {}
         }
     }
     let what = match problem {
         EntryProblem::Empty => "remove the empty entry",
-        EntryProblem::Missing => "remove the entry if the program is gone; reconnect the drive or share if not",
-        EntryProblem::NotDir => "remove the entry, or point it at the folder that holds the program",
+        EntryProblem::Missing => {
+            "remove the entry if the program is gone; reconnect the drive or share if not"
+        }
+        EntryProblem::NotDir => {
+            "remove the entry, or point it at the folder that holds the program"
+        }
         EntryProblem::UnexpandedVar => "set the variable, or replace it with the folder it names",
         EntryProblem::StrayQuote => "remove the quotes",
         EntryProblem::Whitespace => "trim the spaces",
@@ -111,21 +124,35 @@ pub fn for_entry(problem: EntryProblem, entry: &PathEntry) -> Option<Fix> {
         EntryProblem::NotInSession => return Some(Fix::display_only("open a new terminal")),
         EntryProblem::Truncated => "shorten PATH, then re-add the entries that came after this one",
     };
-    Some(Fix::display_only(format!("{what} ({})", path_place(entry.origin))))
+    Some(Fix::display_only(format!(
+        "{what} ({})",
+        path_place(entry.origin)
+    )))
 }
 
 pub fn for_reason(reason: &Reason) -> Option<Fix> {
     let msg = match reason {
-        Reason::MissingTarget { .. } => "reinstall the tool that owns it, or remove this launcher".into(),
-        Reason::MissingScriptCall { .. } => "restore the file, or remove the call from the script".into(),
-        Reason::MissingLibrary { name, .. } => format!("reinstall the program, or install what provides {name}"),
+        Reason::MissingTarget { .. } => {
+            "reinstall the tool that owns it, or remove this launcher".into()
+        }
+        Reason::MissingScriptCall { .. } => {
+            "restore the file, or remove the call from the script".into()
+        }
+        Reason::MissingLibrary { name, .. } => {
+            format!("reinstall the program, or install what provides {name}")
+        }
         Reason::MissingInterpreter { .. } => {
             "reinstall the tool so it uses an installed interpreter, or remove this launcher".into()
         }
-        Reason::MissingModule { module, .. } => format!("reinstall the tool so its environment has {module}"),
-        Reason::UnresolvedCommand { name } => format!("install {name}, or give the launcher a full path"),
+        Reason::MissingModule { module, .. } => {
+            format!("reinstall the tool so its environment has {module}")
+        }
+        Reason::UnresolvedCommand { name } => {
+            format!("install {name}, or give the launcher a full path")
+        }
         Reason::AppNotInstalled { .. } => {
-            "turn the alias off in Settings › Apps › Advanced app settings › App execution aliases".into()
+            "turn the alias off in Settings › Apps › Advanced app settings › App execution aliases"
+                .into()
         }
         Reason::FailedToStart { .. } | Reason::Output { .. } => return None,
     };
@@ -178,9 +205,10 @@ pub fn app_paths_diff(keys: &[&str]) -> String {
 pub fn safety(code: Code) -> (Option<Applicability>, &'static str) {
     use Applicability::*;
     match code {
-        Code::Cli001 | Code::Cli007 => {
-            (Some(Safe), "Safe: `--fix` removes it from the saved user PATH (Windows). Elsewhere it is advice.")
-        }
+        Code::Cli001 | Code::Cli007 => (
+            Some(Safe),
+            "Safe: `--fix` removes it from the saved user PATH (Windows). Elsewhere it is advice.",
+        ),
         Code::Cli005 | Code::Cli006 => (
             Some(Unsafe),
             "Unsafe: `--fix --unsafe-fixes` cleans it in the saved user PATH (Windows). A cleaned entry that names a real folder starts to work and can change which program runs. Elsewhere it is advice.",
@@ -201,7 +229,11 @@ mod tests {
     use super::*;
 
     fn entry(origin: PathOrigin) -> PathEntry {
-        PathEntry { raw: r"C:\gone".into(), dir: PathBuf::from(r"C:\gone"), origin }
+        PathEntry {
+            raw: r"C:\gone".into(),
+            dir: PathBuf::from(r"C:\gone"),
+            origin,
+        }
     }
 
     #[test]
@@ -209,18 +241,30 @@ mod tests {
         let fix = for_entry(EntryProblem::Missing, &entry(PathOrigin::System)).unwrap();
         assert_eq!(fix.applicability, Applicability::DisplayOnly);
         assert!(fix.message.ends_with("(system PATH, needs admin)"));
-        assert_eq!(for_entry(EntryProblem::NotInSession, &entry(PathOrigin::User)).unwrap().message, "open a new terminal");
+        assert_eq!(
+            for_entry(EntryProblem::NotInSession, &entry(PathOrigin::User))
+                .unwrap()
+                .message,
+            "open a new terminal"
+        );
     }
 
     #[test]
     fn only_user_path_empties_and_repeats_are_safe() {
         let safe = |p, o| for_entry(p, &entry(o)).unwrap().is_safe();
-        assert_eq!(safe(EntryProblem::Duplicate, PathOrigin::User), cfg!(windows));
+        assert_eq!(
+            safe(EntryProblem::Duplicate, PathOrigin::User),
+            cfg!(windows)
+        );
         assert_eq!(safe(EntryProblem::Empty, PathOrigin::User), cfg!(windows));
         assert!(!safe(EntryProblem::Duplicate, PathOrigin::System));
         assert!(!safe(EntryProblem::Duplicate, PathOrigin::Process));
         // Cleaning an entry can make a dead folder live, so it is not safe.
-        let applies = |p, unsafe_fixes| for_entry(p, &entry(PathOrigin::User)).unwrap().applies(unsafe_fixes);
+        let applies = |p, unsafe_fixes| {
+            for_entry(p, &entry(PathOrigin::User))
+                .unwrap()
+                .applies(unsafe_fixes)
+        };
         assert!(!safe(EntryProblem::Whitespace, PathOrigin::User));
         assert!(!applies(EntryProblem::StrayQuote, false));
         assert_eq!(applies(EntryProblem::StrayQuote, true), cfg!(windows));
@@ -248,17 +292,28 @@ mod tests {
             let got = for_entry(p, &entry(PathOrigin::User)).map(|f| f.applicability);
             assert_eq!(got, safety(p.code()).0, "{}", p.code());
         }
-        assert_eq!(Some(for_app_path(r"HKCU\x").applicability), safety(Code::Cli301).0);
+        assert_eq!(
+            Some(for_app_path(r"HKCU\x").applicability),
+            safety(Code::Cli301).0
+        );
         let r = |reason: Reason| (reason.code(), for_reason(&reason).map(|f| f.applicability));
         let path = PathBuf::from("x");
         for (code, got) in [
             r(Reason::MissingTarget { path: path.clone() }),
             r(Reason::MissingScriptCall { path: path.clone() }),
-            r(Reason::MissingLibrary { name: "x".into(), needed_by: path.clone() }),
+            r(Reason::MissingLibrary {
+                name: "x".into(),
+                needed_by: path.clone(),
+            }),
             r(Reason::MissingInterpreter { path: path.clone() }),
-            r(Reason::MissingModule { module: "x".into(), python: path }),
+            r(Reason::MissingModule {
+                module: "x".into(),
+                python: path,
+            }),
             r(Reason::UnresolvedCommand { name: "x".into() }),
-            r(Reason::AppNotInstalled { package: "x".into() }),
+            r(Reason::AppNotInstalled {
+                package: "x".into(),
+            }),
             r(Reason::FailedToStart { error: "x".into() }),
             r(Reason::Output { line: "x".into() }),
         ] {
@@ -286,20 +341,44 @@ mod tests {
         let raw = ["a", "", "a", " b ", "c", ""].join(&sep.to_string());
         let diff = path_diff(&raw, &edits);
         let body: Vec<&str> = diff.lines().skip(2).collect();
-        assert_eq!(body, [r#" "a""#, r#"-"""#, r#"-"a""#, r#"-" b ""#, r#"+"b""#, r#" "c""#]);
-        assert_eq!(app_paths_diff(&["HKCU\\k"]).lines().last(), Some("-HKCU\\k"));
+        assert_eq!(
+            body,
+            [
+                r#" "a""#,
+                r#"-"""#,
+                r#"-"a""#,
+                r#"-" b ""#,
+                r#"+"b""#,
+                r#" "c""#
+            ]
+        );
+        assert_eq!(
+            app_paths_diff(&["HKCU\\k"]).lines().last(),
+            Some("-HKCU\\k")
+        );
     }
 
     #[test]
     fn run_output_has_no_advice() {
         assert!(for_reason(&Reason::Output { line: "x".into() }).is_none());
-        assert!(for_reason(&Reason::UnresolvedCommand { name: "node".into() }).unwrap().message.contains("node"));
+        assert!(
+            for_reason(&Reason::UnresolvedCommand {
+                name: "node".into()
+            })
+            .unwrap()
+            .message
+            .contains("node")
+        );
     }
 
     #[test]
     fn only_user_app_paths_can_be_deleted_and_only_unsafely() {
         assert!(!for_app_path(r"HKLM\SOFTWARE\x").applies(true));
-        assert!(for_app_path(r"HKLM\SOFTWARE\x").message.ends_with("(needs admin)"));
+        assert!(
+            for_app_path(r"HKLM\SOFTWARE\x")
+                .message
+                .ends_with("(needs admin)")
+        );
         let hkcu = for_app_path(r"HKCU\SOFTWARE\x");
         assert!(!hkcu.applies(false));
         assert!(hkcu.applies(true));

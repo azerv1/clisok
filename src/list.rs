@@ -18,8 +18,14 @@ pub enum ListFormat {
 
 #[derive(clap::Args)]
 pub struct ListArgs {
-    #[cfg_attr(windows, doc = "Also list commands found only in Windows' own folder (%SystemRoot%)")]
-    #[cfg_attr(unix, doc = "Also list commands found only in the distro's own folders (/usr/bin, /bin, /usr/sbin, /sbin)")]
+    #[cfg_attr(
+        windows,
+        doc = "Also list commands found only in Windows' own folder (%SystemRoot%)"
+    )]
+    #[cfg_attr(
+        unix,
+        doc = "Also list commands found only in the distro's own folders (/usr/bin, /bin, /usr/sbin, /sbin)"
+    )]
     #[arg(long)]
     system: bool,
     /// How to print the list
@@ -31,7 +37,8 @@ pub struct ListArgs {
 
 /// Alphabetical, ignoring case; names that differ only in case (Unix) keep a fixed order.
 fn sort_by_name(commands: &mut [PathCommand]) {
-    commands.sort_by(|a, b| (a.name.to_lowercase(), &a.name).cmp(&(b.name.to_lowercase(), &b.name)));
+    commands
+        .sort_by(|a, b| (a.name.to_lowercase(), &a.name).cmp(&(b.name.to_lowercase(), &b.name)));
 }
 
 pub fn list(args: &ListArgs) -> ExitCode {
@@ -51,7 +58,11 @@ pub fn list(args: &ListArgs) -> ExitCode {
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
     let mut commands = discover::inventory(&entries, &PathIndex::build(&dirs), system);
     sort_by_name(&mut commands);
-    let on_path: HashSet<String> = commands.iter().flat_map(|c| &c.copies).map(|c| path_key(&c.path)).collect();
+    let on_path: HashSet<String> = commands
+        .iter()
+        .flat_map(|c| &c.copies)
+        .map(|c| path_key(&c.path))
+        .collect();
     let extra = match discover::extra_files(config.extra.as_deref().unwrap_or_default()) {
         Ok(files) => files
             .into_iter()
@@ -67,7 +78,13 @@ pub fn list(args: &ListArgs) -> ExitCode {
         }
     };
 
-    let report = ListReport { schema: SCHEMA_VERSION, command: "list", config: config.files, commands, extra };
+    let report = ListReport {
+        schema: SCHEMA_VERSION,
+        command: "list",
+        config: config.files,
+        commands,
+        extra,
+    };
     if args.output_format == ListFormat::Json {
         match serde_json::to_string_pretty(&report) {
             Ok(j) => print_stdout(&format!("{j}\n")),
@@ -90,13 +107,23 @@ mod tests {
     fn command(name: &str, copies: &[(&str, bool)]) -> PathCommand {
         PathCommand {
             name: name.into(),
-            copies: copies.iter().map(|(p, os)| FileCopy { path: PathBuf::from(p), os: *os }).collect(),
+            copies: copies
+                .iter()
+                .map(|(p, os)| FileCopy {
+                    path: PathBuf::from(p),
+                    os: *os,
+                })
+                .collect(),
         }
     }
 
     #[test]
     fn sorts_alphabetically_ignoring_case() {
-        let mut commands = vec![command("zip", &[("a", false)]), command("Git", &[("b", false)]), command("curl", &[("c", false)])];
+        let mut commands = vec![
+            command("zip", &[("a", false)]),
+            command("Git", &[("b", false)]),
+            command("curl", &[("c", false)]),
+        ];
         sort_by_name(&mut commands);
         let names: Vec<&str> = commands.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["curl", "Git", "zip"]);
@@ -118,6 +145,8 @@ mod tests {
         let os_path = PathBuf::from("/os/curl").display().to_string();
         let mine = PathBuf::from("/home/me/bin/curl").display().to_string();
         assert!(text.contains(&format!("curl  {os_path}  [OS]\n    shadows {mine}\n")));
-        assert!(text.contains("Summary: 2 commands; 1 shadow other copies; 1 run an OS copy instead of yours."));
+        assert!(text.contains(
+            "Summary: 2 commands; 1 shadow other copies; 1 run an OS copy instead of yours."
+        ));
     }
 }

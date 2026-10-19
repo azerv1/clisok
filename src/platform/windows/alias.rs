@@ -6,10 +6,12 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::ptr;
 
-use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, INVALID_HANDLE_VALUE,
+};
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ,
-    FILE_SHARE_WRITE, OPEN_EXISTING,
+    CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows_sys::Win32::Storage::Packaging::Appx::GetPackagesByPackageFamily;
 use windows_sys::Win32::System::IO::DeviceIoControl;
@@ -30,7 +32,13 @@ pub fn package_installed(family: &str) -> Option<bool> {
     let (mut count, mut len) = (0u32, 0u32);
     // SAFETY: valid NUL-terminated name; null buffers only query the count.
     let rc = unsafe {
-        GetPackagesByPackageFamily(wide.as_ptr(), &mut count, ptr::null_mut(), &mut len, ptr::null_mut())
+        GetPackagesByPackageFamily(
+            wide.as_ptr(),
+            &mut count,
+            ptr::null_mut(),
+            &mut len,
+            ptr::null_mut(),
+        )
     };
     match rc {
         ERROR_SUCCESS | ERROR_INSUFFICIENT_BUFFER => Some(count > 0),
@@ -85,12 +93,20 @@ fn parse(buf: &[u8]) -> Option<Alias> {
     if tag != IO_REPARSE_TAG_APPEXECLINK {
         return None;
     }
-    let units: Vec<u16> = buf.get(12..)?.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
+    let units: Vec<u16> = buf
+        .get(12..)?
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
+        .collect();
     let mut parts = units.split(|&u| u == 0);
     let family = String::from_utf16_lossy(parts.next()?);
     let target = parts.nth(1)?;
-    (!family.is_empty() && !target.is_empty())
-        .then(|| Alias { package_family: family, target: PathBuf::from(String::from_utf16_lossy(target)) })
+    (!family.is_empty() && !target.is_empty()).then(|| Alias {
+        package_family: family,
+        target: PathBuf::from(String::from_utf16_lossy(target)),
+    })
 }
 
 #[cfg(test)]
@@ -115,7 +131,13 @@ mod tests {
 
     #[test]
     fn parses_alias() {
-        let a = parse(&buffer(&["Vendor.App_abc", "Vendor.App_abc!App", TARGET, "0"])).unwrap();
+        let a = parse(&buffer(&[
+            "Vendor.App_abc",
+            "Vendor.App_abc!App",
+            TARGET,
+            "0",
+        ]))
+        .unwrap();
         assert_eq!(a.package_family, "Vendor.App_abc");
         assert_eq!(a.target, PathBuf::from(TARGET));
     }
@@ -137,6 +159,9 @@ mod tests {
 
     #[test]
     fn unknown_package_family_is_not_installed() {
-        assert_eq!(package_installed("Nobody.NoSuchApp_0000000000000"), Some(false));
+        assert_eq!(
+            package_installed("Nobody.NoSuchApp_0000000000000"),
+            Some(false)
+        );
     }
 }

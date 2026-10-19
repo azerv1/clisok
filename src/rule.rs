@@ -10,7 +10,11 @@ use crate::fix::{self, Applicability};
 use crate::report::print_stdout;
 
 #[derive(clap::Args)]
-#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true, arg_required_else_help = true)]
+#[command(
+    args_conflicts_with_subcommands = true,
+    subcommand_negates_reqs = true,
+    arg_required_else_help = true
+)]
 pub struct RuleArgs {
     #[command(subcommand)]
     command: Option<RuleCommand>,
@@ -67,7 +71,14 @@ struct Rule {
 impl Rule {
     fn new(c: &CodeInfo) -> Self {
         let (fix, fix_safety) = fix::safety(c.code);
-        Rule { code: c.code, title: c.title, default: c.default_name(), fix, fix_safety, explanation: c.help }
+        Rule {
+            code: c.code,
+            title: c.title,
+            default: c.default_name(),
+            fix,
+            fix_safety,
+            explanation: c.help,
+        }
     }
 }
 
@@ -90,7 +101,13 @@ fn table() -> String {
             Some(Applicability::DisplayOnly) => "advice",
             None => "—",
         };
-        let _ = writeln!(s, "{}  {:<10}  {fix:<6}  {}", c.code, c.default_name(), c.title);
+        let _ = writeln!(
+            s,
+            "{}  {:<10}  {fix:<6}  {}",
+            c.code,
+            c.default_name(),
+            c.title
+        );
     }
     s
 }
@@ -107,7 +124,11 @@ fn render(args: &RuleArgs) -> Result<String, serde_json::Error> {
     };
     if output_format == RuleFormat::Json {
         let rules: Vec<Rule> = infos.into_iter().map(Rule::new).collect();
-        let json = if code.is_none() { serde_json::to_string_pretty(&rules) } else { serde_json::to_string_pretty(&rules[0]) }?;
+        let json = if code.is_none() {
+            serde_json::to_string_pretty(&rules)
+        } else {
+            serde_json::to_string_pretty(&rules[0])
+        }?;
         Ok(format!("{json}\n"))
     } else if list {
         Ok(table())
@@ -135,7 +156,9 @@ mod tests {
 
     fn output(args: &[&str]) -> String {
         let cli = crate::Cli::try_parse_from([&["clisok", "rule"], args].concat()).unwrap();
-        let Some(crate::Command::Rule(args)) = cli.command else { panic!("expected rule command") };
+        let Some(crate::Command::Rule(args)) = cli.command else {
+            panic!("expected rule command")
+        };
         render(&args).unwrap()
     }
 
@@ -143,10 +166,16 @@ mod tests {
     fn lists_the_complete_catalog_in_order() {
         let out = output(&["list"]);
         let lines: Vec<_> = out.lines().collect();
-        assert_eq!(lines[0].split_whitespace().collect::<Vec<_>>(), ["Code", "Default", "Fix", "Title"]);
+        assert_eq!(
+            lines[0].split_whitespace().collect::<Vec<_>>(),
+            ["Code", "Default", "Fix", "Title"]
+        );
         assert_eq!(lines.len(), CODES.len() + 1);
         for (line, info) in lines[1..].iter().zip(CODES) {
-            assert_eq!(line.split_whitespace().next().unwrap(), info.code.to_string());
+            assert_eq!(
+                line.split_whitespace().next().unwrap(),
+                info.code.to_string()
+            );
             assert!(line.contains(info.default_name()));
             assert!(line.ends_with(info.title));
         }
@@ -188,7 +217,9 @@ mod tests {
     #[test]
     fn explains_a_code() {
         let t = text(Code::Cli007.info());
-        assert!(t.starts_with("# CLI007 — duplicate entry\n\nDefault: warning; doesn't fail the run\nFix: Safe: "));
+        assert!(t.starts_with(
+            "# CLI007 — duplicate entry\n\nDefault: warning; doesn't fail the run\nFix: Safe: "
+        ));
         assert!(t.ends_with(&format!("{}\n", Code::Cli007.info().help)));
         let json = serde_json::to_value(Rule::new(Code::Cli301.info())).unwrap();
         assert_eq!(json["code"], "CLI301");

@@ -24,7 +24,10 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(version, about = "Check that the executables on this system work: PATH entries, launchers, shims, libraries, and a headless --version run")]
+#[command(
+    version,
+    about = "Check that the executables on this system work: PATH entries, launchers, shims, libraries, and a headless --version run"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -70,8 +73,21 @@ mod tests {
 
     #[test]
     fn check_options_live_under_check() {
-        let args = ["clisok", "check", "--output-format", "sarif", "-v", "--skip", "a", "--skip", "b"];
-        assert!(matches!(Cli::try_parse_from(args).unwrap().command, Some(Command::Check(_))));
+        let args = [
+            "clisok",
+            "check",
+            "--output-format",
+            "sarif",
+            "-v",
+            "--skip",
+            "a",
+            "--skip",
+            "b",
+        ];
+        assert!(matches!(
+            Cli::try_parse_from(args).unwrap().command,
+            Some(Command::Check(_))
+        ));
         assert!(Cli::try_parse_from(["clisok", "--output-format", "json"]).is_err());
     }
 
@@ -91,8 +107,15 @@ mod tests {
 
     #[test]
     fn rule_takes_one_code_or_all() {
-        assert!(matches!(Cli::try_parse_from(["clisok", "rule", "cli202"]).unwrap().command, Some(Command::Rule(_))));
-        assert!(Cli::try_parse_from(["clisok", "rule", "--all", "--output-format", "json"]).is_ok());
+        assert!(matches!(
+            Cli::try_parse_from(["clisok", "rule", "cli202"])
+                .unwrap()
+                .command,
+            Some(Command::Rule(_))
+        ));
+        assert!(
+            Cli::try_parse_from(["clisok", "rule", "--all", "--output-format", "json"]).is_ok()
+        );
         assert!(Cli::try_parse_from(["clisok", "rule"]).is_err());
         assert!(Cli::try_parse_from(["clisok", "rule", "CLI999"]).is_err());
         assert!(Cli::try_parse_from(["clisok", "rule", "CLI001", "--all"]).is_err());
@@ -100,7 +123,8 @@ mod tests {
 
     #[test]
     fn rule_subcommands_take_their_own_arguments() {
-        let parses = |args: &[&str]| Cli::try_parse_from([&["clisok", "rule"], args].concat()).is_ok();
+        let parses =
+            |args: &[&str]| Cli::try_parse_from([&["clisok", "rule"], args].concat()).is_ok();
         for args in [vec!["list"], vec!["show", "cli007"], vec!["show", "--all"]] {
             assert!(parses(&args), "{args:?}");
             for format in ["text", "json"] {
@@ -119,7 +143,9 @@ mod tests {
             vec!["--all", "list"],
             vec!["CLI001", "list"],
         ] {
-            let error = Cli::try_parse_from([&["clisok", "rule"], args.as_slice()].concat()).err().unwrap();
+            let error = Cli::try_parse_from([&["clisok", "rule"], args.as_slice()].concat())
+                .err()
+                .unwrap();
             assert_eq!(error.exit_code(), 2, "{args:?}");
         }
     }
@@ -127,11 +153,16 @@ mod tests {
     #[test]
     fn rule_help_describes_each_operation() {
         for command in ["list", "show"] {
-            let error = Cli::try_parse_from(["clisok", "rule", command, "--help"]).err().unwrap();
+            let error = Cli::try_parse_from(["clisok", "rule", command, "--help"])
+                .err()
+                .unwrap();
             assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
             assert_eq!(error.exit_code(), 0);
             let help = error.to_string();
-            assert!(help.contains(&format!("Usage: clisok rule {command}")), "{help}");
+            assert!(
+                help.contains(&format!("Usage: clisok rule {command}")),
+                "{help}"
+            );
             assert!(help.contains("--output-format"));
             assert_eq!(help.contains("--all"), command == "show");
         }
@@ -143,7 +174,8 @@ mod tests {
 
     #[test]
     fn fix_flags_need_fix_or_diff() {
-        let parses = |args: &[&str]| Cli::try_parse_from([&["clisok", "check"], args].concat()).is_ok();
+        let parses =
+            |args: &[&str]| Cli::try_parse_from([&["clisok", "check"], args].concat()).is_ok();
         assert!(parses(&["--fix", "--unsafe-fixes"]));
         assert!(parses(&["--diff", "--unsafe-fixes"]));
         assert!(parses(&["--fix", "--diff"]));
@@ -155,13 +187,19 @@ mod tests {
 
     #[test]
     fn ignore_takes_known_codes_only() {
-        assert!(Cli::try_parse_from(["clisok", "check", "--ignore", "CLI007", "--ignore", "cli203"]).is_ok());
+        assert!(
+            Cli::try_parse_from([
+                "clisok", "check", "--ignore", "CLI007", "--ignore", "cli203"
+            ])
+            .is_ok()
+        );
         assert!(Cli::try_parse_from(["clisok", "check", "--ignore", "CLI999"]).is_err());
     }
 
     #[test]
     fn list_takes_system_and_output_format_only() {
-        let cli = Cli::try_parse_from(["clisok", "list", "--system", "--output-format", "json"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["clisok", "list", "--system", "--output-format", "json"]).unwrap();
         assert!(matches!(cli.command, Some(Command::List(_))));
         assert!(Cli::try_parse_from(["clisok", "list", "--verbose"]).is_err());
     }

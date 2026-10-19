@@ -23,7 +23,11 @@ impl Progress {
         if done.is_some() {
             cursor_visible(false);
         }
-        Progress { total, done, start: Instant::now() }
+        Progress {
+            total,
+            done,
+            start: Instant::now(),
+        }
     }
 
     /// Record one finished tool and redraw the bar.

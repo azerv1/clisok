@@ -60,7 +60,11 @@ fn winsxs() -> &'static [String] {
     static DIRS: OnceLock<Vec<String>> = OnceLock::new();
     DIRS.get_or_init(|| {
         fs::read_dir(windir().join("WinSxS"))
-            .map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().to_lowercase()).collect())
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.file_name().to_string_lossy().to_lowercase())
+                    .collect()
+            })
             .unwrap_or_default()
     })
 }
@@ -69,17 +73,18 @@ fn winsxs() -> &'static [String] {
 fn in_winsxs(dll: &str) -> bool {
     let dll = dll.to_lowercase();
     let digits: String = dll.chars().filter(char::is_ascii_digit).collect();
-    let assembly = if dll.starts_with("msvcr") || dll.starts_with("msvcp") || dll.starts_with("msvcm") {
-        format!("microsoft.vc{digits}.crt")
-    } else if dll.starts_with("mfc") {
-        format!("microsoft.vc{digits}.mfc")
-    } else if dll == "comctl32.dll" {
-        "microsoft.windows.common-controls".into()
-    } else if dll == "gdiplus.dll" {
-        "microsoft.windows.gdiplus".into()
-    } else {
-        return false;
-    };
+    let assembly =
+        if dll.starts_with("msvcr") || dll.starts_with("msvcp") || dll.starts_with("msvcm") {
+            format!("microsoft.vc{digits}.crt")
+        } else if dll.starts_with("mfc") {
+            format!("microsoft.vc{digits}.mfc")
+        } else if dll == "comctl32.dll" {
+            "microsoft.windows.common-controls".into()
+        } else if dll == "gdiplus.dll" {
+            "microsoft.windows.gdiplus".into()
+        } else {
+            return false;
+        };
     winsxs().iter().any(|d| d.contains(&assembly))
 }
 
@@ -90,15 +95,28 @@ fn is_api_set(dll: &str) -> bool {
 
 /// Standard search order: application dir, system dirs, then PATH. Kernel
 /// images (ntoskrnl.exe) also import drivers, which live in System32\drivers.
-fn resolve(dll: &str, app_dir: &Path, own_dir: &Path, is64: bool, path_dirs: &[PathBuf]) -> Option<PathBuf> {
+fn resolve(
+    dll: &str,
+    app_dir: &Path,
+    own_dir: &Path,
+    is64: bool,
+    path_dirs: &[PathBuf],
+) -> Option<PathBuf> {
     let win = windir();
     let system = win.join(if is64 { "System32" } else { "SysWOW64" });
     let drivers = win.join(r"System32\drivers");
-    [app_dir, own_dir, &system, &win.join("System"), &win, &drivers]
-        .into_iter()
-        .chain(path_dirs.iter().map(PathBuf::as_path))
-        .map(|d| d.join(dll))
-        .find(|p| p.is_file())
+    [
+        app_dir,
+        own_dir,
+        &system,
+        &win.join("System"),
+        &win,
+        &drivers,
+    ]
+    .into_iter()
+    .chain(path_dirs.iter().map(PathBuf::as_path))
+    .map(|d| d.join(dll))
+    .find(|p| p.is_file())
 }
 
 pub fn inspect(exe: &Path, path_dirs: &[PathBuf]) -> Option<PeInfo> {
@@ -128,7 +146,10 @@ pub fn inspect(exe: &Path, path_dirs: &[PathBuf]) -> Option<PeInfo> {
             }
         }
     }
-    Some(PeInfo { gui: head.gui, missing })
+    Some(PeInfo {
+        gui: head.gui,
+        missing,
+    })
 }
 
 #[cfg(test)]

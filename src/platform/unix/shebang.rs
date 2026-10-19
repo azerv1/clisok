@@ -1,19 +1,14 @@
 //! `#!` scripts: the interpreter must exist, and `#!/usr/bin/env X` needs X
 //! on PATH.
 
-use std::fs::File;
-use std::io::Read;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::inspect::Reason;
+use crate::inspect::{Reason, read_script};
 use crate::pathenv::PathIndex;
-
-/// Scripts bigger than this are read only up to here; the entry-point
-/// import and argument forwarding sit near the top.
-const MAX_SCRIPT_BYTES: u64 = 64 * 1024;
 
 pub struct Script {
     pub interpreter: PathBuf,
@@ -23,47 +18,74 @@ pub struct Script {
 }
 
 /// The parsed `#!` line and the script text, or None for anything else.
-pub fn read(path: &Path) -> Option<Script> {
-    let mut text = String::new();
-    File::open(path).ok()?.take(MAX_SCRIPT_BYTES).read_to_string(&mut text).ok()?;
-    parse(&text)
+pub fn read(path: &Path) -> io::Result<Option<Script>> {
+    // Native binaries need no script read. Inspect only the shebang prefix first.
+    use std::io::Read;
+    let mut prefix = [0u8; 2];
+    if std::fs::File::open(path)?.read(&mut prefix)? != 2 || prefix != *b"#!" {
+        return Ok(None);
+    }
+    let bytes = read_script(path)?;
+    let text =
+        std::str::from_utf8(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    Ok(parse(text))
 }
 
 fn parse(text: &str) -> Option<Script> {
     let line = text.strip_prefix("#!")?.lines().next()?;
     let mut parts = line.split_whitespace();
     let interpreter = PathBuf::from(parts.next()?);
-    Some(Script { interpreter, args: parts.map(String::from).collect(), text: text.to_string() })
+    Some(Script {
+        interpreter,
+        args: parts.map(String::from).collect(),
+        text: text.to_string(),
+    })
 }
 
 /// The program that actually runs the script.
 pub fn resolve(script: &Script, index: &PathIndex) -> Result<PathBuf, Reason> {
     if !script.interpreter.exists() {
-        return Err(Reason::MissingInterpreter { path: script.interpreter.clone() });
+        return Err(Reason::MissingInterpreter {
+            path: script.interpreter.clone(),
+        });
     }
     if script.interpreter.file_name().is_none_or(|n| n != "env") {
         return Ok(script.interpreter.clone());
     }
     // `env [-S] [-flags] [VAR=val] name ...`: the first plain word is the program.
-    let Some(name) = script.args.iter().find(|a| !a.starts_with('-') && !a.contains('=')) else {
+    let Some(name) = script
+        .args
+        .iter()
+        .find(|a| !a.starts_with('-') && !a.contains('='))
+    else {
         return Ok(script.interpreter.clone());
     };
     if name.contains('/') {
         let p = PathBuf::from(name);
-        return if p.exists() { Ok(p) } else { Err(Reason::MissingInterpreter { path: p }) };
+        return if p.exists() {
+            Ok(p)
+        } else {
+            Err(Reason::MissingInterpreter { path: p })
+        };
     }
-    index.lookup(name).first().cloned().ok_or_else(|| Reason::UnresolvedCommand { name: name.clone() })
+    index
+        .lookup(name)
+        .first()
+        .cloned()
+        .ok_or_else(|| Reason::UnresolvedCommand { name: name.clone() })
 }
 
 /// `NAME=value` with nothing after it, so no command runs.
-static ASSIGN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(export\s+)?[A-Za-z_]\w*=("[^"]*"|'[^']*'|[^\s"']*)$"#).unwrap());
+static ASSIGN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"^(export\s+)?[A-Za-z_]\w*=("[^"]*"|'[^']*'|[^\s"']*)$"#).unwrap()
+});
 /// Shell builtins that only set up the environment.
 static SETUP: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(export\s+[A-Za-z_]\w*|unset\s+[A-Za-z_]\w*|set(\s+[-+][A-Za-z]+)+)$").unwrap()
 });
 /// Command substitutions that only work out where the script lives.
-static SAFE_SUBST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$\((dirname|readlink|realpath)\s").unwrap());
+static SAFE_SUBST: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\$\((dirname|readlink|realpath)\s").unwrap());
 
 /// True for scripts that only start another program with the caller's
 /// arguments, which makes a test run safe: environment setup, then one
@@ -80,9 +102,13 @@ pub fn is_launcher(path: &Path, text: &str) -> bool {
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .collect();
-    let Some((last, setup)) = lines.split_last() else { return false };
+    let Some((last, setup)) = lines.split_last() else {
+        return false;
+    };
     lines.len() <= 10
-        && setup.iter().all(|l| one_command(l) && (SETUP.is_match(l) || ASSIGN.is_match(l)))
+        && setup
+            .iter()
+            .all(|l| one_command(l) && (SETUP.is_match(l) || ASSIGN.is_match(l)))
         && one_command(last)
         && (last.contains("\"$@\"") || last.contains("$*"))
 }
@@ -90,7 +116,8 @@ pub fn is_launcher(path: &Path, text: &str) -> bool {
 /// A single command: no `;`, pipes, `&&`/`&`, backticks, or command
 /// substitution other than locating the script itself.
 fn one_command(line: &str) -> bool {
-    !line.contains([';', '|', '&', '`']) && line.matches("$(").count() == SAFE_SUBST.find_iter(line).count()
+    !line.contains([';', '|', '&', '`'])
+        && line.matches("$(").count() == SAFE_SUBST.find_iter(line).count()
 }
 
 #[cfg(test)]
@@ -99,6 +126,21 @@ mod tests {
 
     fn index_with(dir: &Path) -> PathIndex {
         PathIndex::build(&[dir.to_path_buf()])
+    }
+
+    #[test]
+    fn oversized_script_is_rejected_without_trusting_a_launcher_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large");
+        let content = format!(
+            "#!/bin/sh\nexec harmless \"$@\"\n{}",
+            "# padding\n".repeat(150_000)
+        );
+        std::fs::write(&path, content).unwrap();
+        assert_eq!(
+            read(&path).err().unwrap().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 
     #[test]
@@ -113,7 +155,10 @@ mod tests {
     fn missing_interpreter_is_reported() {
         let s = parse("#!/nonexistent/python\n").unwrap();
         let idx = PathIndex::build(&[]);
-        assert!(matches!(resolve(&s, &idx), Err(Reason::MissingInterpreter { .. })));
+        assert!(matches!(
+            resolve(&s, &idx),
+            Err(Reason::MissingInterpreter { .. })
+        ));
     }
 
     #[test]
@@ -128,17 +173,32 @@ mod tests {
         let found = parse("#!/usr/bin/env mytool\n").unwrap();
         assert_eq!(resolve(&found, &idx).unwrap(), tool);
         let missing = parse("#!/usr/bin/env no-such-tool\n").unwrap();
-        assert!(matches!(resolve(&missing, &idx), Err(Reason::UnresolvedCommand { .. })));
+        assert!(matches!(
+            resolve(&missing, &idx),
+            Err(Reason::UnresolvedCommand { .. })
+        ));
     }
 
     #[test]
     fn recognizes_launchers() {
         let p = Path::new("/tmp/x");
-        assert!(is_launcher(p, "#!/bin/sh\nexec /opt/tool/bin/tool \"$@\"\n"));
-        assert!(!is_launcher(p, "#!/bin/sh\nrm -rf /tmp/cache\nrsync -a ~/a ~/b\n"));
+        assert!(is_launcher(
+            p,
+            "#!/bin/sh\nexec /opt/tool/bin/tool \"$@\"\n"
+        ));
+        assert!(!is_launcher(
+            p,
+            "#!/bin/sh\nrm -rf /tmp/cache\nrsync -a ~/a ~/b\n"
+        ));
         // Wrappers that set up the environment first.
-        assert!(is_launcher(p, "#!/bin/sh\nset -e\nexport JAVA_HOME=\"/opt/jdk\"\nexec \"$JAVA_HOME/bin/java\" -jar /opt/x.jar \"$@\"\n"));
-        assert!(is_launcher(p, "#!/bin/sh\nexec \"$(dirname \"$0\")/../lib/tool\" \"$@\"\n"));
+        assert!(is_launcher(
+            p,
+            "#!/bin/sh\nset -e\nexport JAVA_HOME=\"/opt/jdk\"\nexec \"$JAVA_HOME/bin/java\" -jar /opt/x.jar \"$@\"\n"
+        ));
+        assert!(is_launcher(
+            p,
+            "#!/bin/sh\nexec \"$(dirname \"$0\")/../lib/tool\" \"$@\"\n"
+        ));
     }
 
     #[test]
@@ -148,7 +208,13 @@ mod tests {
         assert!(!is_launcher(p, "#!/bin/sh\nrm -rf build; make \"$@\"\n"));
         assert!(!is_launcher(p, "#!/bin/sh\nmake clean && make \"$@\"\n"));
         assert!(!is_launcher(p, "#!/bin/sh\nexec tool \"$@\"\necho done\n"));
-        assert!(!is_launcher(p, "#!/bin/sh\nFOO=1 make clean\nexec tool \"$@\"\n"));
-        assert!(!is_launcher(p, "#!/bin/sh\nV=$(git pull)\nexec tool \"$@\"\n"));
+        assert!(!is_launcher(
+            p,
+            "#!/bin/sh\nFOO=1 make clean\nexec tool \"$@\"\n"
+        ));
+        assert!(!is_launcher(
+            p,
+            "#!/bin/sh\nV=$(git pull)\nexec tool \"$@\"\n"
+        ));
     }
 }

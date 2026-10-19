@@ -8,14 +8,14 @@
 use std::collections::BTreeMap;
 use std::ffi::c_void;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read};
+use std::io;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, mpsc};
 use std::time::Duration;
 use std::{ptr, thread};
 
-use crate::exec::{HEADLESS_ENV, HEADLESS_ENV_REMOVE};
+use crate::exec::{HEADLESS_ENV, HEADLESS_ENV_REMOVE, capture_output};
 use windows_sys::Win32::Foundation::{
     CloseHandle, GENERIC_ALL, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation, WAIT_TIMEOUT,
 };
@@ -24,8 +24,8 @@ use windows_sys::Win32::System::Diagnostics::Debug::{
 };
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
-    TerminateJobObject,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, TerminateJobObject,
 };
 use windows_sys::Win32::System::Pipes::CreatePipe;
 use windows_sys::Win32::System::StationsAndDesktops::CreateDesktopW;
@@ -43,6 +43,7 @@ pub struct Output {
     pub exit: Option<i32>,
     pub timed_out: bool,
     pub output: Vec<u8>,
+    pub truncated: bool,
 }
 
 /// Process-wide setup: children inherit this error mode, so a missing DLL
@@ -67,7 +68,16 @@ fn desktop() -> Option<&'static [u16]> {
             let w = wide(&name);
             // SAFETY: valid NUL-terminated name. The handle is deliberately kept
             // open for the life of the process so the desktop stays alive.
-            let h = unsafe { CreateDesktopW(w.as_ptr(), ptr::null(), ptr::null(), 0, GENERIC_ALL, ptr::null()) };
+            let h = unsafe {
+                CreateDesktopW(
+                    w.as_ptr(),
+                    ptr::null(),
+                    ptr::null(),
+                    0,
+                    GENERIC_ALL,
+                    ptr::null(),
+                )
+            };
             (!h.is_null()).then_some(w)
         })
         .as_deref()
@@ -100,7 +110,12 @@ fn env_block() -> Vec<u16> {
     }
     let mut block: Vec<u16> = vars
         .values()
-        .flat_map(|(k, v)| format!("{k}={v}").encode_utf16().chain(Some(0)).collect::<Vec<_>>())
+        .flat_map(|(k, v)| {
+            format!("{k}={v}")
+                .encode_utf16()
+                .chain(Some(0))
+                .collect::<Vec<_>>()
+        })
         .collect();
     block.push(0);
     block
@@ -149,11 +164,21 @@ fn command_line(program: &Path, args: &[&str]) -> io::Result<(PathBuf, String)> 
         }
         return Ok((program.to_path_buf(), line));
     }
-    if args.iter().any(|a| a.contains(['&', '|', '<', '>', '^', '%', '!', '"'])) {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "unsafe argument for a batch file"));
+    if args
+        .iter()
+        .any(|a| a.contains(['&', '|', '<', '>', '^', '%', '!', '"']))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "unsafe argument for a batch file",
+        ));
     }
-    let comspec = std::env::var("ComSpec").unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".into());
-    let line = format!("cmd.exe /d /e:ON /v:OFF /c \"\"{prog}\" {}\"", args.join(" "));
+    let comspec =
+        std::env::var("ComSpec").unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".into());
+    let line = format!(
+        "cmd.exe /d /e:ON /v:OFF /c \"\"{prog}\" {}\"",
+        args.join(" ")
+    );
     Ok((PathBuf::from(comspec), line))
 }
 
@@ -216,7 +241,12 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
         return Err(io::Error::last_os_error());
     }
     // SAFETY: CreatePipe succeeded, so both are fresh handles we own.
-    let (rd, wr) = unsafe { (OwnedHandle::from_raw_handle(rd), OwnedHandle::from_raw_handle(wr)) };
+    let (rd, wr) = unsafe {
+        (
+            OwnedHandle::from_raw_handle(rd),
+            OwnedHandle::from_raw_handle(wr),
+        )
+    };
 
     let mut pi: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
     {
@@ -228,7 +258,9 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
         let mut desktop_w = desktop().map(<[u16]>::to_vec);
         let mut si: STARTUPINFOW = unsafe { std::mem::zeroed() };
         si.cb = size_of::<STARTUPINFOW>() as u32;
-        si.lpDesktop = desktop_w.as_mut().map_or(ptr::null_mut(), |d| d.as_mut_ptr());
+        si.lpDesktop = desktop_w
+            .as_mut()
+            .map_or(ptr::null_mut(), |d| d.as_mut_ptr());
         si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
         si.wShowWindow = 0; // SW_HIDE
         si.hStdInput = nul.as_raw_handle();
@@ -269,9 +301,7 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
     let (tx, rx) = mpsc::channel();
     let mut reader = File::from(rd);
     thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = reader.read_to_end(&mut buf);
-        let _ = tx.send(buf);
+        let _ = tx.send(capture_output(&mut reader));
     });
 
     let ms = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX - 1);
@@ -292,8 +322,15 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
     };
     // Closing the job kills leftover grandchildren so the pipe reaches EOF.
     drop(job);
-    let output = rx.recv_timeout(Duration::from_secs(2)).unwrap_or_default();
-    Ok(Output { exit, timed_out, output })
+    let (output, truncated) = rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap_or_else(|_| (Vec::new(), true));
+    Ok(Output {
+        exit,
+        timed_out,
+        output,
+        truncated,
+    })
 }
 
 #[cfg(test)]
@@ -319,7 +356,10 @@ mod tests {
     fn batch_files_go_through_cmd() {
         let (app, line) = command_line(Path::new(r"C:\My Tools\x.cmd"), &["--help"]).unwrap();
         assert!(app.to_string_lossy().to_lowercase().ends_with("cmd.exe"));
-        assert_eq!(line, r#"cmd.exe /d /e:ON /v:OFF /c ""C:\My Tools\x.cmd" --help""#);
+        assert_eq!(
+            line,
+            r#"cmd.exe /d /e:ON /v:OFF /c ""C:\My Tools\x.cmd" --help""#
+        );
         assert!(command_line(Path::new(r"C:\x.bat"), &["a&b"]).is_err());
     }
 
@@ -327,7 +367,12 @@ mod tests {
     fn runs_headless_with_env_and_cwd() {
         let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
         let cmd = PathBuf::from(root).join(r"System32\cmd.exe");
-        let out = run(&cmd, &["/d", "/c", "echo %CI% %TERM% & cd"], Duration::from_secs(10)).unwrap();
+        let out = run(
+            &cmd,
+            &["/d", "/c", "echo %CI% %TERM% & cd"],
+            Duration::from_secs(10),
+        )
+        .unwrap();
         let text = String::from_utf8_lossy(&out.output);
         assert!(desktop().is_some(), "hidden desktop was not created");
         assert_eq!(out.exit, Some(0));
@@ -345,5 +390,3 @@ mod tests {
         assert!(String::from_utf8_lossy(&out.output).contains("args=--help"));
     }
 }
-
-

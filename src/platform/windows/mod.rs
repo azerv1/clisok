@@ -15,11 +15,14 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::inspect::{Inspection, Kind, Reason, python};
+use crate::inspect::{Inspection, Kind, Reason, python, read_bounded, read_script};
 use crate::pathenv::PathIndex;
 
 pub use console::cursor_visible;
-pub use registry::{AppPath, broken_app_paths, delete_app_path, fix_user_path, preview_user_path, persisted_path, truncated_saved_paths};
+pub use registry::{
+    AppPath, broken_app_paths, delete_app_path, fix_user_path, persisted_path, preview_user_path,
+    truncated_saved_paths,
+};
 pub use spawn::{cleanup, init, run as run_headless};
 
 pub const PATH_SEPARATOR: char = ';';
@@ -35,7 +38,9 @@ static VAR_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"%([^%\s]+)%").unw
 /// Expand `%VAR%` references from the process environment; unknown vars are left as-is.
 pub fn expand_vars(s: &str) -> String {
     VAR_RE
-        .replace_all(s, |c: &regex::Captures| std::env::var(&c[1]).unwrap_or_else(|_| c[0].to_string()))
+        .replace_all(s, |c: &regex::Captures| {
+            std::env::var(&c[1]).unwrap_or_else(|_| c[0].to_string())
+        })
         .into_owned()
 }
 
@@ -46,7 +51,10 @@ pub fn unexpanded_var(raw: &str) -> bool {
 
 /// Case-insensitive key for comparing paths.
 pub fn path_key(p: &Path) -> String {
-    p.to_string_lossy().replace('/', "\\").trim_end_matches('\\').to_lowercase()
+    p.to_string_lossy()
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_lowercase()
 }
 
 /// Command names are case-insensitive.
@@ -58,7 +66,10 @@ pub fn lookup_key(name: &str) -> String {
 fn pathext() -> &'static [String] {
     static EXTS: LazyLock<Vec<String>> = LazyLock::new(|| {
         let raw = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
-        raw.split(';').filter(|s| !s.is_empty()).map(|s| s.to_lowercase()).collect()
+        raw.split(';')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_lowercase())
+            .collect()
     });
     &EXTS
 }
@@ -86,7 +97,10 @@ pub fn command_name(path: &Path) -> Option<String> {
 /// Windows, skipped unless --system, and never run.
 pub fn is_os_dir(dir: &Path) -> bool {
     static ROOT: LazyLock<String> = LazyLock::new(|| {
-        path_key(&std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from))
+        path_key(
+            &std::env::var_os("SystemRoot")
+                .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from),
+        )
     });
     let key = path_key(dir);
     key == *ROOT || key.starts_with(&format!("{}\\", *ROOT))
@@ -100,7 +114,9 @@ pub fn never_scan(_dir: &Path) -> bool {
 /// Files that are never run, whatever else is true about them: Windows' own
 /// programs. The hidden desktop, job objects and GUI checks cover the rest.
 pub fn never_run(path: &Path) -> Option<&'static str> {
-    path.parent().is_some_and(is_os_dir).then_some("not run: Windows' own program (static checks only)")
+    path.parent()
+        .is_some_and(is_os_dir)
+        .then_some("not run: Windows' own program (static checks only)")
 }
 
 /// Child processes live in job objects that close with clisok, so there is
@@ -111,24 +127,40 @@ pub fn kill_children() {}
 pub fn inspect(path: &Path, index: &PathIndex, path_dirs: &[PathBuf], insp: &mut Inspection) {
     if let Some(a) = alias::read(path) {
         if alias::package_installed(&a.package_family) == Some(false) {
-            insp.reasons.push(Reason::AppNotInstalled { package: a.package_family });
+            insp.reasons.push(Reason::AppNotInstalled {
+                package: a.package_family,
+            });
         } else if fs::metadata(&a.target).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
             // Packaged app folders deny listing, so only "not found" means missing.
-            insp.reasons.push(Reason::MissingTarget { path: a.target.clone() });
+            insp.reasons.push(Reason::MissingTarget {
+                path: a.target.clone(),
+            });
         }
         insp.kind = Kind::AppAlias { target: a.target };
         return;
     }
 
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     if ext == "cmd" || ext == "bat" {
-        let Ok(bytes) = fs::read(path) else {
-            insp.kind = Kind::Missing;
-            insp.reasons.push(Reason::MissingTarget { path: path.to_path_buf() });
-            return;
+        let bytes = match read_script(path) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                insp.kind = Kind::Partial {
+                    detail: format!("script could not be inspected: {e}"),
+                };
+                return;
+            }
         };
         let text = String::from_utf8_lossy(&bytes);
-        insp.kind = if script::is_shim(&text) { Kind::Shim } else { Kind::Script };
+        insp.kind = if script::is_shim(&text) {
+            Kind::Shim
+        } else {
+            Kind::Script
+        };
         insp.reasons = script::check(path, &text, index);
         // A launcher for a GUI program is GUI too.
         if matches!(insp.kind, Kind::Shim)
@@ -141,8 +173,18 @@ pub fn inspect(path: &Path, index: &PathIndex, path_dirs: &[PathBuf], insp: &mut
     }
 
     // Scoop shims: tool.exe + tool.shim holding `path = "..."`.
-    if let Ok(text) = fs::read_to_string(path.with_extension("shim"))
-        && let Some(target) = script::scoop_target(&text)
+    let shim = match read_script(&path.with_extension("shim")) {
+        Ok(bytes) => Some(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => {
+            insp.kind = Kind::Partial {
+                detail: format!("Scoop shim could not be inspected: {e}"),
+            };
+            return;
+        }
+    };
+    if let Some(bytes) = shim
+        && let Some(target) = script::scoop_target(&String::from_utf8_lossy(&bytes))
         && !target.exists()
     {
         insp.reasons.push(Reason::MissingTarget { path: target });
@@ -152,22 +194,49 @@ pub fn inspect(path: &Path, index: &PathIndex, path_dirs: &[PathBuf], insp: &mut
     let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if let Some(info) = pe::inspect(&real, path_dirs) {
         insp.gui = info.gui;
-        insp.reasons.extend(info.missing.into_iter().map(|(name, needed_by)| Reason::MissingLibrary {
-            name,
-            needed_by: display_path(&needed_by),
-        }));
+        insp.reasons
+            .extend(
+                info.missing
+                    .into_iter()
+                    .map(|(name, needed_by)| Reason::MissingLibrary {
+                        name,
+                        needed_by: display_path(&needed_by),
+                    }),
+            );
     }
 
     let small = fs::metadata(&real).is_ok_and(|m| m.len() <= MAX_LAUNCHER_SIZE);
-    if small && let Ok(data) = fs::read(&real) {
+    if small && let Ok(file) = fs::File::open(&real) {
+        let data = match read_bounded(file, MAX_LAUNCHER_SIZE as usize) {
+            Ok(data) => data,
+            Err(e) => {
+                insp.kind = Kind::Partial {
+                    detail: format!("launcher could not be inspected: {e}"),
+                };
+                return;
+            }
+        };
         let dir = real.parent().unwrap_or(Path::new(""));
-        if let Some(t) = pylauncher::parse(&data, dir) {
+        let launcher = match pylauncher::parse(&data, dir) {
+            Ok(launcher) => launcher,
+            Err(detail) => {
+                insp.kind = Kind::Partial {
+                    detail: detail.into(),
+                };
+                return;
+            }
+        };
+        if let Some(t) = launcher {
             python::check_entry_point(&t.python, &t.module, &mut insp.reasons);
-            insp.kind = Kind::PyLauncher { python: t.python, module: t.module };
+            insp.kind = Kind::PyLauncher {
+                python: t.python,
+                module: t.module,
+            };
         } else if let Some(python) = pylauncher::uv_python_target(&data, dir)
             && !python.exists()
         {
-            insp.reasons.push(Reason::MissingInterpreter { path: python });
+            insp.reasons
+                .push(Reason::MissingInterpreter { path: python });
         }
     }
 }
@@ -189,13 +258,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn oversized_batch_script_is_never_treated_as_a_launcher() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large.cmd");
+        fs::write(&path, vec![b'x'; crate::inspect::MAX_SCRIPT_BYTES + 1]).unwrap();
+        let result = crate::inspect::inspect(&path, &PathIndex::build(&[]), &[]);
+        assert!(matches!(result.kind, Kind::Partial { .. }));
+    }
+
+    #[test]
+    fn oversized_scoop_configuration_prevents_a_test_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large.exe");
+        fs::write(&path, b"MZ fixture").unwrap();
+        fs::write(
+            path.with_extension("shim"),
+            vec![b'x'; crate::inspect::MAX_SCRIPT_BYTES + 1],
+        )
+        .unwrap();
+        let result = crate::inspect::inspect(&path, &PathIndex::build(&[]), &[]);
+        assert!(matches!(result.kind, Kind::Partial { .. }));
+    }
+
+    #[test]
     fn display_case_spells_the_path_as_on_disk() {
         let root = std::env::var("SystemRoot").unwrap();
         let typed = PathBuf::from(format!(r"{}\system32\CMD.EXE", root.to_lowercase()));
         let shown = display_case(&typed).display().to_string();
         // %SystemRoot% itself may be spelled `C:\WINDOWS`, so only the tail is known.
-        assert!(shown.eq_ignore_ascii_case(&typed.display().to_string()), "{shown}");
+        assert!(
+            shown.eq_ignore_ascii_case(&typed.display().to_string()),
+            "{shown}"
+        );
         assert!(shown.ends_with(r"\System32\cmd.exe"), "{shown}");
-        assert_eq!(display_case(Path::new(r"C:\gone\x.exe")), PathBuf::from(r"C:\gone\x.exe"));
+        assert_eq!(
+            display_case(Path::new(r"C:\gone\x.exe")),
+            PathBuf::from(r"C:\gone\x.exe")
+        );
     }
 }

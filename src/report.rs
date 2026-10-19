@@ -84,7 +84,12 @@ impl Finding {
         let code = reason.code();
         match sev.of(code) {
             Severity::Off => None,
-            severity => Some(Finding { code, severity, fix: fix::for_reason(&reason), reason }),
+            severity => Some(Finding {
+                code,
+                severity,
+                fix: fix::for_reason(&reason),
+                reason,
+            }),
         }
     }
 }
@@ -111,7 +116,13 @@ impl EntryIssue {
         let code = problem.code();
         match sev.of(code) {
             Severity::Off => None,
-            severity => Some(EntryIssue { fix: fix::for_entry(problem, &entry), entry, problem, code, severity }),
+            severity => Some(EntryIssue {
+                fix: fix::for_entry(problem, &entry),
+                entry,
+                problem,
+                code,
+                severity,
+            }),
         }
     }
 }
@@ -131,7 +142,12 @@ impl AppPathIssue {
         let code = Code::Cli301;
         match sev.of(code) {
             Severity::Off => None,
-            severity => Some(AppPathIssue { fix: fix::for_app_path(&app_path.key), app_path, code, severity }),
+            severity => Some(AppPathIssue {
+                fix: fix::for_app_path(&app_path.key),
+                app_path,
+                code,
+                severity,
+            }),
         }
     }
 }
@@ -144,7 +160,11 @@ fn write_fix(s: &mut String, fix: Option<&Fix>) {
 }
 
 fn severity_tag(s: Severity) -> &'static str {
-    if s == Severity::Error { "[BROKEN]" } else { "[WARN]  " }
+    if s == Severity::Error {
+        "[BROKEN]"
+    } else {
+        "[WARN]  "
+    }
 }
 
 /// Print to stdout. A reader that stops early (`clisok list | head`) is not
@@ -169,7 +189,11 @@ pub struct Statistic {
 /// `--statistics` as text: count, code, `[*]` when `--fix` fixes them all,
 /// `[-]` when it fixes some, then the code's title.
 pub fn statistics_text(stats: &[Statistic]) -> String {
-    let width = stats.iter().map(|s| s.count.to_string().len()).max().unwrap_or(1);
+    let width = stats
+        .iter()
+        .map(|s| s.count.to_string().len())
+        .max()
+        .unwrap_or(1);
     let mut s = String::new();
     for st in stats {
         let mark = match st.fixed_by_fix {
@@ -208,7 +232,10 @@ impl Report {
     }
 
     pub fn exit_code(&self) -> u8 {
-        let bad_entries = self.path_problems.iter().any(|p| p.severity == Severity::Error);
+        let bad_entries = self
+            .path_problems
+            .iter()
+            .any(|p| p.severity == Severity::Error);
         let bad_tools = self.tools.iter().any(|t| t.verdict == Verdict::Broken);
         let bad_app_paths = self.app_paths.iter().any(|a| a.severity == Severity::Error);
         u8::from(bad_entries || bad_tools || bad_app_paths)
@@ -217,17 +244,36 @@ impl Report {
     /// Findings `--fix` would fix.
     fn fixable(&self, unsafe_fixes: bool) -> usize {
         let applies = |f: Option<&Fix>| f.is_some_and(|f| f.applies(unsafe_fixes));
-        self.path_problems.iter().filter(|p| applies(p.fix.as_ref())).count()
-            + self.app_paths.iter().filter(|a| applies(Some(&a.fix))).count()
-            + self.tools.iter().flat_map(|t| &t.reasons).filter(|r| applies(r.fix.as_ref())).count()
+        self.path_problems
+            .iter()
+            .filter(|p| applies(p.fix.as_ref()))
+            .count()
+            + self
+                .app_paths
+                .iter()
+                .filter(|a| applies(Some(&a.fix)))
+                .count()
+            + self
+                .tools
+                .iter()
+                .flat_map(|t| &t.reasons)
+                .filter(|r| applies(r.fix.as_ref()))
+                .count()
     }
 
     /// Every finding's code, and whether `--fix` would fix it.
     fn codes(&self) -> impl Iterator<Item = (Code, bool)> + '_ {
         let safe = |f: Option<&Fix>| f.is_some_and(Fix::is_safe);
-        let entries = self.path_problems.iter().map(move |p| (p.code, safe(p.fix.as_ref())));
+        let entries = self
+            .path_problems
+            .iter()
+            .map(move |p| (p.code, safe(p.fix.as_ref())));
         let app_paths = self.app_paths.iter().map(|a| (a.code, a.fix.is_safe()));
-        let reasons = self.tools.iter().flat_map(|t| &t.reasons).map(move |r| (r.code, safe(r.fix.as_ref())));
+        let reasons = self
+            .tools
+            .iter()
+            .flat_map(|t| &t.reasons)
+            .map(move |r| (r.code, safe(r.fix.as_ref())));
         let notes = self.tools.iter().filter_map(|t| t.code).map(|c| (c, false));
         entries.chain(app_paths).chain(reasons).chain(notes)
     }
@@ -278,7 +324,11 @@ impl Report {
             s.push_str("PATH entries\n");
             for p in &self.path_problems {
                 let tag = severity_tag(p.severity);
-                let star = if p.fix.as_ref().is_some_and(Fix::is_safe) { " [*]" } else { "" };
+                let star = if p.fix.as_ref().is_some_and(Fix::is_safe) {
+                    " [*]"
+                } else {
+                    ""
+                };
                 let (code, origin, raw) = (p.code, p.entry.origin, &p.entry.raw);
                 let _ = writeln!(s, "{tag} {code}{star} ({origin}) \"{raw}\" — {}", p.problem);
                 write_fix(&mut s, p.fix.as_ref());
@@ -289,8 +339,16 @@ impl Report {
         if !self.app_paths.is_empty() {
             s.push_str("App Paths\n");
             for a in &self.app_paths {
-                let (tag, key, target) = (severity_tag(a.severity), &a.app_path.key, a.app_path.target.display());
-                let _ = writeln!(s, "{tag} {} {key}\n         target does not exist: {target}", a.code);
+                let (tag, key, target) = (
+                    severity_tag(a.severity),
+                    &a.app_path.key,
+                    a.app_path.target.display(),
+                );
+                let _ = writeln!(
+                    s,
+                    "{tag} {} {key}\n         target does not exist: {target}",
+                    a.code
+                );
                 write_fix(&mut s, Some(&a.fix));
             }
             s.push('\n');
@@ -302,8 +360,11 @@ impl Report {
             .filter(|t| verbose || !matches!(t.verdict, Verdict::Pass | Verdict::Skip))
             .collect();
         tools.sort_by(|a, b| {
-            (a.origin == Origin::Extra, a.verdict, &a.name.to_lowercase())
-                .cmp(&(b.origin == Origin::Extra, b.verdict, &b.name.to_lowercase()))
+            (a.origin == Origin::Extra, a.verdict, &a.name.to_lowercase()).cmp(&(
+                b.origin == Origin::Extra,
+                b.verdict,
+                &b.name.to_lowercase(),
+            ))
         });
         let mut section = None;
         for t in tools {
@@ -311,7 +372,11 @@ impl Report {
                 if section.is_some() {
                     s.push('\n');
                 }
-                s.push_str(if t.origin == Origin::Path { "Tools\n" } else { "Extra\n" });
+                s.push_str(if t.origin == Origin::Path {
+                    "Tools\n"
+                } else {
+                    "Extra\n"
+                });
                 section = Some(t.origin);
             }
             let _ = writeln!(s, "{} {}  {}", t.verdict.tag(), t.name, t.path.display());
@@ -338,14 +403,21 @@ impl Report {
         if verbose {
             let mut slow: Vec<&ToolResult> = self.tools.iter().filter(|t| t.ms > 0).collect();
             slow.sort_by_key(|t| std::cmp::Reverse(t.ms));
-            let list: Vec<String> =
-                slow.iter().take(5).map(|t| format!("{} {:.1}s", t.name, t.ms as f64 / 1000.0)).collect();
+            let list: Vec<String> = slow
+                .iter()
+                .take(5)
+                .map(|t| format!("{} {:.1}s", t.name, t.ms as f64 / 1000.0))
+                .collect();
             if !list.is_empty() {
                 let _ = writeln!(s, "\nSlowest: {}", list.join(", "));
             }
         }
 
-        let warns = self.path_problems.iter().filter(|p| p.severity == Severity::Warn).count();
+        let warns = self
+            .path_problems
+            .iter()
+            .filter(|p| p.severity == Severity::Warn)
+            .count();
         let _ = writeln!(
             s,
             "\nSummary: {} passed, {} broken, {} tool errors, {} warnings, {} skipped ({} tools); {} PATH problems, {} PATH warnings, {} broken App Paths.",
@@ -364,7 +436,11 @@ impl Report {
             let plural = if n == 1 { "" } else { "s" };
             match first.backup.parent().filter(|_| !show_fixes) {
                 Some(dir) => {
-                    let _ = writeln!(s, "Fixed {n} problem{plural}; backups in {}.", dir.display());
+                    let _ = writeln!(
+                        s,
+                        "Fixed {n} problem{plural}; backups in {}.",
+                        dir.display()
+                    );
                 }
                 None => {
                     let _ = writeln!(s, "Fixed {n} problem{plural}.");
@@ -379,8 +455,15 @@ impl Report {
 
     /// `[*] N fixable with --fix (M more with --unsafe-fixes).`, when any is.
     pub fn fixable_line(&self) -> Option<String> {
-        let (safe, unsafe_only) = (self.fixable(false), self.fixable(true) - self.fixable(false));
-        let more = if unsafe_only > 0 { format!(" ({unsafe_only} more with --unsafe-fixes)") } else { String::new() };
+        let (safe, unsafe_only) = (
+            self.fixable(false),
+            self.fixable(true) - self.fixable(false),
+        );
+        let more = if unsafe_only > 0 {
+            format!(" ({unsafe_only} more with --unsafe-fixes)")
+        } else {
+            String::new()
+        };
         (safe > 0 || unsafe_only > 0).then(|| format!("[*] {safe} fixable with --fix{more}."))
     }
 }
@@ -413,7 +496,13 @@ impl ListReport {
     pub fn to_text(&self) -> String {
         let mut s = String::new();
         for c in &self.commands {
-            let _ = writeln!(s, "{}  {}{}", c.name, c.active().path.display(), os_tag(c.active().os));
+            let _ = writeln!(
+                s,
+                "{}  {}{}",
+                c.name,
+                c.active().path.display(),
+                os_tag(c.active().os)
+            );
             for sh in c.shadowed() {
                 let _ = writeln!(s, "    shadows {}{}", sh.path.display(), os_tag(sh.os));
             }
@@ -421,15 +510,27 @@ impl ListReport {
         for e in &self.extra {
             let _ = writeln!(s, "{}  {}  [EXTRA]", e.name, e.path.display());
         }
-        let shadowing = self.commands.iter().filter(|c| !c.shadowed().is_empty()).count();
-        let hidden = self.commands.iter().filter(|c| c.hidden_by_os().is_some()).count();
+        let shadowing = self
+            .commands
+            .iter()
+            .filter(|c| !c.shadowed().is_empty())
+            .count();
+        let hidden = self
+            .commands
+            .iter()
+            .filter(|c| c.hidden_by_os().is_some())
+            .count();
         let _ = writeln!(
             s,
             "\nSummary: {} commands; {} shadow other copies; {} run an OS copy instead of yours{}.",
             self.commands.len(),
             shadowing,
             hidden,
-            if self.extra.is_empty() { String::new() } else { format!("; {} extra programs", self.extra.len()) },
+            if self.extra.is_empty() {
+                String::new()
+            } else {
+                format!("; {} extra programs", self.extra.len())
+            },
         );
         s
     }

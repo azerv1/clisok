@@ -26,8 +26,12 @@ pub const PATH_SEPARATOR: char = ':';
 const SYSTEM_DIRS: &[&str] = &["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
 
 /// `SYSTEM_DIRS` with symlinks resolved (merged /usr links them all to /usr/bin).
-static REAL_SYSTEM_DIRS: LazyLock<Vec<PathBuf>> =
-    LazyLock::new(|| SYSTEM_DIRS.iter().map(|d| fs::canonicalize(d).unwrap_or_else(|_| PathBuf::from(d))).collect());
+static REAL_SYSTEM_DIRS: LazyLock<Vec<PathBuf>> = LazyLock::new(|| {
+    SYSTEM_DIRS
+        .iter()
+        .map(|d| fs::canonicalize(d).unwrap_or_else(|_| PathBuf::from(d)))
+        .collect()
+});
 
 fn in_system_dir(real: &Path) -> bool {
     REAL_SYSTEM_DIRS.iter().any(|d| real.starts_with(d))
@@ -40,7 +44,8 @@ fn real_parent(path: &Path) -> Option<PathBuf> {
 }
 
 /// `$HOME/bin` or `~/bin` written into PATH without the shell expanding it.
-static VAR_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|^~").unwrap());
+static VAR_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|^~").unwrap());
 
 pub fn unexpanded_var(raw: &str) -> bool {
     VAR_RE.is_match(raw)
@@ -50,7 +55,11 @@ pub fn unexpanded_var(raw: &str) -> bool {
 pub fn path_key(p: &Path) -> String {
     let s = p.to_string_lossy();
     let trimmed = s.trim_end_matches('/');
-    if trimmed.is_empty() { "/".into() } else { trimmed.to_string() }
+    if trimmed.is_empty() {
+        "/".into()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Command names are case-sensitive.
@@ -61,7 +70,10 @@ pub fn lookup_key(name: &str) -> String {
 /// Every executable file takes part in lookup. Dangling symlinks are kept
 /// too, so the broken link itself gets reported.
 pub fn index_entry(path: &Path) -> Option<(String, usize)> {
-    is_runnable(path).then(|| command_name(path)).flatten().map(|n| (n, 0))
+    is_runnable(path)
+        .then(|| command_name(path))
+        .flatten()
+        .map(|n| (n, 0))
 }
 
 pub fn is_runnable(path: &Path) -> bool {
@@ -82,14 +94,19 @@ fn on_windows_drive(path: &Path) -> bool {
     let mut parts = path.components().map(|c| c.as_os_str().to_string_lossy());
     parts.next().as_deref() == Some("/")
         && parts.next().as_deref() == Some("mnt")
-        && parts.next().is_some_and(|d| d.len() == 1 && d.chars().all(|c| c.is_ascii_alphabetic()))
+        && parts
+            .next()
+            .is_some_and(|d| d.len() == 1 && d.chars().all(|c| c.is_ascii_alphabetic()))
 }
 
 /// A Windows executable (PE, starts with `MZ`): from Linux it can only run
 /// through WSL interop or Wine, both of which open real windows.
 fn is_windows_program(path: &Path) -> bool {
     let mut head = [0u8; 2];
-    fs::File::open(path).and_then(|mut f| std::io::Read::read_exact(&mut f, &mut head)).is_ok() && &head == b"MZ"
+    fs::File::open(path)
+        .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut head))
+        .is_ok()
+        && &head == b"MZ"
 }
 
 /// Unix paths have one spelling; canonicalizing would resolve symlinks
@@ -130,11 +147,15 @@ pub fn truncated_saved_paths() -> Vec<PathEntry> {
 }
 
 /// No saved PATH, so nothing to fix (no fix is offered as safe on Unix).
-pub fn fix_user_path(_fixable: &[EntryProblem]) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
+pub fn fix_user_path(
+    _fixable: &[EntryProblem],
+) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
     Ok(None)
 }
 
-pub fn preview_user_path(_fixable: &[EntryProblem]) -> Result<Option<(String, Vec<EntryEdit>)>, String> {
+pub fn preview_user_path(
+    _fixable: &[EntryProblem],
+) -> Result<Option<(String, Vec<EntryEdit>)>, String> {
     Ok(None)
 }
 
@@ -160,7 +181,16 @@ pub fn cursor_visible(visible: bool) {
 
 /// Unix-specific static checks, after the shared symlink check.
 pub fn inspect(path: &Path, index: &PathIndex, _path_dirs: &[PathBuf], insp: &mut Inspection) {
-    if let Some(script) = shebang::read(path) {
+    let script = match shebang::read(path) {
+        Ok(script) => script,
+        Err(e) => {
+            insp.kind = Kind::Partial {
+                detail: format!("script could not be inspected: {e}"),
+            };
+            return;
+        }
+    };
+    if let Some(script) = script {
         let interpreter = match shebang::resolve(&script, index) {
             Ok(i) => i,
             Err(reason) => {
@@ -169,12 +199,21 @@ pub fn inspect(path: &Path, index: &PathIndex, _path_dirs: &[PathBuf], insp: &mu
                 return;
             }
         };
-        let is_python = interpreter.file_name().is_some_and(|n| n.to_string_lossy().starts_with("python"));
+        let is_python = interpreter
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with("python"));
         if is_python && let Some(module) = python::entry_module(&script.text) {
             python::check_entry_point(&interpreter, &module, &mut insp.reasons);
-            insp.kind = Kind::PyLauncher { python: interpreter, module };
+            insp.kind = Kind::PyLauncher {
+                python: interpreter,
+                module,
+            };
         } else {
-            insp.kind = if shebang::is_launcher(path, &script.text) { Kind::Shim } else { Kind::Script };
+            insp.kind = if shebang::is_launcher(path, &script.text) {
+                Kind::Shim
+            } else {
+                Kind::Script
+            };
         }
         return;
     }

@@ -37,7 +37,11 @@ enum Level {
 
 impl Level {
     fn of(severity: Severity) -> Self {
-        if severity == Severity::Error { Level::Error } else { Level::Warning }
+        if severity == Severity::Error {
+            Level::Error
+        } else {
+            Level::Warning
+        }
     }
 
     fn name(self) -> &'static str {
@@ -78,22 +82,50 @@ fn items(report: &Report) -> Vec<Item<'_>> {
     let mut out = Vec::new();
     for p in &report.path_problems {
         let (code, level, location) = (p.code, Level::of(p.severity), Location::Entry(&p.entry));
-        out.push(Item { code, level, location, message: p.problem.to_string(), fix: p.fix.as_ref() });
+        out.push(Item {
+            code,
+            level,
+            location,
+            message: p.problem.to_string(),
+            fix: p.fix.as_ref(),
+        });
     }
     for a in &report.app_paths {
         let message = format!("target does not exist: {}", a.app_path.target.display());
         let location = Location::RegistryKey(&a.app_path.key);
-        out.push(Item { code: a.code, level: Level::of(a.severity), location, message, fix: Some(&a.fix) });
+        out.push(Item {
+            code: a.code,
+            level: Level::of(a.severity),
+            location,
+            message,
+            fix: Some(&a.fix),
+        });
     }
     for t in &report.tools {
         for r in &t.reasons {
             let (code, level, location) = (r.code, Level::of(r.severity), Location::File(&t.path));
-            out.push(Item { code, level, location, message: r.reason.to_string(), fix: r.fix.as_ref() });
+            out.push(Item {
+                code,
+                level,
+                location,
+                message: r.reason.to_string(),
+                fix: r.fix.as_ref(),
+            });
         }
         // A finding reported as the note: hidden copy or tool error.
         if let (Some(code), Some(note)) = (t.code, &t.note) {
-            let level = if t.verdict == Verdict::Broken { Level::Error } else { Level::Warning };
-            out.push(Item { code, level, location: Location::File(&t.path), message: note.clone(), fix: None });
+            let level = if t.verdict == Verdict::Broken {
+                Level::Error
+            } else {
+                Level::Warning
+            };
+            out.push(Item {
+                code,
+                level,
+                location: Location::File(&t.path),
+                message: note.clone(),
+                fix: None,
+            });
         }
     }
     out
@@ -104,7 +136,11 @@ pub fn concise(report: &Report) -> String {
     let items = items(report);
     let mut s = String::new();
     for i in &items {
-        let star = if i.fix.is_some_and(Fix::is_safe) { " [*]" } else { "" };
+        let star = if i.fix.is_some_and(Fix::is_safe) {
+            " [*]"
+        } else {
+            ""
+        };
         let _ = writeln!(s, "{}: {}{star} {}", i.location.label(), i.code, i.message);
     }
     let n = items.len();
@@ -128,7 +164,9 @@ pub fn github(report: &Report) -> String {
 
 /// Workflow command data: `%`, CR and LF are escaped.
 fn escape_data(s: &str) -> String {
-    s.replace('%', "%25").replace('\r', "%0D").replace('\n', "%0A")
+    s.replace('%', "%25")
+        .replace('\r', "%0D")
+        .replace('\n', "%0A")
 }
 
 /// Workflow command properties also escape `:` and `,`.
@@ -156,7 +194,9 @@ pub fn sarif(report: &Report) -> Value {
         .into_iter()
         .map(|i| {
             let location = match &i.location {
-                Location::File(p) => json!({ "physicalLocation": { "artifactLocation": { "uri": file_uri(p) } } }),
+                Location::File(p) => {
+                    json!({ "physicalLocation": { "artifactLocation": { "uri": file_uri(p) } } })
+                }
                 Location::Entry(_) | Location::RegistryKey(_) => {
                     json!({ "logicalLocations": [{ "fullyQualifiedName": i.location.label() }] })
                 }
@@ -192,10 +232,16 @@ pub fn sarif(report: &Report) -> Value {
 /// `C:\Program Files\x.exe` → `file:///C:/Program%20Files/x.exe`.
 fn file_uri(path: &Path) -> String {
     let p = path.display().to_string().replace('\\', "/");
-    let mut s = String::from(if p.starts_with('/') { "file://" } else { "file:///" });
+    let mut s = String::from(if p.starts_with('/') {
+        "file://"
+    } else {
+        "file:///"
+    });
     for b in p.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => s.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => {
+                s.push(b as char)
+            }
             _ => {
                 let _ = write!(s, "%{b:02X}");
             }
@@ -216,14 +262,25 @@ mod tests {
 
     fn report() -> Report {
         let sev = Severities::default();
-        let entry = PathEntry { raw: "C:\\dup".into(), dir: PathBuf::from("C:\\dup"), origin: PathOrigin::Process };
+        let entry = PathEntry {
+            raw: "C:\\dup".into(),
+            dir: PathBuf::from("C:\\dup"),
+            origin: PathOrigin::Process,
+        };
         let tool = ToolResult {
             name: "ruff".into(),
             path: PathBuf::from("C:\\Tools Dir\\ruff.exe"),
             origin: Origin::Path,
             kind: Kind::Exe,
             verdict: Verdict::Broken,
-            reasons: Finding::new(Reason::MissingTarget { path: PathBuf::from("C:\\gone.exe") }, &sev).into_iter().collect(),
+            reasons: Finding::new(
+                Reason::MissingTarget {
+                    path: PathBuf::from("C:\\gone.exe"),
+                },
+                &sev,
+            )
+            .into_iter()
+            .collect(),
             note: None,
             code: None,
             shadowed: vec![],
@@ -236,7 +293,9 @@ mod tests {
             command: "check",
             config: vec![],
             fixed: vec![],
-            path_problems: EntryIssue::new(entry, EntryProblem::Duplicate, &sev).into_iter().collect(),
+            path_problems: EntryIssue::new(entry, EntryProblem::Duplicate, &sev)
+                .into_iter()
+                .collect(),
             app_paths: vec![],
             tools: vec![tool],
         }
@@ -256,7 +315,10 @@ mod tests {
     fn github_annotations_escape_and_carry_the_level() {
         let text = github(&report());
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[0], "::warning title=clisok (CLI007)::PATH[process] \"C:\\dup\": duplicate entry");
+        assert_eq!(
+            lines[0],
+            "::warning title=clisok (CLI007)::PATH[process] \"C:\\dup\": duplicate entry"
+        );
         assert!(lines[1].starts_with("::error title=clisok (CLI101)::C:\\Tools Dir\\ruff.exe: "));
         assert_eq!(escape_data("50%\nnext"), "50%25%0Anext");
         assert_eq!(escape_property("a:b,c"), "a%3Ab%2Cc");
@@ -267,16 +329,28 @@ mod tests {
         let v = sarif(&report());
         assert_eq!(v["version"], "2.1.0");
         let run = &v["runs"][0];
-        assert_eq!(run["tool"]["driver"]["rules"].as_array().unwrap().len(), CODES.len());
+        assert_eq!(
+            run["tool"]["driver"]["rules"].as_array().unwrap().len(),
+            CODES.len()
+        );
         let results = run["results"].as_array().unwrap();
         assert_eq!(results.len(), 2);
         for r in results {
             let i = r["ruleIndex"].as_u64().unwrap() as usize;
             assert_eq!(run["tool"]["driver"]["rules"][i]["id"], r["ruleId"]);
         }
-        assert_eq!(results[0]["locations"][0]["logicalLocations"][0]["fullyQualifiedName"], "PATH[process] \"C:\\dup\"");
-        assert_eq!(results[1]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"], "file:///C:/Tools%20Dir/ruff.exe");
-        assert_eq!(results[0]["properties"]["fix"]["applicability"], "display-only");
+        assert_eq!(
+            results[0]["locations"][0]["logicalLocations"][0]["fullyQualifiedName"],
+            "PATH[process] \"C:\\dup\""
+        );
+        assert_eq!(
+            results[1]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
+            "file:///C:/Tools%20Dir/ruff.exe"
+        );
+        assert_eq!(
+            results[0]["properties"]["fix"]["applicability"],
+            "display-only"
+        );
     }
 
     #[test]

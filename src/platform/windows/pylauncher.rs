@@ -4,14 +4,13 @@
 //! pip appends `#!<python>\n` + the zip to a launcher stub; uv stores the zip
 //! in a PE resource and puts the same shebang inside `__main__.py`.
 
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use object::pe::{ImageNtHeaders32, ImageNtHeaders64, RT_RCDATA};
 use object::read::pe::{ImageNtHeaders, PeFile};
 use object::{FileKind, LittleEndian as LE};
 
-use crate::inspect::python::entry_module;
+use crate::inspect::{MAX_SCRIPT_BYTES, python::entry_module, read_bounded};
 
 const LOCAL_HEADER: &[u8] = b"PK\x03\x04";
 const MAIN_PY: &[u8] = b"__main__.py";
@@ -22,16 +21,28 @@ pub struct PyTrailer {
     pub module: String,
 }
 
-pub fn parse(data: &[u8], exe_dir: &Path) -> Option<PyTrailer> {
-    let (at, main_py) = find_main_py(data)?;
-    let shebang = shebang_before(data, at).or_else(|| {
-        let first = main_py.lines().next()?;
-        first.starts_with("#!").then(|| first.to_string())
-    })?;
-    Some(PyTrailer {
-        python: interpreter(&shebang, exe_dir)?,
-        module: entry_module(&main_py)?,
-    })
+pub fn parse(data: &[u8], exe_dir: &Path) -> Result<Option<PyTrailer>, &'static str> {
+    let Some((at, method, raw)) = find_main_py(data) else {
+        return Ok(None);
+    };
+    let bytes = match method {
+        0 => read_bounded(raw, MAX_SCRIPT_BYTES),
+        8 => read_bounded(flate2::read::DeflateDecoder::new(raw), MAX_SCRIPT_BYTES),
+        _ => return Err("unsupported launcher ZIP compression; static inspection skipped"),
+    }
+    .map_err(|_| "launcher text is invalid or exceeds 1 MiB; static inspection skipped")?;
+    let main_py = String::from_utf8_lossy(&bytes);
+    let parse_entry = || {
+        let shebang = shebang_before(data, at).or_else(|| {
+            let first = main_py.lines().next()?;
+            first.starts_with("#!").then(|| first.to_string())
+        })?;
+        Some(PyTrailer {
+            python: interpreter(&shebang, exe_dir)?,
+            module: entry_module(&main_py)?,
+        })
+    };
+    Ok(parse_entry())
 }
 
 fn u16_at(d: &[u8], i: usize) -> Option<usize> {
@@ -43,7 +54,7 @@ fn u32_at(d: &[u8], i: usize) -> Option<usize> {
 }
 
 /// Locate the zip local header for `__main__.py` and return its offset and contents.
-fn find_main_py(data: &[u8]) -> Option<(usize, String)> {
+fn find_main_py(data: &[u8]) -> Option<(usize, usize, &[u8])> {
     let mut from = 0;
     while let Some(off) = data[from..].windows(4).position(|w| w == LOCAL_HEADER) {
         let at = from + off;
@@ -56,16 +67,7 @@ fn find_main_py(data: &[u8]) -> Option<(usize, String)> {
         let size = u32_at(data, at + 18)?;
         let start = at + 30 + name_len + u16_at(data, at + 28)?;
         let raw = data.get(start..start + size)?;
-        let bytes = match method {
-            0 => raw.to_vec(),
-            8 => {
-                let mut out = Vec::new();
-                flate2::read::DeflateDecoder::new(raw).read_to_end(&mut out).ok()?;
-                out
-            }
-            _ => return None,
-        };
-        return Some((at, String::from_utf8_lossy(&bytes).into_owned()));
+        return Some((at, method, raw));
     }
     None
 }
@@ -108,10 +110,22 @@ pub fn uv_python_target(data: &[u8], exe_dir: &Path) -> Option<PathBuf> {
 fn uv_python_path<Pe: ImageNtHeaders>(data: &[u8]) -> Option<String> {
     let pe = PeFile::<Pe, &[u8]>::parse(data).ok()?;
     let sections = pe.section_table();
-    let dir = pe.data_directories().resource_directory(data, &sections).ok()??;
-    let rcdata = dir.root().ok()?.entries.iter().find(|e| e.name_or_id().id() == Some(RT_RCDATA))?;
+    let dir = pe
+        .data_directories()
+        .resource_directory(data, &sections)
+        .ok()??;
+    let rcdata = dir
+        .root()
+        .ok()?
+        .entries
+        .iter()
+        .find(|e| e.name_or_id().id() == Some(RT_RCDATA))?;
     let named = rcdata.data(dir).ok()?.table()?.entries.iter().find(|e| {
-        e.name_or_id().name().and_then(|n| n.to_string_lossy(dir).ok()).as_deref() == Some("UV_PYTHON_PATH")
+        e.name_or_id()
+            .name()
+            .and_then(|n| n.to_string_lossy(dir).ok())
+            .as_deref()
+            == Some("UV_PYTHON_PATH")
     })?;
     let lang = named.data(dir).ok()?.table()?.entries.first()?;
     let entry = lang.data(dir).ok()?.data()?;
@@ -144,7 +158,9 @@ mod tests {
         let mut exe = b"MZ stub\0\0".to_vec();
         exe.extend(b"#!C:\\Python312\\python.exe\n");
         exe.extend(stored_zip(MAIN_PY, MAIN.as_bytes()));
-        let t = parse(&exe, Path::new(r"C:\Python312\Scripts")).unwrap();
+        let t = parse(&exe, Path::new(r"C:\Python312\Scripts"))
+            .unwrap()
+            .unwrap();
         assert_eq!(t.python, PathBuf::from(r"C:\Python312\python.exe"));
         assert_eq!(t.module, "somepkg");
     }
@@ -154,8 +170,11 @@ mod tests {
         let mut exe = b"MZ".to_vec();
         exe.extend(b"#!\"C:\\Program Files\\Python\\python.exe\"\r\n");
         exe.extend(stored_zip(MAIN_PY, MAIN.as_bytes()));
-        let t = parse(&exe, Path::new(r"C:\x")).unwrap();
-        assert_eq!(t.python, PathBuf::from(r"C:\Program Files\Python\python.exe"));
+        let t = parse(&exe, Path::new(r"C:\x")).unwrap().unwrap();
+        assert_eq!(
+            t.python,
+            PathBuf::from(r"C:\Program Files\Python\python.exe")
+        );
     }
 
     #[test]
@@ -164,17 +183,36 @@ mod tests {
         let mut exe = b"MZ ... UV_PYTHON_PATH ... PA".to_vec();
         exe.extend(stored_zip(MAIN_PY, main.as_bytes()));
         exe.extend(b"PK\x01\x02 central dir");
-        let t = parse(&exe, Path::new(r"C:\x")).unwrap();
-        assert_eq!(t.python, PathBuf::from(r"C:\uv\tools\sometool\Scripts\python.exe"));
+        let t = parse(&exe, Path::new(r"C:\x")).unwrap().unwrap();
+        assert_eq!(
+            t.python,
+            PathBuf::from(r"C:\uv\tools\sometool\Scripts\python.exe")
+        );
         assert_eq!(t.module, "somepkg");
+    }
+
+    #[test]
+    fn oversized_deflated_launcher_is_rejected_without_expanding_it_all() {
+        use std::io::Write;
+        let mut encoder =
+            flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::best());
+        encoder
+            .write_all(&vec![b'x'; MAX_SCRIPT_BYTES * 4])
+            .unwrap();
+        let compressed = encoder.finish().unwrap();
+        let mut zip = stored_zip(MAIN_PY, &compressed);
+        zip[8..10].copy_from_slice(&8u16.to_le_bytes());
+        assert!(parse(&zip, Path::new("C:\\\\")).is_err());
+        let stored = stored_zip(MAIN_PY, &vec![b'x'; MAX_SCRIPT_BYTES + 1]);
+        assert!(parse(&stored, Path::new("C:\\\\")).is_err());
     }
 
     #[test]
     fn ignores_other_zips_and_plain_exes() {
         let mut exe = b"MZ".to_vec();
         exe.extend(stored_zip(b"data.txt", b"hello"));
-        assert_eq!(parse(&exe, Path::new("C:\\")), None);
-        assert_eq!(parse(b"MZ plain program", Path::new("C:\\")), None);
+        assert_eq!(parse(&exe, Path::new("C:\\")), Ok(None));
+        assert_eq!(parse(b"MZ plain program", Path::new("C:\\")), Ok(None));
     }
 
     #[test]
@@ -183,13 +221,17 @@ mod tests {
         let p = uv_python_target(exe, Path::new(r"C:\x")).unwrap();
         assert!(p.starts_with(r"C:\pathsok-fixture")); // baked into the fixture under the old name
         assert!(p.ends_with("python.exe"));
-        assert_eq!(parse(exe, Path::new(r"C:\x")), None);
+        assert_eq!(parse(exe, Path::new(r"C:\x")), Ok(None));
     }
 
     #[test]
     fn other_programs_have_no_uv_python_target() {
-        assert_eq!(uv_python_target(b"MZ plain program", Path::new("C:\\")), None);
-        let root = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
+        assert_eq!(
+            uv_python_target(b"MZ plain program", Path::new("C:\\")),
+            None
+        );
+        let root = std::env::var_os("SystemRoot")
+            .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
         let data = std::fs::read(root.join(r"System32\cmd.exe")).unwrap();
         assert_eq!(uv_python_target(&data, Path::new("C:\\")), None);
     }

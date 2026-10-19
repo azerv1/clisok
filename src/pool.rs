@@ -9,7 +9,11 @@ use std::thread;
 
 /// Run `f` on every item with `jobs` threads. Items start in order (the first
 /// item first) and results come back in the same order as the input.
-pub fn run_in_order<T: Send, R: Send>(items: Vec<T>, jobs: usize, f: impl Fn(T) -> R + Sync) -> Vec<R> {
+pub fn run_in_order<T: Send, R: Send>(
+    items: Vec<T>,
+    jobs: usize,
+    f: impl Fn(T) -> R + Sync,
+) -> Vec<R> {
     let n = items.len();
     let inputs: Vec<Mutex<Option<T>>> = items.into_iter().map(|t| Mutex::new(Some(t))).collect();
     let outputs: Vec<Mutex<Option<R>>> = (0..n).map(|_| Mutex::new(None)).collect();
@@ -20,14 +24,21 @@ pub fn run_in_order<T: Send, R: Send>(items: Vec<T>, jobs: usize, f: impl Fn(T) 
                 loop {
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(slot) = inputs.get(i) else { break };
-                    let item = slot.lock().unwrap().take().expect("each item is taken once");
+                    let item = slot
+                        .lock()
+                        .unwrap()
+                        .take()
+                        .expect("each item is taken once");
                     let result = f(item);
                     *outputs[i].lock().unwrap() = Some(result);
                 }
             });
         }
     });
-    outputs.into_iter().map(|m| m.into_inner().unwrap().expect("every item ran")).collect()
+    outputs
+        .into_iter()
+        .map(|m| m.into_inner().unwrap().expect("every item ran"))
+        .collect()
 }
 
 /// Default worker count: `per_core` workers per logical core, capped at `max`.
@@ -50,15 +61,23 @@ mod tests {
     #[test]
     fn starts_items_in_order() {
         let started = Mutex::new(Vec::new());
-        run_in_order((0..20).collect(), 1, |x: u32| started.lock().unwrap().push(x));
+        run_in_order((0..20).collect(), 1, |x: u32| {
+            started.lock().unwrap().push(x)
+        });
         assert_eq!(started.into_inner().unwrap(), (0..20).collect::<Vec<_>>());
     }
 
     #[test]
     fn runs_items_concurrently() {
         let t = Instant::now();
-        run_in_order(vec![(); 8], 8, |_| thread::sleep(Duration::from_millis(200)));
-        assert!(t.elapsed() < Duration::from_millis(800), "{:?}", t.elapsed());
+        run_in_order(vec![(); 8], 8, |_| {
+            thread::sleep(Duration::from_millis(200))
+        });
+        assert!(
+            t.elapsed() < Duration::from_millis(800),
+            "{:?}",
+            t.elapsed()
+        );
     }
 
     #[test]

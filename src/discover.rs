@@ -37,7 +37,11 @@ impl PathCommand {
 
     /// When an OS copy runs, where the first non-OS copy it hides sits in `copies`.
     pub fn hidden_by_os(&self) -> Option<usize> {
-        if self.active().os { self.copies.iter().position(|c| !c.os) } else { None }
+        if self.active().os {
+            self.copies.iter().position(|c| !c.os)
+        } else {
+            None
+        }
     }
 }
 
@@ -54,8 +58,14 @@ pub struct Tool {
 }
 
 fn list_tools(dir: &Path) -> Vec<PathBuf> {
-    let Ok(rd) = fs::read_dir(dir) else { return Vec::new() };
-    let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| platform::is_runnable(p)).collect();
+    let Ok(rd) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut files: Vec<PathBuf> = rd
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| platform::is_runnable(p))
+        .collect();
     files.sort();
     files
 }
@@ -66,7 +76,8 @@ fn list_tools(dir: &Path) -> Vec<PathBuf> {
 pub fn extra_files(patterns: &[String]) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
     for pattern in patterns {
-        let matches = glob::glob(pattern).map_err(|e| format!("extra: bad pattern '{pattern}': {e}"))?;
+        let matches =
+            glob::glob(pattern).map_err(|e| format!("extra: bad pattern '{pattern}': {e}"))?;
         let before = files.len();
         for path in matches.flatten() {
             if path.is_dir() {
@@ -87,7 +98,12 @@ pub fn extra_files(patterns: &[String]) -> Result<Vec<PathBuf>, String> {
 
 /// The command a file would answer to, or else its file name.
 pub fn file_command(path: &Path) -> String {
-    platform::command_name(path).unwrap_or_else(|| path.file_name().unwrap_or_default().to_string_lossy().into_owned())
+    platform::command_name(path).unwrap_or_else(|| {
+        path.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned()
+    })
 }
 
 fn in_os_dir(path: &Path) -> bool {
@@ -109,12 +125,20 @@ pub fn inventory(path: &[PathEntry], index: &PathIndex, include_system: bool) ->
             continue;
         }
         for file in list_tools(&entry.dir) {
-            let Some(name) = platform::command_name(&file) else { continue };
+            let Some(name) = platform::command_name(&file) else {
+                continue;
+            };
             if !seen_names.insert(platform::lookup_key(&name)) {
                 continue;
             }
-            let copies: Vec<FileCopy> =
-                index.lookup(&name).iter().map(|p| FileCopy { path: p.clone(), os: in_os_dir(p) }).collect();
+            let copies: Vec<FileCopy> = index
+                .lookup(&name)
+                .iter()
+                .map(|p| FileCopy {
+                    path: p.clone(),
+                    os: in_os_dir(p),
+                })
+                .collect();
             if !copies.is_empty() {
                 commands.push(PathCommand { name, copies });
             }
@@ -127,7 +151,11 @@ pub fn inventory(path: &[PathEntry], index: &PathIndex, include_system: bool) ->
 fn test_entries(dirs: &[&Path]) -> Vec<PathEntry> {
     use crate::pathenv::PathOrigin;
     dirs.iter()
-        .map(|d| PathEntry { raw: d.display().to_string(), dir: d.to_path_buf(), origin: PathOrigin::Process })
+        .map(|d| PathEntry {
+            raw: d.display().to_string(),
+            dir: d.to_path_buf(),
+            origin: PathOrigin::Process,
+        })
         .collect()
 }
 
@@ -195,7 +223,10 @@ mod unix_tests {
         let commands = inventory(&entries, &index, false);
         assert_eq!(names(&commands), ["gone"]);
         let insp = inspect::inspect(&commands[0].active().path, &index, &dirs);
-        assert!(matches!(insp.reasons.as_slice(), [Reason::MissingTarget { .. }]));
+        assert!(matches!(
+            insp.reasons.as_slice(),
+            [Reason::MissingTarget { .. }]
+        ));
     }
 
     #[test]
