@@ -1,0 +1,42 @@
+# cargo-deny: `make audit`, the pre-push hook and CI.
+#   advisories  known vulnerabilities, unmaintained and yanked crates (RustSec)
+#   licenses    every dependency's license is on the allow list
+#   bans        duplicate versions are reported; wildcard version requirements are refused
+#   sources     crates come from crates.io only -- no git or other registries
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+# Each entry names an owner and an expiry date in its reason, and is removed by that date
+# (osv-scanner.toml carries the same exception with ignoreUntil, which the scan enforces):
+#   { id = "RUSTSEC-...", reason = "@owner until 2026-12-31: why it doesn't apply here" }
+ignore = []
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+unused-allowed-license = "allow"  # the list covers future dependencies too
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "GPL-3.0-or-later",  # clisok's own license
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true  # the fuzz crate's path dependency on this crate
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

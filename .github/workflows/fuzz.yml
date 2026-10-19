@@ -1,0 +1,74 @@
+name: Fuzz
+on:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Seconds per target (1–19800); CPU time is measured."
+        default: "3600"
+        type: string
+permissions: {}
+jobs:
+  fuzz:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [config_expansion, python_entry]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: nightly
+      - run: cargo install --locked cargo-fuzz@0.13.2
+      - name: Seed the corpus with valid production inputs
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p "fuzz/corpus/$TARGET"
+          cp "fuzz/seeds/$TARGET/"*.txt "fuzz/corpus/$TARGET/"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: corpus-${{ matrix.target }}-
+      - name: Measured fuzz campaign
+        id: fuzz
+        env:
+          TARGET: ${{ matrix.target }}
+          SECONDS_IN: ${{ inputs.seconds || '3600' }}
+        run: |
+          [[ "$SECONDS_IN" =~ ^[0-9]{1,5}$ ]] || { echo "::error::invalid seconds"; exit 1; }
+          seconds=$((10#$SECONDS_IN))
+          [ "$seconds" -ge 1 ] && [ "$seconds" -le 19800 ] || exit 1
+          mkdir -p evidence
+          echo "CORES=$(nproc)" >> "$GITHUB_ENV"
+          /usr/bin/time -f '%U %S %e' -o evidence/fuzz-time.txt \
+            cargo +nightly fuzz run "$TARGET" -- -fork="$(nproc)" -max_total_time="$seconds" -max_len=65536
+      - name: Record measured usage
+        if: always()
+        env:
+          TARGET: ${{ matrix.target }}
+          RESULT: ${{ steps.fuzz.outcome }}
+          EVENT: ${{ github.event_name }}
+          MODE: nightly-or-custom
+          SECONDS_PER_TARGET: ${{ inputs.seconds || '3600' }}
+        run: python3 tools/fuzz_evidence.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: evidence-fuzz-${{ matrix.target }}
+          path: |
+            evidence/
+            fuzz/artifacts/
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        if: always()
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: corpus-${{ matrix.target }}-${{ github.run_id }}

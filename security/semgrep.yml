@@ -1,0 +1,19 @@
+# Local rules: no registry lookup, upload, telemetry or claim of hosted scan coverage.
+rules:
+  - id: rust-shell-command
+    languages: [rust]
+    severity: ERROR
+    message: Pass an argument vector directly; review shell command execution.
+    pattern-either:
+      - pattern: std::process::Command::new("sh").arg("-c")
+      - pattern: Command::new("sh").arg("-c")
+  - id: rust-uninitialized-value
+    languages: [rust]
+    severity: ERROR
+    message: Creating an uninitialized Rust value can be undefined behavior.
+    pattern: std::mem::uninitialized(...)
+  - id: rust-transmute
+    languages: [rust]
+    severity: ERROR
+    message: Review transmute and prefer a checked conversion.
+    pattern: std::mem::transmute(...)

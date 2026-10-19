@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "rust_toolchain": "1.98.1",
+  "msrv": "1.88.0",
+  "release": [
+    {
+      "runner": "windows-2025",
+      "target": "x86_64-pc-windows-msvc",
+      "archive": ".zip"
+    },
+    {
+      "runner": "ubuntu-24.04",
+      "target": "x86_64-unknown-linux-musl",
+      "archive": ".tar.gz"
+    }
+  ],
+  "native_test": [
+    "windows-2025",
+    "ubuntu-24.04"
+  ],
+  "roadmap": [
+    "macOS native Mach-O inspection",
+    "FreeBSD native loader inspection",
+    "expanded Linux distribution compatibility",
+    "automated Windows 11 VM coverage"
+  ]
+}

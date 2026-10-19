@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["[0-9]*", "v[0-9]*"]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions: {}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: "1.98.1"
+          components: rustfmt, clippy
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo doc --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - run: cargo package --locked
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          enable-cache: false
+      - run: uv sync --locked --group dev
+      - run: uv run ruff check tools tests/release
+      - run: uv run mypy tools tests/release
+      - run: uv run pytest
+        env:
+          RUN_MINISIGN_INTEGRATION: "1"
+      - run: uv run python tools/check_citation.py
+      - run: uvx cffconvert@2.0.0 --validate -i CITATION.cff
+      - run: uvx --with shellcheck-py==0.11.0.1 --from actionlint-py==1.7.12.25 actionlint
+      - run: uvx zizmor==1.30.1 --offline .github/workflows action.yml
+
+  test:
+    name: Native tests (${{ matrix.os }}, ${{ matrix.toolchain }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            toolchain: "1.98.1"
+          - os: ubuntu-24.04
+            toolchain: "1.98.1"
+          - os: ubuntu-24.04
+            toolchain: "1.88.0"
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - run: cargo test --locked
+
+  security:
+    name: Security (local tools, isolated network)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: "1.98.1"
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        with:
+          tool: cargo-deny@0.20.2
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          enable-cache: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # zizmor: ignore[cache-poisoning] -- cached downloads are verified by SHA256 before use
+        with:
+          path: target/security-cache/downloads
+          key: local-security-tools-v2
+      - name: Acquire pinned tools and public advisory data
+        run: |
+          uv tool install --python 3.13 semgrep==1.180.0
+          python3 tools/security_checks.py prepare
+      - name: Analyze without networking
+        run: |
+          sudo unshare --net -- /usr/bin/env \
+            HOME="$HOME" PATH="$PATH" \
+            CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" \
+            SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 \
+            python3 tools/security_checks.py scan
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: local-security-reports
+          path: target/security-reports/
+
+  ci-ok:
+    if: always()
+    needs: [quality, test, security]
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - env:
+          QUALITY: ${{ needs.quality.result }}
+          TEST: ${{ needs.test.result }}
+          SECURITY: ${{ needs.security.result }}
+        run: |
+          for result in "$QUALITY" "$TEST" "$SECURITY"; do
+            [ "$result" = success ] || { echo "::error::a required check failed"; exit 1; }
+          done

@@ -1,0 +1,33 @@
+name: Mutation testing
+on:
+  schedule:
+    - cron: "19 3 * * 0"
+  workflow_dispatch:
+permissions: {}
+jobs:
+  mutation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: "1.98.1"
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        with:
+          tool: cargo-mutants@27.1.0
+      - name: Mutate production parsing boundaries
+        run: cargo mutants --file src/parsing.rs --jobs 2 --timeout 60 || true
+      - name: Validate completion and require 80% caught
+        run: python3 tools/mutation_score.py mutants.out/outcomes.json 80
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: evidence-mutation
+          path: |
+            evidence/
+            mutants.out/
