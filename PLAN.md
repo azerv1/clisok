@@ -1,5 +1,9 @@
 # Cross-Platform `clisok` Commands and Safe Repair
 
+This is the broader roadmap. Current releases and CI cover Windows x86_64 and
+Linux x86_64; the full compatibility matrix below remains planned. Publication
+setup and the current release process are in [README.md](README.md#releases).
+
 ## Summary
 
 Implement first-class support for Windows 11, macOS, FreeBSD, Ubuntu, Debian, Fedora, Linux Mint, Arch, and Manjaro. Windows 10 is best-effort.
@@ -115,7 +119,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **Nightly** — run the complete supported-version matrix, Mint and Manjaro images, and real supported-manager integration tests.
 
-- **Releases** — run the complete matrix, install-and-run tests using final release artifacts, and the manual Windows 11 smoke run. Any failure blocks release.
+- **Releases** — require exact-tag CI and signed final-artifact/Action smoke tests on the currently implemented Windows/Linux targets. The complete compatibility matrix and automated Windows 11 VM coverage remain roadmap work; background campaigns do not gate the fast release path (see [README.md](README.md#releases)).
 
 - **Maintenance** — update pinned OS images and rolling-distribution snapshots monthly through a reviewed compatibility-manifest change; do not use floating `latest` tags.
 
