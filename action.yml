@@ -1,52 +1,44 @@
 name: clisok
-description: Check that the executables on a runner work: PATH entries, launchers and shims, missing DLLs, and a headless test run.
+description: "Check PATH entries, launchers, libraries and headless tool startup."
 branding:
   icon: check-circle
   color: green
 
 inputs:
   version:
-    description: Release to use, e.g. 0.4.0. Defaults to the ref this action is used at, or the latest release.
-    default: ''
+    description: "Release tag to use; defaults to the action ref when versioned, otherwise latest."
+    default: ""
   args:
-    description: Arguments passed to clisok, split on whitespace (e.g. "check --output-format github --skip foo").
+    description: "Arguments split on whitespace, e.g. check --output-format github."
     default: check
+  assets-directory:
+    description: "Use a pre-downloaded release directory; its signature and checksum are still required."
+    default: ""
 
 runs:
   using: composite
   steps:
-    - name: Download clisok
+    - name: Download and verify clisok
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         VERSION: ${{ inputs.version }}
         ACTION_REF: ${{ github.action_ref }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_PATH: ${{ github.action_path }}
+        ASSETS_DIRECTORY: ${{ inputs.assets-directory }}
       run: |
-        case "$RUNNER_OS" in
-          Linux) asset='clisok-*-x86_64-unknown-linux-musl.tar.gz' ;;
-          Windows) asset='clisok-*-x86_64-pc-windows-msvc.zip' ;;
-          *) echo "::error::clisok has no $RUNNER_OS build yet"; exit 1 ;;
-        esac
-        if [ -z "$VERSION" ] && [[ "$ACTION_REF" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-          VERSION="$ACTION_REF"
+        arguments=()
+        if [ -n "$ASSETS_DIRECTORY" ]; then
+          arguments+=(--assets "$ASSETS_DIRECTORY")
         fi
-        dir="$RUNNER_TEMP/clisok"
-        rm -rf "$dir"
-        # No tag argument means the latest release.
-        gh release download $VERSION -R azerv1/clisok -p "$asset" -D "$dir"
-        cd "$dir"
-        case "$RUNNER_OS" in
-          Linux) tar -xzf clisok-*.tar.gz ;;
-          Windows) unzip -q clisok-*.zip ;;
-        esac
-
-    # Run by absolute path: adding clisok to PATH would change the PATH it checks.
-    - name: Run clisok
+        python "$ACTION_PATH/tools/action_install.py" "${arguments[@]}"
+    - name: Run verified clisok
       shell: bash
       env:
         ARGS: ${{ inputs.args }}
       run: |
         set -f
-        exe="$RUNNER_TEMP/clisok/clisok"
-        [ "$RUNNER_OS" = Windows ] && exe="$exe.exe"
-        "$exe" $ARGS
+        # Whitespace splitting is the documented input format; shell operators remain ordinary arguments.
+        # shellcheck disable=SC2086
+        "$CLISOK_EXE" $ARGS

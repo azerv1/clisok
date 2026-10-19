@@ -1,29 +1,41 @@
-name: Action test
+name: Release artifact and Action smoke tests
 
 on:
-  workflow_run:
-    workflows: [Release]
-    types: [completed]
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
 
+permissions: {}
 jobs:
   test:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - name: List
-        uses: ./
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          args: list
-      # Hosted runners may really have broken tools; this only proves
-      # download, extraction, and a full run work.
-      - name: Check
-        uses: ./
-        continue-on-error: true
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          args: check --output-format json
+          name: signed-release
+          path: release-assets
+      - name: Action verifies the final archive before execution
+        uses: ./ # zizmor: ignore[self-repository] -- exercise the action in this checkout
+        with:
+          version: ${{ inputs.tag }}
+          assets-directory: release-assets
+          args: rule list --output-format json
+      - name: Isolated PATH and preview smoke
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: python tools/release_check.py smoke "$CLISOK_EXE" "$VERSION"

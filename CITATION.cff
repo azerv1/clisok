@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use clisok in your work, please cite this repository."
+type: software
+title: clisok
+abstract: "Check PATH entries, executable dependencies, launchers, and headless tool startup."
+authors:
+  - alias: azerv1
+repository-code: "https://github.com/azerv1/clisok"
+license: GPL-3.0-or-later
+version: "0.3.0"

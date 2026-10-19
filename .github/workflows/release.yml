@@ -2,68 +2,172 @@ name: Release
 
 on:
   push:
-    tags: ['[0-9]+.[0-9]+.[0-9]+']
-  # Run on an existing tag with: gh workflow run release.yml --ref <tag>
+    tags: ["[0-9]*", "v[0-9]*"]
   workflow_dispatch:
 
+permissions: {}
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build:
-    # A release needs a tag; dispatching on a branch would publish "main".
+  plan:
     if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(python3 tools/release_check.py tag "$TAG")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2025
             target: x86_64-pc-windows-msvc
-            archive: zip
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-musl
-            archive: tar.gz
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: "1.98.1"
+          targets: ${{ matrix.target }}
       - name: Install musl tools
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - run: rustup target add ${{ matrix.target }}
-      - run: cargo build --release --locked --target ${{ matrix.target }}
-      - name: Package
-        run: |
-          name="clisok-${GITHUB_REF_NAME}-${{ matrix.target }}"
-          mkdir "$name"
-          exe=clisok; [ "${{ matrix.archive }}" = zip ] && exe=clisok.exe
-          cp "target/${{ matrix.target }}/release/$exe" README.md CHANGELOG.md "$name"/
-          if [ "${{ matrix.archive }}" = zip ]; then
-            (cd "$name" && 7z a "../$name.zip" *)
-          else
-            tar -czf "$name.tar.gz" -C "$name" .
-          fi
-      - uses: actions/upload-artifact@v4
+      - name: Build once from the locked inputs
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked --target "$TARGET"
+      - name: Package exact binaries with licenses and checksums
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+          TARGET: ${{ matrix.target }}
+        run: python tools/release_check.py package "$TAG" "$TARGET"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: ${{ matrix.target }}
-          path: clisok-*.${{ matrix.archive }}
+          name: release-${{ matrix.target }}
+          path: dist/
+
+  sbom:
+    needs: plan
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: "1.98.1"
+      - run: cargo install --locked cargo-cyclonedx@0.5.9
+      - env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          mkdir sbom
+          for target in x86_64-pc-windows-msvc x86_64-unknown-linux-musl; do
+            cargo cyclonedx --format json --spec-version 1.5 --all-features --target "$target"
+            mv ./*.cdx.json "sbom/clisok-$TAG-$target.cdx.json"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-sbom
+          path: sbom/
+
+  sign:
+    needs: [plan, build, sbom]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: release-*
+          path: assets
+          merge-multiple: true
+      - name: Require CI on the exact tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ASSETS: assets
+          TAG: ${{ needs.plan.outputs.tag }}
+          TOOLCHAIN: rustc 1.98.1
+        run: python3 tools/readiness_report.py "$TAG" --strict --wait-seconds 1200 > assets/READINESS.md
+      - run: python3 tools/security_checks.py minisign
+      - name: Sign and verify before smoke tests and publication
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: python3 tools/release_manifest.py assets --minisign target/security-cache/bin/minisign
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: signed-release
+          path: assets/
+
+  smoke:
+    needs: [plan, sign]
+    uses: ./.github/workflows/action-test.yml # zizmor: ignore[self-repository] -- local reusable workflow at the release SHA
+    with:
+      tag: ${{ needs.plan.outputs.tag }}
+      version: ${{ needs.plan.outputs.version }}
+    permissions:
+      contents: read
 
   release:
-    needs: build
-    runs-on: ubuntu-latest
+    needs: [plan, smoke]
+    if: always() && needs.plan.result == 'success' && needs.smoke.result == 'success'
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: signed-release
           path: dist
-          merge-multiple: true
-      - name: Create release
+      - name: Create release from the verified assets
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          RELEASE_SHA: ${{ github.sha }}
         run: |
-          awk -v tag="$GITHUB_REF_NAME" '
+          awk -v tag="$TAG" '
             $0 ~ "^## " tag "( |$)" { on = 1; next }
             on && /^## / { exit }
             on { print }
           ' CHANGELOG.md > notes.md
-          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md dist/*
+          flags=()
+          case "${VERSION%%+*}" in *-*) flags+=(--prerelease);; esac
+          gh release create "$TAG" --target "$RELEASE_SHA" --title "$TAG" \
+            --notes-file notes.md "${flags[@]}" dist/*
