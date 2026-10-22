@@ -1,0 +1,63 @@
+tools/action_install.py
+  s_d76380cf2061c6::t_a40705ecf2f3b7 116-117
+  s_d76380cf2061c6::t_8acbfa4ebd8d5d 60-61
+  s_d76380cf2061c6::t_503a48c46fc46d 43
+tools/mutation_score.py
+  s_d76380cf2061c6::t_266162a94ee4fa 3-4
+.github/workflows/action-test.yml
+  s_d76380cf2061c6::t_25bedbe74d8f33 29,31-33
+.github/dependabot.yml
+  s_d76380cf2061c6::t_f8e03084f019f0 1-22
+PLAN.md
+  s_d76380cf2061c6::t_37e1b52015ff14 122
+README.md
+  s_d76380cf2061c6::t_ef5d338525d6dd 53-54
+  s_d76380cf2061c6::t_821f3af8a7160f 70
+  s_d76380cf2061c6::t_1566ccd5ade2ab 76-78,86
+action.yml
+  s_d76380cf2061c6::t_eb516e2212b091 36
+  s_d76380cf2061c6::t_33222f5d562f6a 15
+tools/bump_hook.py
+  s_d76380cf2061c6::t_96fb52d73a6ed1 1,13,20
+.github/workflows/ci.yml
+  s_d76380cf2061c6::t_757b9a91ed1c37 70-71,81-83,87,94,96
+.github/workflows/release.yml
+  s_d76380cf2061c6::t_a21116ffcbaf1f 76,96,98,106
+tests/release/test_artifacts.py
+  s_d76380cf2061c6::t_6fda92db511dc4 17,19,104,107-126,150,161,163,167
+  s_d76380cf2061c6::t_5445805e19fa61 51-62
+  s_d76380cf2061c6::t_a1d00593c25f6f 24
+  s_db5280e2a28a79::t_b7794914d9389c 49-50
+docs/src/github-action.md
+  s_d76380cf2061c6::t_327fcc5bda74ed 27-29,32-34
+tools/release_check.py
+  s_d76380cf2061c6::t_b86d5ff60f69ed 111-112,121-122
+  s_d76380cf2061c6::t_88f539f903798d 53-59
+tools/github_setup.py
+  s_d76380cf2061c6::t_94ab814217f1a4 1
+  s_d76380cf2061c6::t_b8683f32534f80 40-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fd45be86b08654bce278ef4e279261ca5ecb54c3",
+  "prompts": {},
+  "sessions": {
+    "s_d76380cf2061c6": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_eab8f98f8ffe5EJCI69tHyA7sm",
+        "model": "unknown"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_db5280e2a28a79": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148de-35f5-7943-8ec6-e12634bbacee",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
