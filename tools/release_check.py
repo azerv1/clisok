@@ -50,6 +50,13 @@ def package(tag: str, target: str) -> None:
     )
 
 
+def manifest(directory: Path) -> None:
+    """Write SHA256SUMS for every regular file in the directory."""
+    files = sorted(p for p in directory.iterdir() if p.is_file() and p.name != "SHA256SUMS")
+    lines = [f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n" for p in files]
+    (directory / "SHA256SUMS").write_text("".join(lines), encoding="utf-8", newline="\n")
+
+
 def execute(binary: Path, args: list[str], env: dict[str, str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run([str(binary), *args], env=env, cwd=cwd, capture_output=True,
                           encoding="utf-8", text=True, timeout=20, check=False)
@@ -101,6 +108,8 @@ def main() -> None:
     archive = sub.add_parser("package")
     archive.add_argument("tag")
     archive.add_argument("target")
+    checksums = sub.add_parser("manifest")
+    checksums.add_argument("directory", type=Path)
     test = sub.add_parser("smoke")
     test.add_argument("binary", type=Path)
     test.add_argument("version")
@@ -109,6 +118,8 @@ def main() -> None:
         print(version_for_tag(args.tag))
     elif args.action == "package":
         package(args.tag, args.target)
+    elif args.action == "manifest":
+        manifest(args.directory)
     else:
         smoke(args.binary, args.version)
 

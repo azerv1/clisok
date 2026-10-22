@@ -1,7 +1,0 @@
-# OSV-Scanner exceptions (the osv-scan CI jobs read this file).
-# Every entry needs all three fields; the scan fails again once ignoreUntil has passed:
-#
-# [[IgnoredVulns]]
-# id = "GHSA-xxxx-xxxx-xxxx"
-# ignoreUntil = 2026-12-31
-# reason = "@owner: the vulnerable function is never called (see #123); drop when upstream fixes it"

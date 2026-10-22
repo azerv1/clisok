@@ -5,5 +5,4 @@ version_scheme = "semver2"
 version_provider = "cargo"
 update_changelog_on_bump = true
 major_version_zero = true
-version_files = ["CITATION.cff:^version:"]
 pre_bump_hooks = ["uv run --no-project python tools/bump_hook.py"]

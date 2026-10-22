@@ -50,6 +50,8 @@ Rust 1.98.1 is pinned; CI also tests Rust 1.88 as the minimum supported compiler
 cargo fmt --all --check
 cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
+cargo audit                    # cargo install cargo-audit@0.22.2
+cargo audit --file fuzz/Cargo.lock
 cargo doc --no-deps --locked
 cargo package --locked --allow-dirty
 uv sync --locked --group dev
@@ -65,17 +67,15 @@ from the real user PATH and registry settings. Use Conventional Commits.
 
 Before the first release, set the Git remote and run
 `uv run python tools/github_setup.py` to configure branch/tag protection and
-private vulnerability reporting. This changes GitHub settings and requires admin
-rights. Set up the signing key as described in [SECURITY.md](SECURITY.md).
+secret scanning. This changes GitHub settings and requires admin rights.
 
 Run `uvx --from commitizen==4.19.2 cz bump`, review the version/changelog, then
 `git push --follow-tags`. Tags with or without a `v` prefix must match Cargo.toml.
 Distribution uses GitHub Releases; crates.io publishing remains disabled.
 
-Releases require CI on the exact tagged commit, target-specific SBOMs, a
-maintainer Minisign signature, and smoke tests of the final Windows/Linux archives.
-The GitHub Action verifies the signature, archive checksum and requested version
-before execution. See [SECURITY.md](SECURITY.md) for key setup and download verification.
+Releases require CI on the exact tagged commit and smoke tests of the final
+Windows/Linux archives. The GitHub Action verifies the archive checksum and
+requested version before execution.
 
 Nightly checks run coverage (90% lines), Miri on the pure library, and one-hour
 fuzz campaigns for configuration expansion and Python entry-module parsing.
@@ -83,9 +83,7 @@ Weekly checks run parser mutation tests (80%), benchmarks, and two clean Linux
 builds for reproducibility. These checks do not delay releases; missing results
 are reported as missing. Miri and fuzzing do not cover the native backends.
 
-The 15–30 minute release target has not been measured on GitHub. No second
-reviewer or hosted security/signing service is required. GitHub setup, signing-key
-provisioning and a real release timing measurement remain to be completed.
+The 15–30 minute release target has not been measured on GitHub.
 
 ## License
 

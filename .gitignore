@@ -14,7 +14,6 @@ __pycache__/
 **/.env*
 *.key
 *.pem
-/security-reports/
 /evidence/
 /fuzz/target/
 /fuzz/corpus/

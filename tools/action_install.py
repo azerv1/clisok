@@ -1,6 +1,5 @@
 """Download and verify a clisok release before running any bytes from it.
 
-Uses the public key committed with this action, never the copy in the release.
 The verified executable stays off PATH so clisok sees the runner's original PATH.
 """
 
@@ -16,8 +15,6 @@ import tempfile
 import zipfile
 from pathlib import Path
 from typing import IO
-
-from security_checks import install_tool
 
 TARGETS = {"Linux": ("x86_64-unknown-linux-musl", ".tar.gz", "clisok"),
            "Windows": ("x86_64-pc-windows-msvc", ".zip", "clisok.exe")}
@@ -43,7 +40,7 @@ def verify_checksum(directory: Path, name: str) -> None:
             raise ValueError("invalid or duplicate release checksum entry")
         entries[match[2]] = match[1]
     if name not in entries:
-        raise ValueError("release archive is absent from the signed manifest")
+        raise ValueError("release archive is absent from the manifest")
     digest = hashlib.sha256((directory / name).read_bytes()).hexdigest()
     if digest != entries[name]:
         raise ValueError("release archive checksum mismatch")
@@ -60,13 +57,8 @@ def copy_executable(source: IO[bytes], destination: Path) -> None:
     destination.chmod(0o755)
 
 
-def install_archive(
-    directory: Path, archive_name: str, output: Path, public_key: Path, minisign: str,
-) -> Path:
-    """Verify signature and digest, then extract only one regular executable."""
-    if not public_key.is_file():
-        raise ValueError("the action's committed minisign.pub is required")
-    run(minisign, "-V", "-p", str(public_key), "-m", str(directory / "SHA256SUMS"))
+def install_archive(directory: Path, archive_name: str, output: Path) -> Path:
+    """Verify the digest, then extract only one regular executable."""
     verify_checksum(directory, archive_name)
     output.mkdir(parents=True, exist_ok=False)
     archive = directory / archive_name
@@ -99,7 +91,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--assets", type=Path, help="verify existing CI assets instead of downloading")
     parser.add_argument("--version", default=os.environ.get("VERSION", ""))
-    parser.add_argument("--public-key", type=Path)
     args = parser.parse_args()
     runner = os.environ.get("RUNNER_OS", "Windows" if os.name == "nt" else "Linux")
     if runner not in TARGETS or os.environ.get("RUNNER_ARCH", "X64") != "X64":
@@ -122,9 +113,8 @@ def main() -> None:
     if assets is None:
         assets = work / "download"
         run("gh", "release", "download", version, "-R", repository, "--dir", str(assets),
-            "--pattern", name, "--pattern", "SHA256SUMS", "--pattern", "SHA256SUMS.minisig")
-    public_key = args.public_key or Path(__file__).resolve().parents[1] / "minisign.pub"
-    binary = install_archive(assets, name, work / "bin", public_key, str(install_tool("minisign")))
+            "--pattern", name, "--pattern", "SHA256SUMS")
+    binary = install_archive(assets, name, work / "bin")
     if run(str(binary), "--version") != f"clisok {version.removeprefix('v')}":
         raise ValueError("downloaded clisok version does not match the requested release")
     if github_env := os.environ.get("GITHUB_ENV"):

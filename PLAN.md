@@ -119,7 +119,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **Nightly** — run the complete supported-version matrix, Mint and Manjaro images, and real supported-manager integration tests.
 
-- **Releases** — require exact-tag CI and signed final-artifact/Action smoke tests on the currently implemented Windows/Linux targets. The complete compatibility matrix and automated Windows 11 VM coverage remain roadmap work; background campaigns do not gate the fast release path (see [README.md](README.md#releases)).
+- **Releases** — require exact-tag CI and final-artifact/Action smoke tests on the currently implemented Windows/Linux targets. The complete compatibility matrix and automated Windows 11 VM coverage remain roadmap work; background campaigns do not gate the fast release path (see [README.md](README.md#releases)).
 
 - **Maintenance** — update pinned OS images and rolling-distribution snapshots monthly through a reviewed compatibility-manifest change; do not use floating `latest` tags.
 

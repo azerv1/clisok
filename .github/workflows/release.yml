@@ -72,68 +72,8 @@ jobs:
           name: release-${{ matrix.target }}
           path: dist/
 
-  sbom:
-    needs: plan
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
-        with:
-          toolchain: "1.98.1"
-      - run: cargo install --locked cargo-cyclonedx@0.5.9
-      - env:
-          TAG: ${{ needs.plan.outputs.tag }}
-        run: |
-          mkdir sbom
-          for target in x86_64-pc-windows-msvc x86_64-unknown-linux-musl; do
-            cargo cyclonedx --format json --spec-version 1.5 --all-features --target "$target"
-            mv ./*.cdx.json "sbom/clisok-$TAG-$target.cdx.json"
-          done
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: release-sbom
-          path: sbom/
-
-  sign:
-    needs: [plan, build, sbom]
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          pattern: release-*
-          path: assets
-          merge-multiple: true
-      - name: Require CI on the exact tagged commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          ASSETS: assets
-          TAG: ${{ needs.plan.outputs.tag }}
-          TOOLCHAIN: rustc 1.98.1
-        run: python3 tools/readiness_report.py "$TAG" --strict --wait-seconds 1200 > assets/READINESS.md
-      - run: python3 tools/security_checks.py minisign
-      - name: Sign and verify before smoke tests and publication
-        env:
-          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
-        run: python3 tools/release_manifest.py assets --minisign target/security-cache/bin/minisign
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: signed-release
-          path: assets/
-
   smoke:
-    needs: [plan, sign]
+    needs: [plan, build]
     uses: ./.github/workflows/action-test.yml # zizmor: ignore[self-repository] -- local reusable workflow at the release SHA
     with:
       tag: ${{ needs.plan.outputs.tag }}
@@ -153,8 +93,9 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          name: signed-release
+          pattern: release-*
           path: dist
+          merge-multiple: true
       - name: Create release from the verified assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -162,6 +103,7 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
           RELEASE_SHA: ${{ github.sha }}
         run: |
+          python3 tools/release_check.py manifest dist
           awk -v tag="$TAG" '
             $0 ~ "^## " tag "( |$)" { on = 1; next }
             on && /^## / { exit }

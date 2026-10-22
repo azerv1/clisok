@@ -1,7 +1,7 @@
 """Mutation score gate: mutation_score.py [report] [floor] [--allow-empty].
 
-Reads cargo-mutants's report (mutants.out/outcomes.json), prints the detection rate and writes evidence/mutation.json
-for the release readiness report. Exits 1 below the floor, or when no mutant was tested at all
+Reads cargo-mutants's report (mutants.out/outcomes.json), prints the detection rate and writes evidence/mutation.json.
+Exits 1 below the floor, or when no mutant was tested at all
 (a broken run must not pass as a perfect one) unless --allow-empty says that's expected: a PR
 whose diff holds no mutable code. Detected: caught; undetected: missed or timed out. Unviable mutants (they don't
 build) are not counted.

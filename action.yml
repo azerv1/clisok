@@ -12,7 +12,7 @@ inputs:
     description: "Arguments split on whitespace, e.g. check --output-format github."
     default: check
   assets-directory:
-    description: "Use a pre-downloaded release directory; its signature and checksum are still required."
+    description: "Use a pre-downloaded release directory; its checksum is still required."
     default: ""
 
 runs:
@@ -33,7 +33,7 @@ runs:
           arguments+=(--assets "$ASSETS_DIRECTORY")
         fi
         python "$ACTION_PATH/tools/action_install.py" "${arguments[@]}"
-    - name: Run verified clisok
+    - name: Run clisok
       shell: bash
       env:
         ARGS: ${{ inputs.args }}

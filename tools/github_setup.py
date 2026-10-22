@@ -1,4 +1,4 @@
-"""Apply the solo-maintainer CI gate and protect release tags. Run explicitly via gh auth."""
+"""Apply the solo-maintainer CI gate, protect release tags and enable secret scanning."""
 
 import json
 import shutil
@@ -37,8 +37,11 @@ def main() -> None:
     existing = [r for r in api(f"repos/{repo}/rulesets") if r["name"] == name]
     endpoint = f"repos/{repo}/rulesets" + (f"/{existing[0]['id']}" if existing else "")
     api("-X", "PUT" if existing else "POST", endpoint, payload=ruleset)
-    api("-X", "PUT", f"repos/{repo}/private-vulnerability-reporting")
-    print("Configured ci-ok, protected release tags and private vulnerability reporting; no reviewer required.")
+    api("-X", "PATCH", f"repos/{repo}", payload={"security_and_analysis": {
+        "secret_scanning": {"status": "enabled"},
+        "secret_scanning_push_protection": {"status": "enabled"},
+    }})
+    print("Configured ci-ok, protected release tags and secret scanning; no reviewer required.")
 
 
 if __name__ == "__main__":
