@@ -9,13 +9,14 @@
 use std::collections::HashSet;
 use std::io;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::{Mutex, OnceLock, mpsc};
+use std::sync::{Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::exec::{HEADLESS_ENV, HEADLESS_ENV_REMOVE, capture_output};
+use crate::platform::work_dir;
 
 pub struct Output {
     pub exit: Option<i32>,
@@ -28,20 +29,6 @@ pub struct Output {
 static RUNNING: Mutex<Option<HashSet<i32>>> = Mutex::new(None);
 
 pub fn init() {}
-
-/// An empty folder to run children in.
-fn work_dir() -> &'static Path {
-    static DIR: OnceLock<PathBuf> = OnceLock::new();
-    DIR.get_or_init(|| {
-        let d = std::env::temp_dir().join(format!("clisok-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&d);
-        d
-    })
-}
-
-pub fn cleanup() {
-    let _ = std::fs::remove_dir_all(work_dir());
-}
 
 fn kill_group(pgid: i32) {
     // SAFETY: plain syscall; ESRCH (already gone) is fine.
@@ -72,7 +59,7 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
     let (mut reader, writer) = io::pipe()?;
     let mut cmd = Command::new(program);
     cmd.args(args)
-        .current_dir(work_dir())
+        .current_dir(work_dir()?)
         .stdin(Stdio::null())
         .stdout(writer.try_clone()?)
         .stderr(writer);
@@ -144,6 +131,20 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn work_directory_is_private_and_random() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = work_dir().unwrap();
+        assert_ne!(
+            path.file_name().unwrap(),
+            format!("clisok-{}", std::process::id()).as_str()
+        );
+        assert_eq!(
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
 
     #[test]
     fn captures_output_env_and_cwd() {

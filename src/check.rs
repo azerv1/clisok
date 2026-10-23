@@ -578,6 +578,7 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     // Ctrl+C: stop every running tool and give the cursor back before exiting.
     let _ = ctrlc::set_handler(|| {
         platform::kill_children();
+        platform::cleanup();
         platform::cursor_visible(true);
         std::process::exit(130);
     });

@@ -16,6 +16,7 @@ use std::time::Duration;
 use std::{ptr, thread};
 
 use crate::exec::{HEADLESS_ENV, HEADLESS_ENV_REMOVE, capture_output};
+use crate::platform::work_dir;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GENERIC_ALL, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation, WAIT_TIMEOUT,
 };
@@ -81,20 +82,6 @@ fn desktop() -> Option<&'static [u16]> {
             (!h.is_null()).then_some(w)
         })
         .as_deref()
-}
-
-/// An empty directory to run children in.
-fn work_dir() -> &'static Path {
-    static DIR: OnceLock<PathBuf> = OnceLock::new();
-    DIR.get_or_init(|| {
-        let d = std::env::temp_dir().join(format!("clisok-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&d);
-        d
-    })
-}
-
-pub fn cleanup() {
-    let _ = std::fs::remove_dir_all(work_dir());
 }
 
 fn env_block() -> Vec<u16> {
@@ -231,7 +218,7 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
     let (app, line) = command_line(program, args)?;
     let app_w = wide(&app.to_string_lossy());
     let mut line_w = wide(&line);
-    let cwd_w = wide(&work_dir().to_string_lossy());
+    let cwd_w = wide(&work_dir()?.to_string_lossy());
     let env = env_block();
     let job = Job::new()?;
 

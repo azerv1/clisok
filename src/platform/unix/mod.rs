@@ -17,7 +17,7 @@ use serde::Serialize;
 use crate::inspect::{Inspection, Kind, python};
 use crate::pathenv::{EntryEdit, EntryProblem, PathEntry, PathIndex};
 
-pub use spawn::{cleanup, init, kill_children, run as run_headless};
+pub use spawn::{init, kill_children, run as run_headless};
 
 pub const PATH_SEPARATOR: char = ':';
 
