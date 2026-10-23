@@ -48,6 +48,8 @@ fn work_dir() -> io::Result<&'static Path> {
 }
 
 pub fn cleanup() {
+    #[cfg(unix)]
+    cleanup_children();
     if let Some(Ok(dir)) = WORK_DIR.get() {
         let _ = std::fs::remove_dir_all(dir.path());
     }

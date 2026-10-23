@@ -17,11 +17,7 @@ use serde::Serialize;
 use crate::inspect::{Inspection, Kind, python};
 use crate::pathenv::{EntryEdit, EntryProblem, PathEntry, PathIndex, PathRepair};
 
-pub use spawn::{init, kill_children, run as run_headless};
-
-pub fn probe_unavailable() -> Option<&'static str> {
-    None
-}
+pub use spawn::{cleanup_children, init, kill_children, probe_unavailable, run as run_headless};
 
 pub const PATH_SEPARATOR: char = ':';
 
