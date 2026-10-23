@@ -45,6 +45,17 @@ def test_only_current_release_platforms_are_claimed() -> None:
     }
 
 
+def test_native_tests_select_the_matrix_compiler_explicitly() -> None:
+    job = workflow("ci.yml")["jobs"]["test"]
+    rows = job["strategy"]["matrix"]["include"]
+    assert {row["os"] for row in rows if row["toolchain"] == "1.88.0"} == {
+        "ubuntu-24.04", "windows-2025",
+    }
+    commands = {step["run"] for step in job["steps"] if "run" in step}
+    assert "rustc +${{ matrix.toolchain }} -V" in commands
+    assert "cargo +${{ matrix.toolchain }} test --locked" in commands
+
+
 def test_no_hosted_analysis_or_approval_requirement() -> None:
     prohibited = ("sigstore/", "slsa-framework/", "step-security/harden-runner",
                   "github/codeql-action", "ossf/scorecard-action", "google/osv-scanner-action")
