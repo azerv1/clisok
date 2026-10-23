@@ -1,0 +1,45 @@
+src/check.rs
+  s_952c14d9527d3b::t_ccb3c1a2ccc526 523-529,532-534,707-709,712-716,718-720,722-727
+  s_952c14d9527d3b::t_2e0d432717f392 57-59,530-531,535-538,540-543,702-706,710-711,717,721,728-729
+  s_952c14d9527d3b::t_91c5812cad7c3d 730
+docs/src/usage.md
+  s_952c14d9527d3b::t_2e0d432717f392 65
+src/platform/windows/mod.rs
+  s_952c14d9527d3b::t_2e0d432717f392 30-31,35-45,56-60
+  s_952c14d9527d3b::t_ccb3c1a2ccc526 32-34,46-55
+tools/release_check.py
+  s_952c14d9527d3b::t_2e0d432717f392 86-89
+src/platform/unix/mod.rs
+  s_952c14d9527d3b::t_2e0d432717f392 24-28
+tests/cli.rs
+  s_952c14d9527d3b::t_6b36ed7520553e 114-116,120-121,128-129,131,140-141
+  s_952c14d9527d3b::t_2e0d432717f392 61,95-96,130,138-139
+  s_952c14d9527d3b::t_ccb3c1a2ccc526 97-100,117-119,122-127,132-137
+  s_952c14d9527d3b::t_610d4eec055b96 113
+tools/benchmark_fixture.py
+  s_db5280e2a28a79::t_0bf667cccd6b32 28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b3b013ad6e59a5f36ac39c079f350ecc2cb9dcd3",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_db5280e2a28a79": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148de-35f5-7943-8ec6-e12634bbacee",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
