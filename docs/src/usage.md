@@ -52,7 +52,7 @@ Tools
 - **`--system`** — also check the OS's own folders, statically; nothing there is run.
 - **`--registry`** — Windows only: also check the saved PATH and App Paths registrations.
 - **`-j`, `--jobs N`** — tools checked in parallel; default one per CPU core.
-- **`--timeout SECS`** — seconds before a test run is killed; default 30.
+- **`--timeout SECS`** — seconds before a test run is killed; default 30, minimum 1.
 
 Exit status: 0 when nothing fails, 1 when something does, 2 when clisok itself can't run (for example, an empty PATH).
 

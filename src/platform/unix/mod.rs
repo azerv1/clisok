@@ -53,12 +53,26 @@ pub fn unexpanded_var(raw: &str) -> bool {
 
 /// Paths compare exactly; only a trailing slash is ignored.
 pub fn path_key(p: &Path) -> String {
-    let s = p.to_string_lossy();
-    let trimmed = s.trim_end_matches('/');
+    use std::os::unix::ffi::OsStrExt;
+    let bytes = p.as_os_str().as_bytes();
+    let end = bytes.iter().rposition(|b| *b != b'/').map_or(0, |i| i + 1);
+    let trimmed = &bytes[..end];
     if trimmed.is_empty() {
         "/".into()
     } else {
-        trimmed.to_string()
+        // Keys must distinguish non-UTF-8 paths and literal percent escapes.
+        let mut key = String::new();
+        const HEX: &[u8] = b"0123456789ABCDEF";
+        for &byte in trimmed {
+            if byte.is_ascii() && byte != b'%' {
+                key.push(byte as char);
+            } else {
+                key.push('%');
+                key.push(HEX[(byte >> 4) as usize] as char);
+                key.push(HEX[(byte & 15) as usize] as char);
+            }
+        }
+        key
     }
 }
 
@@ -231,6 +245,16 @@ pub fn inspect(path: &Path, index: &PathIndex, _path_dirs: &[PathBuf], insp: &mu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_keys_keep_non_utf8_names_and_literal_escapes_distinct() {
+        use std::os::unix::ffi::OsStrExt;
+        let path = |s: &[u8]| path_key(Path::new(std::ffi::OsStr::from_bytes(s)));
+        assert_ne!(path(b"/bin/\xff"), path(b"/bin/\xfe"));
+        assert_ne!(path(b"/bin/\xff"), path(b"/bin/%FF"));
+        assert_eq!(path(b"/bin/\xff/"), path(b"/bin/\xff"));
+        assert_ne!(path(b"/bin/a "), path(b"/bin/a"));
+    }
 
     #[test]
     fn windows_drives_are_never_scanned() {

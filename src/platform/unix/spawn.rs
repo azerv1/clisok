@@ -66,7 +66,9 @@ fn child_path(raw: &OsStr, cwd: &Path) -> io::Result<OsString> {
                 cwd.join(dir)
             }
         })
-        .filter(|dir| !super::never_scan(dir));
+        .filter(|dir| {
+            !super::never_scan(&std::fs::canonicalize(dir).unwrap_or_else(|_| dir.clone()))
+        });
     std::env::join_paths(kept).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))
 }
 
@@ -156,17 +158,18 @@ mod tests {
             "/work/project/bin:/work/project/:/usr/bin:/work/project/../tools"
         );
         assert_eq!(
-            child_path(
-                OsStr::new("../../mnt/c/tools:/usr/bin"),
-                Path::new("/work/project")
-            )
-            .unwrap(),
-            "/work/project/../../mnt/c/tools:/usr/bin"
-        );
-        assert_eq!(
             child_path(OsStr::new("/mnt/c/tools:/usr/bin"), Path::new("/work")).unwrap(),
             "/usr/bin"
         );
+        if Path::new("/mnt/c").is_dir() {
+            let dir = tempfile::tempdir().unwrap();
+            let alias = dir.path().join("windows");
+            std::os::unix::fs::symlink("/mnt/c", &alias).unwrap();
+            assert_eq!(
+                child_path(OsStr::new("windows:/usr/bin"), dir.path()).unwrap(),
+                "/usr/bin"
+            );
+        }
     }
 
     #[test]

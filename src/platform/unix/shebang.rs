@@ -12,8 +12,6 @@ use crate::pathenv::PathIndex;
 
 pub struct Script {
     pub interpreter: PathBuf,
-    /// Everything after the interpreter on the `#!` line.
-    pub args: Vec<String>,
     pub text: String,
 }
 
@@ -37,7 +35,6 @@ fn parse(text: &str) -> Option<Script> {
     let interpreter = PathBuf::from(parts.next()?);
     Some(Script {
         interpreter,
-        args: parts.map(String::from).collect(),
         text: text.to_string(),
     })
 }
@@ -52,16 +49,66 @@ pub fn resolve(script: &Script, index: &PathIndex) -> Result<PathBuf, Reason> {
     if script.interpreter.file_name().is_none_or(|n| n != "env") {
         return Ok(script.interpreter.clone());
     }
-    // `env [-S] [-flags] [VAR=val] name ...`: the first plain word is the program.
-    let Some(name) = script
-        .args
-        .iter()
-        .find(|a| !a.starts_with('-') && !a.contains('='))
-    else {
+    let line = script.text.lines().next().unwrap_or_default();
+    let raw = line.strip_prefix("#!").unwrap_or_default().trim_start();
+    let args = raw
+        .split_once(char::is_whitespace)
+        .map_or("", |(_, args)| args);
+    let Some(mut words) = env_words(args) else {
+        return Ok(script.interpreter.clone());
+    };
+    let mut at = 0;
+    let mut splits = 0;
+    let mut cwd = std::env::current_dir().unwrap_or_default();
+    while let Some(arg) = words.get(at) {
+        if arg == "--" {
+            at += 1;
+            break;
+        }
+        let (split, consumed) = if matches!(arg.as_str(), "-S" | "--split-string") {
+            (words.get(at + 1).map(String::as_str), 2)
+        } else {
+            (
+                arg.strip_prefix("--split-string=")
+                    .or_else(|| arg.strip_prefix("-S").filter(|s| !s.is_empty())),
+                1,
+            )
+        };
+        if let Some(split) = split {
+            splits += 1;
+            if splits > 32 {
+                return Ok(script.interpreter.clone());
+            }
+            let Some(tokens) = env_words(split) else {
+                return Ok(script.interpreter.clone());
+            };
+            words.splice(at..at + consumed, tokens);
+            continue;
+        }
+        if matches!(arg.as_str(), "-u" | "--unset" | "-C" | "--chdir") {
+            if matches!(arg.as_str(), "-C" | "--chdir")
+                && let Some(dir) = words.get(at + 1)
+            {
+                cwd = cwd.join(dir);
+            }
+            at += 2;
+        } else if let Some(dir) = arg
+            .strip_prefix("--chdir=")
+            .or_else(|| arg.strip_prefix("-C").filter(|s| !s.is_empty()))
+        {
+            cwd = cwd.join(dir);
+            at += 1;
+        } else if arg.starts_with('-') || arg.contains('=') {
+            at += 1;
+        } else {
+            break;
+        }
+    }
+    let Some(name) = words.get(at) else {
         return Ok(script.interpreter.clone());
     };
     if name.contains('/') {
-        let p = PathBuf::from(name);
+        let p = cwd.join(name);
         return if p.exists() {
             Ok(p)
         } else {
@@ -73,6 +120,40 @@ pub fn resolve(script: &Script, index: &PathIndex) -> Result<PathBuf, Reason> {
         .first()
         .cloned()
         .ok_or_else(|| Reason::UnresolvedCommand { name: name.clone() })
+}
+
+/// Tokenize env's split string without evaluating variables or running code.
+fn env_words(text: &str) -> Option<Vec<String>> {
+    let (mut words, mut word) = (Vec::new(), String::new());
+    let (mut quote, mut escaped, mut started) = (None, false, false);
+    for c in text.chars() {
+        if escaped {
+            word.push(c);
+            escaped = false;
+            started = true;
+        } else if c == '\\' && quote != Some('\'') {
+            escaped = true;
+            started = true;
+        } else if matches!(c, '\'' | '"') && (quote.is_none() || quote == Some(c)) {
+            quote = if quote.is_some() { None } else { Some(c) };
+            started = true;
+        } else if c.is_whitespace() && quote.is_none() {
+            if started {
+                words.push(std::mem::take(&mut word));
+                started = false;
+            }
+        } else {
+            word.push(c);
+            started = true;
+        }
+    }
+    if escaped || quote.is_some() {
+        return None;
+    }
+    if started {
+        words.push(word);
+    }
+    Some(words)
 }
 
 /// `NAME=value` with nothing after it, so no command runs.
@@ -272,7 +353,6 @@ mod tests {
     fn parses_shebang_line() {
         let s = parse("#!/usr/bin/env -S python3 -u\nprint(1)\n").unwrap();
         assert_eq!(s.interpreter, PathBuf::from("/usr/bin/env"));
-        assert_eq!(s.args, ["-S", "python3", "-u"]);
         assert!(parse("print(1)\n").is_none());
     }
 
@@ -302,6 +382,26 @@ mod tests {
             resolve(&missing, &idx),
             Err(Reason::UnresolvedCommand { .. })
         ));
+        for options in [
+            "-u OMIT",
+            "--unset OMIT",
+            "-C /tmp",
+            "--chdir=/tmp",
+            "-S",
+            "-S -u OMIT",
+            "--split-string='mytool -u'",
+        ] {
+            let line = if options.starts_with("--split-string") {
+                format!("#!/usr/bin/env {options}\n")
+            } else {
+                format!("#!/usr/bin/env {options} mytool -u\n")
+            };
+            assert_eq!(
+                resolve(&parse(&line).unwrap(), &idx).unwrap(),
+                tool,
+                "{line}"
+            );
+        }
     }
 
     #[test]

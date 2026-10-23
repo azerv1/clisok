@@ -137,7 +137,7 @@ pub fn inspect(exe: &Path, path_dirs: &[PathBuf]) -> Option<PeInfo> {
                 None if in_winsxs(&dll) => {}
                 None => missing.push((dll, needed_by.clone())),
                 // System DLLs are maintained by Windows; only follow third-party ones.
-                Some(found) if depth < MAX_DEPTH && !path_key(&found).starts_with(&win_key) => {
+                Some(found) if depth < MAX_DEPTH && !under_windows(&found, &win_key) => {
                     if let Some(h) = read_headers(&found) {
                         stack.push((found, h.dlls, depth + 1));
                     }
@@ -152,9 +152,26 @@ pub fn inspect(exe: &Path, path_dirs: &[PathBuf]) -> Option<PeInfo> {
     })
 }
 
+fn under_windows(file: &Path, windows_key: &str) -> bool {
+    path_key(file).starts_with(&format!("{windows_key}\\"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_directory_prefix_requires_a_component_boundary() {
+        let prefix = path_key(Path::new(r"C:\Windows"));
+        assert!(under_windows(
+            Path::new(r"C:\Windows\System32\kernel32.dll"),
+            &prefix
+        ));
+        assert!(!under_windows(
+            Path::new(r"C:\WindowsTools\custom.dll"),
+            &prefix
+        ));
+    }
 
     #[test]
     fn system_binaries_resolve() {

@@ -78,6 +78,12 @@ mod tests {
     }
 
     #[test]
+    fn timeout_must_be_positive() {
+        assert!(Cli::try_parse_from(["clisok", "check", "--timeout", "0"]).is_err());
+        assert!(Cli::try_parse_from(["clisok", "check", "--timeout", "1"]).is_ok());
+    }
+
+    #[test]
     fn bare_command_has_no_subcommand() {
         assert!(Cli::try_parse_from(["clisok"]).unwrap().command.is_none());
     }

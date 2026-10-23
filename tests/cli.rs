@@ -202,6 +202,30 @@ fn empty_path_components_inventory_the_invocation_directory() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn non_utf8_path_components_are_still_inventoried() {
+    use std::os::unix::ffi::OsStringExt;
+    let fixture = Fixture::new();
+    let directory = fixture
+        .root
+        .path()
+        .join(std::ffi::OsString::from_vec(b"commands-\xff".to_vec()));
+    fs::create_dir(&directory).unwrap();
+    fs::copy(env!("CARGO_BIN_EXE_clisok"), directory.join("native-probe")).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_clisok"))
+        .arg("list")
+        .env("PATH", &directory)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains("native-probe"));
+}
+
 fn assert_tool<'a>(
     report: &'a Value,
     name: &str,

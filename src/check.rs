@@ -80,7 +80,7 @@ pub struct CheckArgs {
     #[arg(short, long)]
     jobs: Option<usize>,
     /// Seconds before a test run is killed [default: 30]
-    #[arg(long, value_name = "SECS")]
+    #[arg(long, value_name = "SECS", value_parser = clap::value_parser!(u64).range(1..))]
     timeout: Option<u64>,
 }
 

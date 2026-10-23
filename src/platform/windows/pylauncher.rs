@@ -88,7 +88,7 @@ fn interpreter(shebang: &str, exe_dir: &Path) -> Option<PathBuf> {
     let s = shebang.strip_prefix("#!")?.trim();
     let exe = match s.strip_prefix('"') {
         Some(rest) => rest.split('"').next()?,
-        None => s,
+        None => s.split_whitespace().next()?,
     };
     if exe.starts_with('/') {
         return None; // `/bin/sh` style launchers: nothing Windows-specific to check
@@ -176,6 +176,21 @@ mod tests {
         assert_eq!(
             t.python,
             PathBuf::from(r"C:\Program Files\Python\python.exe")
+        );
+    }
+
+    #[test]
+    fn interpreter_arguments_are_not_part_of_the_path() {
+        assert_eq!(
+            interpreter(r"#!C:\Python\python.exe -u", Path::new(r"C:\tool")),
+            Some(PathBuf::from(r"C:\Python\python.exe"))
+        );
+        assert_eq!(
+            interpreter(
+                r#"#!"C:\Program Files\Python\python.exe" -u"#,
+                Path::new(r"C:\tool")
+            ),
+            Some(PathBuf::from(r"C:\Program Files\Python\python.exe"))
         );
     }
 

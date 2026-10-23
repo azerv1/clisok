@@ -6,9 +6,10 @@
 //! When the run ends or times out, the job kills the whole process tree.
 
 use std::collections::BTreeMap;
-use std::ffi::c_void;
+use std::ffi::{OsStr, OsString, c_void};
 use std::fs::{File, OpenOptions};
 use std::io;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, mpsc};
@@ -57,8 +58,8 @@ pub fn init() {
     }
 }
 
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(Some(0)).collect()
+fn wide(s: &OsStr) -> Vec<u16> {
+    s.encode_wide().chain(Some(0)).collect()
 }
 
 /// Name of a private desktop for children; None if one can't be created.
@@ -67,7 +68,7 @@ fn desktop() -> Option<&'static [u16]> {
     DESKTOP
         .get_or_init(|| {
             let name = format!("clisok-{}", std::process::id());
-            let w = wide(&name);
+            let w = wide(OsStr::new(&name));
             // SAFETY: valid NUL-terminated name. The handle is deliberately kept
             // open for the life of the process so the desktop stays alive.
             let h = unsafe {
@@ -110,47 +111,53 @@ fn env_block() -> Vec<u16> {
 }
 
 /// Quote one argument the way the MSVC runtime parses it back.
-fn quote(arg: &str, out: &mut String) {
-    if !arg.is_empty() && !arg.contains([' ', '\t', '"']) {
-        out.push_str(arg);
+fn quote(arg: &OsStr, out: &mut Vec<u16>) {
+    const SLASH: u16 = b'\\' as u16;
+    const QUOTE: u16 = b'"' as u16;
+    let arg: Vec<u16> = arg.encode_wide().collect();
+    if !arg.is_empty()
+        && !arg
+            .iter()
+            .any(|c| [b' ' as u16, b'\t' as u16, QUOTE].contains(c))
+    {
+        out.extend(arg);
         return;
     }
-    out.push('"');
+    out.push(QUOTE);
     let mut slashes = 0;
-    for c in arg.chars() {
+    for c in arg {
         match c {
-            '\\' => slashes += 1,
-            '"' => {
-                out.extend(std::iter::repeat_n('\\', slashes * 2 + 1));
-                out.push('"');
+            SLASH => slashes += 1,
+            QUOTE => {
+                out.extend(std::iter::repeat_n(SLASH, slashes * 2 + 1));
+                out.push(QUOTE);
                 slashes = 0;
             }
             _ => {
-                out.extend(std::iter::repeat_n('\\', slashes));
+                out.extend(std::iter::repeat_n(SLASH, slashes));
                 out.push(c);
                 slashes = 0;
             }
         }
     }
-    out.extend(std::iter::repeat_n('\\', slashes * 2));
-    out.push('"');
+    out.extend(std::iter::repeat_n(SLASH, slashes * 2));
+    out.push(QUOTE);
 }
 
 /// Application name and command line. Batch files run through cmd.exe.
-fn command_line(program: &Path, args: &[&str]) -> io::Result<(PathBuf, String)> {
-    let prog = program.to_string_lossy();
+fn command_line(program: &Path, args: &[&str]) -> io::Result<(PathBuf, OsString)> {
     let is_batch = program
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
     if !is_batch {
-        let mut line = String::new();
-        quote(&prog, &mut line);
+        let mut line = Vec::new();
+        quote(program.as_os_str(), &mut line);
         for a in args {
-            line.push(' ');
-            quote(a, &mut line);
+            line.push(b' ' as u16);
+            quote(OsStr::new(a), &mut line);
         }
-        return Ok((program.to_path_buf(), line));
+        return Ok((program.to_path_buf(), OsString::from_wide(&line)));
     }
     if args
         .iter()
@@ -162,11 +169,10 @@ fn command_line(program: &Path, args: &[&str]) -> io::Result<(PathBuf, String)> 
         ));
     }
     let comspec =
-        std::env::var("ComSpec").unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".into());
-    let line = format!(
-        "cmd.exe /d /e:ON /v:OFF /c \"\"{prog}\" {}\"",
-        args.join(" ")
-    );
+        std::env::var_os("ComSpec").unwrap_or_else(|| r"C:\Windows\System32\cmd.exe".into());
+    let mut line = OsString::from("cmd.exe /d /e:ON /v:OFF /c \"\"");
+    line.push(program);
+    line.push(format!("\" {}\"", args.join(" ")));
     Ok((PathBuf::from(comspec), line))
 }
 
@@ -217,9 +223,9 @@ fn make_inheritable(h: HANDLE) -> io::Result<()> {
 
 pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Output> {
     let (app, line) = command_line(program, args)?;
-    let app_w = wide(&app.to_string_lossy());
+    let app_w = wide(app.as_os_str());
     let mut line_w = wide(&line);
-    let cwd_w = wide(&work_dir()?.to_string_lossy());
+    let cwd_w = wide(work_dir()?.as_os_str());
     let env = env_block();
     let job = Job::new()?;
 
@@ -327,9 +333,9 @@ mod tests {
     use super::*;
 
     fn q(s: &str) -> String {
-        let mut out = String::new();
-        quote(s, &mut out);
-        out
+        let mut out = Vec::new();
+        quote(OsStr::new(s), &mut out);
+        String::from_utf16(&out).unwrap()
     }
 
     #[test]
@@ -339,6 +345,48 @@ mod tests {
         assert_eq!(q(r#"a "b" c"#), r#""a \"b\" c""#);
         assert_eq!(q(r"C:\dir with space\"), r#""C:\dir with space\\""#);
         assert_eq!(q(""), r#""""#);
+    }
+
+    #[test]
+    fn command_line_preserves_unpaired_utf16_in_program_names() {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        let mut name: Vec<u16> = r"C:\tools\".encode_utf16().collect();
+        name.push(0xd800);
+        name.extend(".exe".encode_utf16());
+        let program = PathBuf::from(OsString::from_wide(&name));
+        let (_, line) = command_line(&program, &["--version"]).unwrap();
+        assert!(
+            std::ffi::OsStr::new(&line)
+                .encode_wide()
+                .any(|c| c == 0xd800)
+        );
+        assert!(wide(program.as_os_str()).contains(&0xd800));
+        let directory = tempfile::tempdir().unwrap();
+        let copy = directory.path().join(OsString::from_wide(&[
+            b'x' as u16,
+            0xd800,
+            b'.' as u16,
+            b'e' as u16,
+            b'x' as u16,
+            b'e' as u16,
+        ]));
+        let system =
+            PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join(r"System32\cmd.exe");
+        std::fs::copy(system, &copy).unwrap();
+        let out = run(
+            &copy,
+            &["/d", "/c", "echo utf16-ok & exit /b 7"],
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert_eq!(
+            out.exit,
+            Some(7),
+            "{}",
+            String::from_utf8_lossy(&out.output)
+        );
+        assert!(String::from_utf8_lossy(&out.output).contains("utf16-ok"));
     }
 
     #[test]

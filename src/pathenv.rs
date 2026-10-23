@@ -124,9 +124,22 @@ pub fn parse_path(raw: &str, origin: PathOrigin) -> Vec<PathEntry> {
 }
 
 pub fn process_path() -> Vec<PathEntry> {
-    std::env::var("PATH")
-        .map(|raw| parse_path(&raw, PathOrigin::Process))
-        .unwrap_or_default()
+    let Some(raw) = std::env::var_os("PATH") else {
+        return Vec::new();
+    };
+    let entries = parse_path(&raw.to_string_lossy(), PathOrigin::Process);
+    #[cfg(unix)]
+    let entries = {
+        let mut entries = entries;
+        // Keep original filesystem bytes; the lossy spelling above is display-only.
+        for (entry, dir) in entries.iter_mut().zip(std::env::split_paths(&raw)) {
+            if dir.to_str().is_none() {
+                entry.dir = std::path::absolute(&dir).unwrap_or(dir);
+            }
+        }
+        entries
+    };
+    entries
 }
 
 pub fn check_entries(entries: &[PathEntry]) -> Vec<(PathEntry, EntryProblem)> {
