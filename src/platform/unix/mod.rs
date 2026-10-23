@@ -21,6 +21,11 @@ pub use spawn::{cleanup_children, init, kill_children, probe_unavailable, run as
 
 pub const PATH_SEPARATOR: char = ':';
 
+pub fn is_privileged() -> std::io::Result<bool> {
+    // SAFETY: read-only process identity query.
+    Ok(unsafe { libc::geteuid() } == 0)
+}
+
 /// Folders owned by the distro's package manager; skipped unless `--system`,
 /// and never run even then.
 const SYSTEM_DIRS: &[&str] = &["/usr/bin", "/bin", "/usr/sbin", "/sbin"];

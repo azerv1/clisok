@@ -54,6 +54,9 @@ pub struct CheckArgs {
     /// Don't run this tool (repeatable)
     #[arg(long, value_name = "NAME")]
     skip: Vec<String>,
+    /// Allow probes to run as root or elevated
+    #[arg(long)]
+    allow_root: bool,
     /// Apply the safe fixes (the `fix:` lines). On Windows that removes empty
     /// and repeated entries from the saved user PATH; implies --registry
     #[arg(long)]
@@ -517,7 +520,27 @@ fn apply_fixes(
     applied
 }
 
+fn probe_permission(
+    args: &CheckArgs,
+    privileged: impl FnOnce() -> std::io::Result<bool>,
+) -> Result<(), String> {
+    if args.diff || args.allow_root {
+        return Ok(());
+    }
+    match privileged() {
+        Ok(false) => Ok(()),
+        Ok(true) => {
+            Err("refusing to run probes as root or elevated; use --allow-root to override".into())
+        }
+        Err(e) => Err(format!("cannot determine probe privileges: {e}")),
+    }
+}
+
 pub fn check(args: &CheckArgs) -> ExitCode {
+    if let Err(error) = probe_permission(args, platform::is_privileged) {
+        eprintln!("clisok: {error}");
+        return ExitCode::from(2);
+    }
     let format = args.output_format.unwrap_or(OutputFormat::Full);
 
     platform::init();
@@ -675,6 +698,35 @@ mod tests {
 
     use super::*;
     use crate::discover::FileCopy;
+
+    #[test]
+    fn privilege_policy_requires_an_explicit_override_and_exempts_diff() {
+        use clap::Parser;
+        let args = |flags: &[&str]| {
+            let cli = crate::Cli::try_parse_from([&["clisok", "check"], flags].concat()).unwrap();
+            let Some(crate::Command::Check(args)) = cli.command else {
+                panic!("expected check")
+            };
+            args
+        };
+        assert!(
+            probe_permission(&args(&[]), || Ok(true))
+                .unwrap_err()
+                .contains("--allow-root")
+        );
+        assert!(probe_permission(&args(&[]), || Ok(false)).is_ok());
+        assert!(
+            probe_permission(&args(&[]), || Err(std::io::Error::other("query failed"))).is_err()
+        );
+        for flags in [&["--allow-root"][..], &["--diff"][..]] {
+            assert!(
+                probe_permission(&args(flags), || panic!(
+                    "override/diff must not query privileges"
+                ))
+                .is_ok()
+            );
+        }
+    }
 
     /// An empty file the platform counts as a program named `tool`.
     fn program(dir: &Path) -> PathBuf {

@@ -83,7 +83,10 @@ def smoke(binary: Path, version: str) -> None:
         if result.returncode or not json.loads(result.stdout):
             raise ValueError("artifact rule listing failed")
         for subcommand in ("list", "check"):
-            result = execute(binary, [subcommand, "--output-format", "json"], env, root)
+            args = [subcommand, "--output-format", "json"]
+            if subcommand == "check":
+                args.append("--allow-root")
+            result = execute(binary, args, env, root)
             if result.returncode not in {0, 1}:
                 raise ValueError(f"artifact {subcommand} failed")
             report = json.loads(result.stdout)

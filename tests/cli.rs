@@ -58,6 +58,7 @@ impl Fixture {
         let mut command = Command::new(env!("CARGO_BIN_EXE_clisok"));
         command.args([
             "check",
+            "--allow-root",
             "--output-format",
             "json",
             "--jobs",
@@ -91,8 +92,12 @@ impl Fixture {
     }
 
     fn isolated(&self, subcommand: &str, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_clisok"))
-            .arg(subcommand)
+        let mut command = Command::new(env!("CARGO_BIN_EXE_clisok"));
+        command.arg(subcommand);
+        if subcommand == "check" {
+            command.arg("--allow-root");
+        }
+        command
             .args(args)
             .env("PATH", &self.commands)
             .env("APPDATA", self.root.path().join("user"))
@@ -103,6 +108,35 @@ impl Fixture {
             .output()
             .unwrap()
     }
+}
+
+#[test]
+#[cfg(unix)]
+fn root_must_explicitly_allow_probes() {
+    // SAFETY: read-only process identity query.
+    if unsafe { libc::geteuid() } != 0 {
+        return;
+    }
+    let fixture = Fixture::new();
+    fixture.native("native-probe");
+    let output = Command::new(env!("CARGO_BIN_EXE_clisok"))
+        .arg("check")
+        .env("PATH", &fixture.commands)
+        .current_dir(fixture.root.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--allow-root"));
+    let report = fixture.check(&[]);
+    assert_tool(&report, "native-probe", "exe", "pass", 0);
+    let diff = Command::new(env!("CARGO_BIN_EXE_clisok"))
+        .args(["check", "--diff"])
+        .env("PATH", &fixture.commands)
+        .current_dir(fixture.root.path())
+        .output()
+        .unwrap();
+    assert!(diff.status.success());
+    assert!(fixture.isolated("list", &[]).status.success());
 }
 
 #[test]

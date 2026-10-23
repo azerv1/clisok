@@ -27,6 +27,37 @@ pub use spawn::{init, probe_unavailable, run as run_headless};
 
 pub const PATH_SEPARATOR: char = ';';
 
+pub fn is_privileged() -> std::io::Result<bool> {
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::Security::{
+        GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    let mut token = std::ptr::null_mut();
+    // SAFETY: valid pseudo-process handle and writable token output pointer.
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: a successful OpenProcessToken returns a fresh owned handle.
+    let token = unsafe { OwnedHandle::from_raw_handle(token) };
+    let mut elevation = TOKEN_ELEVATION::default();
+    let mut returned = 0;
+    // SAFETY: live token and correctly sized writable TOKEN_ELEVATION buffer.
+    if unsafe {
+        GetTokenInformation(
+            token.as_raw_handle(),
+            TokenElevation,
+            (&raw mut elevation).cast(),
+            size_of::<TOKEN_ELEVATION>() as u32,
+            &mut returned,
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(elevation.TokenIsElevated != 0)
+}
+
 /// Programs that are discovered and run. PATHEXT also lists .js/.vbs/.py etc.
 const RUNNABLE_EXTS: &[&str] = &["exe", "com", "cmd", "bat"];
 
