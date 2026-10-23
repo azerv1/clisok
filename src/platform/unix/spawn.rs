@@ -20,6 +20,7 @@ use crate::platform::work_dir;
 
 pub struct Output {
     pub exit: Option<i32>,
+    pub signal: Option<i32>,
     pub timed_out: bool,
     pub output: Vec<u8>,
     pub truncated: bool,
@@ -122,6 +123,7 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
     let exit = status.and_then(|s| s.code().or_else(|| s.signal().map(|sig| 128 + sig)));
     Ok(Output {
         exit,
+        signal: status.and_then(|s| s.signal()),
         timed_out: status.is_none(),
         output,
         truncated,

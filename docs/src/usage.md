@@ -60,6 +60,10 @@ Options are supplied on the command line. clisok does not read user or project
 configuration files. Use `--skip` to prevent a tool from running and `--ignore`
 to suppress a code's findings.
 
+On Unix, a probe terminated by a signal fails with `CLI205`. JSON attempts include
+`signal` and retain the shell-compatible `exit` value (`128 + signal`). A probe
+killed by its timeout remains a timeout finding.
+
 ## `clisok list`
 
 Lists every command on PATH and the copies it shadows. Nothing is run. Commands found only in the OS's own folders are left out unless `--system` is given. OS copies are marked `[OS]`.

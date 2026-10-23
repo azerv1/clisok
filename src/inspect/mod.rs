@@ -75,6 +75,9 @@ pub enum Reason {
     Output {
         line: String,
     },
+    Crashed {
+        signal: i32,
+    },
 }
 
 impl Reason {
@@ -89,6 +92,7 @@ impl Reason {
             Reason::AppNotInstalled { .. } => Code::Cli106,
             Reason::FailedToStart { .. } => Code::Cli201,
             Reason::Output { .. } => Code::Cli202,
+            Reason::Crashed { .. } => Code::Cli205,
         }
     }
 }
@@ -130,6 +134,7 @@ impl fmt::Display for Reason {
             }
             Reason::FailedToStart { error } => write!(f, "failed to start: {error}"),
             Reason::Output { line } => write!(f, "{line}"),
+            Reason::Crashed { signal } => write!(f, "crashed when run: signal {signal}"),
         }
     }
 }

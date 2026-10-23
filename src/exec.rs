@@ -164,6 +164,9 @@ static ERROR_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)error|exc
 pub struct Attempt {
     pub arg: String,
     pub exit: Option<i32>,
+    /// Unix termination signal; `exit` retains the shell-compatible 128 + signal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signal: Option<i32>,
     pub timed_out: bool,
     pub output: String,
     /// Capture or report output was incomplete.
@@ -175,6 +178,7 @@ pub struct Attempt {
 #[derive(Debug, PartialEq)]
 pub enum Judgement {
     Pass,
+    Crashed(i32),
     Broken(String),
     /// Started fine but rejected the help flag.
     Usage,
@@ -189,6 +193,7 @@ pub fn run_capture(program: &Path, args: &[&str], timeout: Duration) -> io::Resu
     Ok(Attempt {
         arg: args.join(" "),
         exit: out.exit,
+        signal: out.signal,
         timed_out: out.timed_out,
         output_truncated: out.truncated,
         output: String::from_utf8_lossy(&out.output).into_owned(),
@@ -201,6 +206,9 @@ pub fn judge(a: &Attempt) -> Judgement {
     // What a hung tool printed before it was killed can still show it broken.
     if a.timed_out {
         return broken_line(a).map_or(Judgement::Fail, Judgement::Broken);
+    }
+    if let Some(signal) = a.signal {
+        return Judgement::Crashed(signal);
     }
     if let Some(code) = a.exit
         && let Some((_, meaning)) = LOADER_STATUS.iter().find(|(c, _)| *c == code as u32)
@@ -315,6 +323,7 @@ fn probe(
         attempts.push(a);
         let outcome = match j {
             Judgement::Pass => Outcome::Pass,
+            Judgement::Crashed(signal) => Outcome::Broken(Reason::Crashed { signal }),
             Judgement::Broken(line) => broken(&line),
             Judgement::NeedsConsole => Outcome::Skip(CONSOLE_NOTE.into()),
             // Output before the hang shows it started, then waited (e.g. for a key).
@@ -388,6 +397,7 @@ fn summarize(j: &Judgement, a: &Attempt) -> Outcome {
 /// Loader failures were already caught, so it started.
 fn ran_own_code(a: &Attempt) -> bool {
     !a.timed_out
+        && a.signal.is_none()
         && a.exit.is_some_and(|c| c >= 0 && c != 126 && c != 127)
         && !CRASH.is_match(&a.output)
 }
@@ -415,6 +425,7 @@ mod tests {
         Attempt {
             arg: "--help".into(),
             exit: Some(exit),
+            signal: None,
             timed_out: false,
             output: output.into(),
             output_truncated: false,
@@ -428,6 +439,43 @@ mod tests {
 
     fn started(j: Judgement) -> bool {
         matches!(j, Judgement::Pass | Judgement::Usage)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_crash_is_a_failing_finding_and_stops_probing() {
+        let (outcome, attempts) = probe(
+            |_| {
+                run_capture(
+                    Path::new("/bin/sh"),
+                    &["-c", "ulimit -c 0; kill -SEGV $$"],
+                    Duration::from_secs(2),
+                )
+            },
+            Duration::from_secs(2),
+        );
+        let Outcome::Broken(reason) = outcome else {
+            panic!("signal crash was not broken")
+        };
+        assert_eq!(reason.code().to_string(), "CLI205");
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].exit, Some(128 + libc::SIGSEGV));
+        assert_eq!(attempts[0].signal, Some(libc::SIGSEGV));
+        assert_eq!(
+            serde_json::to_value(&attempts[0]).unwrap()["signal"],
+            libc::SIGSEGV
+        );
+    }
+
+    #[test]
+    fn signal_takes_precedence_over_help_and_is_not_an_ordinary_exit_status() {
+        let mut a = run(139, "Usage: tool\n");
+        a.signal = Some(11);
+        assert_eq!(judge(&a), Judgement::Crashed(11));
+        assert!(!ran_own_code(&a));
+        a.signal = None;
+        assert_eq!(judge(&a), Judgement::Pass);
+        assert!(ran_own_code(&a));
     }
 
     #[test]

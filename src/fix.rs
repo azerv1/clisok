@@ -149,7 +149,9 @@ pub fn for_reason(reason: &Reason) -> Option<Fix> {
             "turn the alias off in Settings › Apps › Advanced app settings › App execution aliases"
                 .into()
         }
-        Reason::FailedToStart { .. } | Reason::Output { .. } => return None,
+        Reason::FailedToStart { .. } | Reason::Output { .. } | Reason::Crashed { .. } => {
+            return None;
+        }
     };
     Some(Fix::display_only(msg))
 }
@@ -212,7 +214,9 @@ pub fn safety(code: Code) -> (Option<Applicability>, &'static str) {
             Some(Unsafe),
             "Unsafe: `--fix --unsafe-fixes` deletes an HKCU key after exporting it to a `.reg` file; the program may only be on an unplugged drive. HKLM keys get advice.",
         ),
-        Code::Cli107 | Code::Cli201 | Code::Cli202 | Code::Cli203 | Code::Cli204 => (None, "None."),
+        Code::Cli107 | Code::Cli201 | Code::Cli202 | Code::Cli203 | Code::Cli204 | Code::Cli205 => {
+            (None, "None.")
+        }
         _ => (Some(DisplayOnly), "Advice only, shown as a `help:` line."),
     }
 }
@@ -311,11 +315,12 @@ mod tests {
             }),
             r(Reason::FailedToStart { error: "x".into() }),
             r(Reason::Output { line: "x".into() }),
+            r(Reason::Crashed { signal: 11 }),
         ] {
             assert_eq!(got, safety(code).0, "{code}");
         }
         // Every code is covered by one of the checks above or has no fix.
-        assert_eq!(CODES.len(), problems.len() + 1 + 9 + 3);
+        assert_eq!(CODES.len(), problems.len() + 1 + 10 + 3);
     }
 
     #[test]

@@ -42,6 +42,7 @@ static SPAWN_LOCK: Mutex<()> = Mutex::new(());
 
 pub struct Output {
     pub exit: Option<i32>,
+    pub signal: Option<i32>,
     pub timed_out: bool,
     pub output: Vec<u8>,
     pub truncated: bool,
@@ -314,6 +315,7 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
         .unwrap_or_else(|_| (Vec::new(), true));
     Ok(Output {
         exit,
+        signal: None,
         timed_out,
         output,
         truncated,

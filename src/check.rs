@@ -222,7 +222,9 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
             {
                 let (found, attempt) = python::probe_module(python, module, ctx.timeout);
                 if let Some(attempt) = attempt {
-                    if attempt.timed_out {
+                    if let Some(signal) = attempt.signal.filter(|_| !attempt.timed_out) {
+                        module_error = Some(Outcome::Broken(Reason::Crashed { signal }));
+                    } else if attempt.timed_out {
                         module_error = Some(Outcome::ToolError(
                             ToolErrorKind::TimedOut,
                             format!("module probe timed out after {}s", ctx.timeout.as_secs()),

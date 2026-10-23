@@ -29,6 +29,7 @@ Suppress a code's findings with `--ignore CODE`. The Fix column says what [`--fi
 | [CLI202](#cli202) | error | — | error output when run |
 | [CLI203](#cli203) | tool error | — | timed out |
 | [CLI204](#cli204) | tool error | — | exited with an error |
+| [CLI205](#cli205) | error | — | crashed when run |
 | [CLI301](#cli301) | error | unsafe | App Paths target does not exist |
 
 ## CLI0xx — PATH entries
@@ -202,6 +203,14 @@ The test run didn't finish within the timeout, even when retried on its own. The
 **Default:** tool error, shown as `[ERROR]`; doesn't fail the run
 
 The tool started, but `--version`, `-V`, `--help` and `-h` all ended in an error of its own. Usually it works and just refuses those flags. Doesn't fail the run.
+
+**Fix:** None.
+
+### CLI205 — crashed when run {#cli205}
+
+**Default:** error; fails the run
+
+The test run ended because of a Unix signal, such as SIGSEGV or SIGABRT. The tool crashed instead of answering the probe. The attempt records the signal and a shell-compatible exit status (128 + signal). Timeouts are reported separately. Investigate or reinstall the tool.
 
 **Fix:** None.
 
