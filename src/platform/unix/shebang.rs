@@ -61,7 +61,7 @@ pub fn resolve(script: &Script, index: &PathIndex) -> Result<PathBuf, Reason> {
     let mut splits = 0;
     let mut cwd = std::env::current_dir().unwrap_or_default();
     while let Some(arg) = words.get(at) {
-        if arg == "--" {
+        if arg == "--" || arg == "-" {
             at += 1;
             break;
         }
@@ -85,7 +85,16 @@ pub fn resolve(script: &Script, index: &PathIndex) -> Result<PathBuf, Reason> {
             words.splice(at..at + consumed, tokens);
             continue;
         }
-        if matches!(arg.as_str(), "-u" | "--unset" | "-C" | "--chdir") {
+        if matches!(
+            arg.as_str(),
+            "-u" | "--unset"
+                | "-C"
+                | "--chdir"
+                | "-a"
+                | "--argv0"
+                | "--quoting-style"
+                | "--env0-from"
+        ) {
             if matches!(arg.as_str(), "-C" | "--chdir")
                 && let Some(dir) = words.get(at + 1)
             {
@@ -98,11 +107,14 @@ pub fn resolve(script: &Script, index: &PathIndex) -> Result<PathBuf, Reason> {
         {
             cwd = cwd.join(dir);
             at += 1;
-        } else if arg.starts_with('-') || arg.contains('=') {
+        } else if arg.starts_with('-') {
             at += 1;
         } else {
             break;
         }
+    }
+    while words.get(at).is_some_and(|arg| arg.contains('=')) {
+        at += 1;
     }
     let Some(name) = words.get(at) else {
         return Ok(script.interpreter.clone());
@@ -389,6 +401,10 @@ mod tests {
             "--chdir=/tmp",
             "-S",
             "-S -u OMIT",
+            "-a alternate-name",
+            "--argv0 alternate-name",
+            "-- EXAMPLE=value",
+            "-S -- EXAMPLE=value",
             "--split-string='mytool -u'",
         ] {
             let line = if options.starts_with("--split-string") {
@@ -402,6 +418,15 @@ mod tests {
                 "{line}"
             );
         }
+    }
+
+    #[test]
+    fn env_stops_parsing_options_after_assignments() {
+        let script = parse("#!/usr/bin/env EXAMPLE=value -u OMIT mytool\n").unwrap();
+        let index = PathIndex::build(&[]);
+        assert!(
+            matches!(resolve(&script, &index), Err(Reason::UnresolvedCommand { name }) if name == "-u")
+        );
     }
 
     #[test]
