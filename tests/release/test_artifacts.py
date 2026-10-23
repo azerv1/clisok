@@ -14,12 +14,19 @@ def workflow(name: str) -> dict[str, Any]:
     return yaml.load((ROOT / ".github/workflows" / name).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
-def test_release_publishes_only_after_smoke_tests() -> None:
+def test_release_publishes_only_after_ci_and_smoke_tests() -> None:
     release = workflow("release.yml")["jobs"]
     assert set(release["smoke"]["needs"]) == {"plan", "build"}
-    assert set(release["release"]["needs"]) == {"plan", "smoke"}
-    assert "needs.smoke.result == 'success'" in release["release"]["if"]
+    assert set(release["release"]["needs"]) == {"plan", "smoke", "ci"}
+    assert release["ci"]["uses"] == "./.github/workflows/ci.yml"
+    assert release["ci"]["permissions"]["contents"] == "read"
+    assert release["release"]["if"] == (
+        "always() && needs.plan.result == 'success' && needs.smoke.result == 'success' "
+        "&& needs.ci.result == 'success'"
+    )
     ci = workflow("ci.yml")
+    assert "workflow_call" in ci["on"] and "workflow_dispatch" in ci["on"]
+    assert ci["concurrency"]["group"].startswith("ci-")
     assert "tags" in ci["on"]["push"]
     assert set(ci["jobs"]["ci-ok"]["needs"]) == {"quality", "test", "audit"}
     protection = json.loads((ROOT / ".github/branch-protection.json").read_text())
