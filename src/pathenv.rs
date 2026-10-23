@@ -142,11 +142,19 @@ pub fn process_path() -> Vec<PathEntry> {
     entries
 }
 
+#[cfg(test)]
 pub fn check_entries(entries: &[PathEntry]) -> Vec<(PathEntry, EntryProblem)> {
-    entries
-        .iter()
-        .zip(entry_problems(entries))
-        .filter_map(|(e, p)| Some((e.clone(), p?)))
+    indexed_problems(entries)
+        .into_iter()
+        .map(|(index, problem)| (entries[index].clone(), problem))
+        .collect()
+}
+
+pub fn indexed_problems(entries: &[PathEntry]) -> Vec<(usize, EntryProblem)> {
+    entry_problems(entries)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, p)| Some((index, p?)))
         .collect()
 }
 
@@ -202,7 +210,7 @@ pub struct EntryEdit {
 }
 
 /// `raw`, a saved PATH value read after the entries in `earlier`, with its
-/// entries whose problem is in `fixable` fixed: empty and repeated entries
+/// entries whose index and problem are in `fixable` fixed: empty and repeated entries
 /// removed, quotes and surrounding whitespace cleaned off. Each entry is
 /// expanded on its own, so the rest of `raw` keeps its exact text, including
 /// `%VARS%` and a trailing separator.
@@ -212,26 +220,31 @@ pub fn fix_entries(
     raw: &str,
     origin: PathOrigin,
     expand: impl Fn(&str) -> String,
-    fixable: &[EntryProblem],
+    fixable: &[(usize, EntryProblem)],
 ) -> (String, Vec<EntryEdit>) {
     let (parts, n) = split_saved(raw);
     let mut entries = earlier.to_vec();
-    entries.extend(parts[..n].iter().map(|p| {
+    let mut offsets = Vec::new();
+    let mut single = Vec::new();
+    for p in &parts[..n] {
         let x = expand(p);
-        PathEntry {
-            dir: PathBuf::from(x.trim().trim_matches('"')),
-            raw: x,
+        offsets.push(entries.len());
+        single.push(!x.contains(platform::PATH_SEPARATOR));
+        entries.extend(x.split(platform::PATH_SEPARATOR).map(|part| PathEntry {
+            dir: PathBuf::from(part.trim().trim_matches('"')),
+            raw: part.into(),
             origin,
-        }
-    }));
+        }));
+    }
     let problems = entry_problems(&entries);
     let (mut kept, mut edits) = (Vec::new(), Vec::new());
     for (i, part) in parts.iter().enumerate() {
-        let problem = problems
-            .get(earlier.len() + i)
+        let problem = offsets
+            .get(i)
+            .and_then(|&offset| problems.get(offset))
             .copied()
             .flatten()
-            .filter(|p| i < n && fixable.contains(p));
+            .filter(|p| single[i] && fixable.contains(&(i, *p)));
         let Some(problem) = problem else {
             kept.push(part.to_string());
             continue;
@@ -347,7 +360,12 @@ mod tests {
         // missing folder are other problems and are kept.
         let raw = format!("%B%;;{a};{b}; x;C:\\definitely\\missing;%B%;");
         let expand = |s: &str| s.replace("%B%", &b);
-        let drop = [EntryProblem::Empty, EntryProblem::Duplicate];
+        let drop = [
+            (1, EntryProblem::Empty),
+            (2, EntryProblem::Duplicate),
+            (3, EntryProblem::Duplicate),
+            (6, EntryProblem::Duplicate),
+        ];
 
         let removed = |index, problem, raw: &str| EntryEdit {
             index,
@@ -375,7 +393,7 @@ mod tests {
             &raw,
             PathOrigin::User,
             expand,
-            &[EntryProblem::Empty],
+            &[(1, EntryProblem::Empty)],
         );
         assert_eq!(kept, format!("%B%;{a};{b}; x;C:\\definitely\\missing;%B%;"));
         assert_eq!(edits, [removed(1, EntryProblem::Empty, "")]);
@@ -389,7 +407,7 @@ mod tests {
     #[test]
     fn cleans_quotes_and_whitespace_in_place() {
         let raw = r#"C:\a; %X%\bin ;"C:\Program Files\b";C:\c"#;
-        let fixable = [EntryProblem::Whitespace, EntryProblem::StrayQuote];
+        let fixable = [(1, EntryProblem::Whitespace), (2, EntryProblem::StrayQuote)];
         let (kept, edits) = fix_entries(
             &[],
             raw,
@@ -408,6 +426,22 @@ mod tests {
         assert_eq!(edits[0], ws);
         assert_eq!(edits[1].new.as_deref(), Some(r"C:\Program Files\b"));
         assert_eq!(edits.len(), 2);
+    }
+
+    #[test]
+    fn fixes_only_reported_indexes_even_when_other_entries_have_the_same_problem() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().display().to_string();
+        let raw = format!("{dir};;{dir};;{dir}");
+        let (new, edits) = fix_entries(
+            &[],
+            &raw,
+            PathOrigin::User,
+            str::to_string,
+            &[(1, EntryProblem::Empty), (4, EntryProblem::Duplicate)],
+        );
+        assert_eq!(new, format!("{dir};{dir};"));
+        assert_eq!(edits.iter().map(|e| e.index).collect::<Vec<_>>(), [1, 4]);
     }
 
     #[test]

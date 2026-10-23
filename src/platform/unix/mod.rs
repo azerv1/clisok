@@ -152,23 +152,29 @@ pub fn is_os_dir(dir: &Path) -> bool {
 
 /// There is no saved PATH to compare against (shell profiles can't be
 /// evaluated reliably), and no App Paths registry.
-pub fn persisted_path() -> Vec<PathEntry> {
-    Vec::new()
+pub struct SavedPaths {
+    pub entries: Vec<PathEntry>,
+    pub cut: Vec<PathEntry>,
 }
 
-pub fn truncated_saved_paths() -> Vec<PathEntry> {
-    Vec::new()
+pub fn saved_paths() -> SavedPaths {
+    SavedPaths {
+        entries: Vec::new(),
+        cut: Vec::new(),
+    }
 }
 
 /// No saved PATH, so nothing to fix (no fix is offered as safe on Unix).
 pub fn fix_user_path(
-    _fixable: &[EntryProblem],
+    _saved: &SavedPaths,
+    _fixable: &[(usize, EntryProblem)],
 ) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
     Ok(None)
 }
 
 pub fn preview_user_path(
-    _fixable: &[EntryProblem],
+    _saved: &SavedPaths,
+    _fixable: &[(usize, EntryProblem)],
 ) -> Result<Option<(String, Vec<EntryEdit>)>, String> {
     Ok(None)
 }

@@ -75,6 +75,9 @@ Windows saved PATH checks expand only `REG_EXPAND_SZ` values, using saved machin
 environment variables followed by user overrides and the process's Windows/profile
 variables. A `REG_SZ` value keeps `%VAR%` literally and reports `CLI004`. Repairs
 use the same expansion and preserve the original value type.
+Repairs edit only the reported entries and stop if the saved user PATH value or
+its registry type changed since the scan. Variables that expand into several
+directories are left for manual editing; a repair cannot remove just one of them.
 
 ## `clisok list`
 

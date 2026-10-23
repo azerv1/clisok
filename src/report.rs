@@ -101,6 +101,9 @@ impl std::fmt::Display for Finding {
 #[derive(Debug, Serialize)]
 pub struct EntryIssue {
     pub entry: PathEntry,
+    /// Position in the scanned entry list, used only to target repairs.
+    #[serde(skip)]
+    pub index: Option<usize>,
     pub problem: EntryProblem,
     pub code: Code,
     pub severity: Severity,
@@ -115,6 +118,7 @@ impl EntryIssue {
         match sev.of(code) {
             Severity::Off => None,
             severity => Some(EntryIssue {
+                index: None,
                 fix: fix::for_entry(problem, &entry),
                 entry,
                 problem,

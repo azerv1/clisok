@@ -351,9 +351,13 @@ fn tools_to_check(commands: &[PathCommand], include_system: bool) -> Vec<Tool> {
 }
 
 fn entry_issues(entries: &[pathenv::PathEntry], sev: &Severities) -> Vec<EntryIssue> {
-    pathenv::check_entries(entries)
+    pathenv::indexed_problems(entries)
         .into_iter()
-        .filter_map(|(entry, problem)| EntryIssue::new(entry, problem, sev))
+        .filter_map(|(index, problem)| {
+            let mut issue = EntryIssue::new(entries[index].clone(), problem, sev)?;
+            issue.index = Some(index);
+            Some(issue)
+        })
         .collect()
 }
 
@@ -427,22 +431,22 @@ fn to_json(value: &impl serde::Serialize) -> Result<String, String> {
 }
 
 /// The PATH problems among the reported ones whose fix `--fix` may apply.
-fn fixable_problems(path_problems: &[EntryIssue], unsafe_fixes: bool) -> Vec<EntryProblem> {
-    let mut fixable = Vec::new();
-    for i in path_problems
+fn fixable_problems(
+    path_problems: &[EntryIssue],
+    unsafe_fixes: bool,
+) -> Vec<(usize, EntryProblem)> {
+    path_problems
         .iter()
+        .filter(|i| i.entry.origin == pathenv::PathOrigin::User)
         .filter(|i| i.fix.as_ref().is_some_and(|f| f.applies(unsafe_fixes)))
-    {
-        if !fixable.contains(&i.problem) {
-            fixable.push(i.problem);
-        }
-    }
-    fixable
+        .filter_map(|i| Some((i.index?, i.problem)))
+        .collect()
 }
 
 /// `--diff`: print what `apply_fixes` would change. Exit 1 when there is
 /// something, like Ruff.
 fn print_diff(
+    saved: &platform::SavedPaths,
     path_problems: &[EntryIssue],
     app_paths: &[AppPathIssue],
     unsafe_fixes: bool,
@@ -450,7 +454,7 @@ fn print_diff(
     let fixable = fixable_problems(path_problems, unsafe_fixes);
     let mut out = String::new();
     if !fixable.is_empty() {
-        match platform::preview_user_path(&fixable) {
+        match platform::preview_user_path(saved, &fixable) {
             Ok(Some((raw, edits))) => out.push_str(&fix::path_diff(&raw, &edits)),
             Ok(None) => {}
             Err(e) => {
@@ -479,6 +483,7 @@ fn print_diff(
 /// reported, so it is never fixed. A fix that fails is reported on stderr and
 /// its finding stays in the report.
 fn apply_fixes(
+    saved: &platform::SavedPaths,
     path_problems: &[EntryIssue],
     app_paths: &[AppPathIssue],
     unsafe_fixes: bool,
@@ -488,7 +493,7 @@ fn apply_fixes(
     let path_fix = if fixable.is_empty() {
         Ok(None)
     } else {
-        platform::fix_user_path(&fixable)
+        platform::fix_user_path(saved, &fixable)
     };
     match path_fix {
         Ok(Some((edits, backup))) => applied.extend(edits.into_iter().map(|e| {
@@ -546,36 +551,36 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     let severities = severities(args);
     let registry = check_registry(args);
     let findings = || {
-        let persisted = platform::persisted_path();
-        let cut = platform::truncated_saved_paths();
+        let saved = platform::saved_paths();
         let registrations = if registry {
             platform::broken_app_paths()
         } else {
             Vec::new()
         };
-        path_findings(
+        let (issues, apps) = path_findings(
             &entries,
-            &persisted,
-            &cut,
+            &saved.entries,
+            &saved.cut,
             &registrations,
             registry,
             &severities,
-        )
+        );
+        (saved, issues, apps)
     };
-    let (mut path_problems, mut app_paths) = findings();
+    let (saved, mut path_problems, mut app_paths) = findings();
     let unsafe_fixes = args.unsafe_fixes;
     if args.diff {
-        return print_diff(&path_problems, &app_paths, unsafe_fixes);
+        return print_diff(&saved, &path_problems, &app_paths, unsafe_fixes);
     }
     let fixed = if args.fix {
-        apply_fixes(&path_problems, &app_paths, unsafe_fixes)
+        apply_fixes(&saved, &path_problems, &app_paths, unsafe_fixes)
     } else {
         Vec::new()
     };
     if !fixed.is_empty() {
         // Fixes change saved settings only, not this process's PATH, so only
         // the saved-settings findings can have changed.
-        (path_problems, app_paths) = findings();
+        (_, path_problems, app_paths) = findings();
     }
 
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
@@ -826,7 +831,10 @@ mod tests {
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].code, Code::Cli007);
         assert_eq!(issues[0].entry.origin, pathenv::PathOrigin::User);
-        assert_eq!(fixable_problems(&issues, false), [EntryProblem::Duplicate]);
+        assert_eq!(
+            fixable_problems(&issues, false),
+            [(1, EntryProblem::Duplicate)]
+        );
     }
 
     #[test]

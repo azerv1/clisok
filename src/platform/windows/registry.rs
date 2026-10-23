@@ -143,7 +143,7 @@ fn expand_environment(
 }
 
 /// The raw saved PATH values: system first, then user.
-fn saved_values() -> Vec<(EnvValue, PathOrigin)> {
+fn saved_values() -> Vec<(RegValue<'static>, PathOrigin)> {
     [
         (HKEY_LOCAL_MACHINE, SYSTEM_ENV, PathOrigin::System),
         (HKEY_CURRENT_USER, USER_ENV, PathOrigin::User),
@@ -154,22 +154,115 @@ fn saved_values() -> Vec<(EnvValue, PathOrigin)> {
             .open_subkey(key)
             .and_then(|k| k.get_raw_value("Path"))
             .ok()?;
-        Some((EnvValue::from_raw(&raw)?, origin))
+        EnvValue::from_raw(&raw)?;
+        Some((raw, origin))
     })
     .collect()
 }
 
-/// Fix the entries of the saved user PATH whose problem is in `fixable` (see
-/// `pathenv::fix_entries`), and return what changed and the backup of the old
-/// value. The old value is saved first; the value type (`REG_EXPAND_SZ` or
-/// not) and every other entry are kept as they are. HKLM is never touched.
+/// One scan of saved PATH values and the environment used to expand them.
+pub struct SavedPaths {
+    pub entries: Vec<PathEntry>,
+    pub cut: Vec<PathEntry>,
+    user: Option<RegValue<'static>>,
+    user_start: usize,
+    /// Expanded user entry -> original separator-split part. A variable that
+    /// supplies multiple directories cannot be repaired as a single entry.
+    user_indexes: Vec<Option<usize>>,
+    env: Environment,
+}
+
+impl SavedPaths {
+    fn from_values(values: Vec<(RegValue<'static>, PathOrigin)>, env: Environment) -> Self {
+        let mut saved = Self {
+            entries: Vec::new(),
+            cut: Vec::new(),
+            user: None,
+            user_start: 0,
+            user_indexes: Vec::new(),
+            env,
+        };
+        for (raw, origin) in values {
+            let Some(value) = EnvValue::from_raw(&raw) else {
+                continue;
+            };
+            let expanded = expand_saved(&value.text, value.expandable, &saved.env);
+            saved.cut.extend(cut_entry(&value.text, origin, &expanded));
+            let entries = pathenv::parse_path(&expanded, origin);
+            if origin == PathOrigin::User {
+                saved.user_start = saved.entries.len();
+                let parts: Vec<String> = value
+                    .text
+                    .split(';')
+                    .map(|part| expand_saved(part, value.expandable, &saved.env))
+                    .collect();
+                if parts.join(";") == expanded {
+                    saved.user_indexes = parts
+                        .iter()
+                        .enumerate()
+                        .flat_map(|(i, part)| {
+                            std::iter::repeat_n(
+                                (!part.contains(';')).then_some(i),
+                                part.split(';').count(),
+                            )
+                        })
+                        .take(entries.len())
+                        .collect();
+                } else {
+                    saved.user_indexes = vec![None; entries.len()];
+                }
+                saved.user = Some(raw);
+            }
+            saved.entries.extend(entries);
+        }
+        saved
+    }
+
+    fn targets(
+        &self,
+        reported: &[(usize, EntryProblem)],
+    ) -> Result<Vec<(usize, EntryProblem)>, String> {
+        reported
+            .iter()
+            .map(|&(index, problem)| {
+                index
+                    .checked_sub(self.user_start)
+                    .and_then(|i| self.user_indexes.get(i).copied().flatten())
+                    .map(|i| (i, problem))
+                    .ok_or_else(|| {
+                        "skipped: cannot repair a PATH entry expanded to multiple directories"
+                            .into()
+                    })
+            })
+            .collect()
+    }
+}
+
+pub fn saved_paths() -> SavedPaths {
+    SavedPaths::from_values(saved_values(), saved_environment())
+}
+
+/// Fix only reported user entries, retaining the scanned value's exact type
+/// and saving a backup first. HKLM is never touched.
 pub fn fix_user_path(
-    fixable: &[EntryProblem],
+    saved: &SavedPaths,
+    fixable: &[(usize, EntryProblem)],
 ) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
+    let Some(expected) = &saved.user else {
+        return Ok(None);
+    };
+    let targets = saved.targets(fixable)?;
     let key = RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey_with_flags(USER_ENV, KEY_READ | KEY_SET_VALUE)
         .map_err(|e| format!("can't open the user PATH: {e}"))?;
-    let fixed = fix_path_value(&key, &saved_system_entries(), fixable, &backup_dir()?)?;
+    let fixed = fix_path_value(
+        &key,
+        expected,
+        &saved.entries[..saved.user_start],
+        &targets,
+        &backup_dir()?,
+        &saved.env,
+    )?;
     if fixed.is_some() {
         broadcast_env_change();
     }
@@ -179,66 +272,38 @@ pub fn fix_user_path(
 /// What `fix_user_path` would change, without writing anything: the current
 /// value and the edits.
 pub fn preview_user_path(
-    fixable: &[EntryProblem],
+    saved: &SavedPaths,
+    fixable: &[(usize, EntryProblem)],
 ) -> Result<Option<(String, Vec<EntryEdit>)>, String> {
-    let old = RegKey::predef(HKEY_CURRENT_USER)
+    let Some(expected) = &saved.user else {
+        return Ok(None);
+    };
+    let targets = saved.targets(fixable)?;
+    let key = RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey(USER_ENV)
-        .and_then(|k| k.get_raw_value("Path"))
         .map_err(|e| format!("can't read the user PATH: {e}"))?;
-    let raw = String::from_reg_value(&old).map_err(|e| format!("can't read the user PATH: {e}"))?;
-    let env = saved_environment();
-    let (_, edits) = pathenv::fix_entries(
-        &saved_system_entries(),
-        &raw,
-        PathOrigin::User,
-        |s| expand_saved(s, old.vtype == RegType::REG_EXPAND_SZ, &env),
-        fixable,
-    );
+    let (raw, _, edits) = prepare_path_value(
+        &key,
+        expected,
+        &saved.entries[..saved.user_start],
+        &targets,
+        &saved.env,
+    )?;
     Ok((!edits.is_empty()).then_some((raw, edits)))
-}
-
-/// The saved system PATH's entries, which come before the user's.
-fn saved_system_entries() -> Vec<PathEntry> {
-    let env = saved_environment();
-    saved_values()
-        .into_iter()
-        .filter(|(_, origin)| *origin == PathOrigin::System)
-        .flat_map(|(r, origin)| {
-            pathenv::parse_path(&expand_saved(&r.text, r.expandable, &env), origin)
-        })
-        .collect()
 }
 
 /// `fix_user_path` on the `Path` value of `key`, saving the old value in
 /// `backups` first.
 fn fix_path_value(
     key: &RegKey,
+    expected: &RegValue,
     earlier: &[PathEntry],
-    fixable: &[EntryProblem],
-    backups: &Path,
-) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
-    fix_path_value_with_environment(key, earlier, fixable, backups, &saved_environment())
-}
-
-fn fix_path_value_with_environment(
-    key: &RegKey,
-    earlier: &[PathEntry],
-    fixable: &[EntryProblem],
+    fixable: &[(usize, EntryProblem)],
     backups: &Path,
     env: &Environment,
 ) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
     let fail = |what: &str, e: std::io::Error| format!("{what} the user PATH: {e}");
-    let old = key
-        .get_raw_value("Path")
-        .map_err(|e| fail("can't read", e))?;
-    let raw = String::from_reg_value(&old).map_err(|e| fail("can't read", e))?;
-    let (new, edits) = pathenv::fix_entries(
-        earlier,
-        &raw,
-        PathOrigin::User,
-        |s| expand_saved(s, old.vtype == RegType::REG_EXPAND_SZ, env),
-        fixable,
-    );
+    let (raw, new, edits) = prepare_path_value(key, expected, earlier, fixable, env)?;
     if edits.is_empty() {
         return Ok(None);
     }
@@ -246,6 +311,8 @@ fn fix_path_value_with_environment(
     file.write_all(raw.as_bytes())
         .and_then(|()| file.sync_all())
         .map_err(|e| format!("can't save a backup to {}: {e}", backup.display()))?;
+    // Recheck after backup I/O as well, immediately before the write.
+    ensure_unchanged(key, expected)?;
     let bytes: Vec<u8> = new
         .encode_utf16()
         .chain([0])
@@ -255,11 +322,41 @@ fn fix_path_value_with_environment(
         "Path",
         &RegValue {
             bytes: bytes.into(),
-            vtype: old.vtype,
+            vtype: expected.vtype.clone(),
         },
     )
     .map_err(|e| fail("can't write", e))?;
     Ok(Some((edits, backup)))
+}
+
+fn ensure_unchanged(key: &RegKey, expected: &RegValue) -> Result<(), String> {
+    let old = key
+        .get_raw_value("Path")
+        .map_err(|e| format!("PATH changed since the scan or cannot be read: {e}"))?;
+    if old.vtype != expected.vtype || old.bytes != expected.bytes {
+        return Err("PATH changed since the scan; scan again before fixing it".into());
+    }
+    Ok(())
+}
+
+fn prepare_path_value(
+    key: &RegKey,
+    expected: &RegValue,
+    earlier: &[PathEntry],
+    fixable: &[(usize, EntryProblem)],
+    env: &Environment,
+) -> Result<(String, String, Vec<EntryEdit>), String> {
+    ensure_unchanged(key, expected)?;
+    let raw =
+        String::from_reg_value(expected).map_err(|e| format!("can't read the user PATH: {e}"))?;
+    let (new, edits) = pathenv::fix_entries(
+        earlier,
+        &raw,
+        PathOrigin::User,
+        |s| expand_saved(s, expected.vtype == RegType::REG_EXPAND_SZ, env),
+        fixable,
+    );
+    Ok((raw, new, edits))
 }
 
 /// Delete an App Paths registration (`HKCU\...` only), after exporting it to
@@ -342,33 +439,6 @@ fn broadcast_env_change() {
             &mut result,
         );
     }
-}
-
-/// The PATH new processes would get: system entries, then user entries.
-pub fn persisted_path() -> Vec<PathEntry> {
-    let env = saved_environment();
-    saved_values()
-        .iter()
-        .flat_map(|(raw, origin)| {
-            pathenv::parse_path(&expand_saved(&raw.text, raw.expandable, &env), *origin)
-        })
-        .collect()
-}
-
-/// The last entry of each saved PATH that looks cut off. Whatever came after
-/// the cut is gone, and nothing else on PATH shows it.
-pub fn truncated_saved_paths() -> Vec<PathEntry> {
-    let env = saved_environment();
-    saved_values()
-        .iter()
-        .filter_map(|(raw, origin)| {
-            cut_entry(
-                &raw.text,
-                *origin,
-                &expand_saved(&raw.text, raw.expandable, &env),
-            )
-        })
-        .collect()
 }
 
 /// The last entry of `raw` when the value looks truncated: its length is a
@@ -481,10 +551,12 @@ mod tests {
         let earlier =
             pathenv::parse_path(&stale.join("bin").display().to_string(), PathOrigin::System);
         let backups = tempfile::tempdir().unwrap();
-        let result = fix_path_value_with_environment(
+        let expected = path.get_raw_value("Path").unwrap();
+        let result = fix_path_value(
             &path,
+            &expected,
             &earlier,
-            &[EntryProblem::Duplicate],
+            &[(0, EntryProblem::Duplicate)],
             backups.path(),
             &env,
         );
@@ -539,7 +611,15 @@ mod tests {
         let raw = format!("%SystemRoot%;{system_root}");
         key.set_value("Path", &raw).unwrap();
         let backups = tempfile::tempdir().unwrap();
-        let result = fix_path_value(&key, &[], &[EntryProblem::Duplicate], backups.path());
+        let expected = key.get_raw_value("Path").unwrap();
+        let result = fix_path_value(
+            &key,
+            &expected,
+            &[],
+            &[(1, EntryProblem::Duplicate)],
+            backups.path(),
+            &saved_environment(),
+        );
         let after: String = key.get_value("Path").unwrap();
         hkcu.delete_subkey_all(&name).unwrap();
         assert!(result.unwrap().is_none());
@@ -578,11 +658,26 @@ mod tests {
         )
         .unwrap();
         let backups = tempfile::tempdir().unwrap();
-        let drop = [EntryProblem::Empty, EntryProblem::Duplicate];
+        let drop = [(1, EntryProblem::Empty), (2, EntryProblem::Duplicate)];
 
-        let result = fix_path_value(&key, &[], &drop, backups.path());
+        let expected = key.get_raw_value("Path").unwrap();
+        let result = fix_path_value(
+            &key,
+            &expected,
+            &[],
+            &drop,
+            backups.path(),
+            &saved_environment(),
+        );
         let after = key.get_raw_value("Path");
-        let again = fix_path_value(&key, &[], &drop, backups.path());
+        let again = fix_path_value(
+            &key,
+            after.as_ref().unwrap(),
+            &[],
+            &drop,
+            backups.path(),
+            &saved_environment(),
+        );
         hkcu.delete_subkey_all(&name).unwrap();
 
         let (edits, backup) = result.unwrap().unwrap();
@@ -654,6 +749,90 @@ mod tests {
     }
 
     #[test]
+    fn expanded_directory_lists_keep_later_repair_indexes_aligned() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let raw = format!("%MULTI%;;{};{}", a.path().display(), a.path().display());
+        let env = Environment::from([(
+            "MULTI".into(),
+            EnvValue {
+                text: format!("{};{}", a.path().display(), b.path().display()),
+                expandable: false,
+            },
+        )]);
+        let saved = SavedPaths::from_values(
+            vec![(
+                registry_string(&raw, RegType::REG_EXPAND_SZ),
+                PathOrigin::User,
+            )],
+            env,
+        );
+        let targets = saved.targets(&[(4, EntryProblem::Duplicate)]).unwrap();
+        assert_eq!(targets, [(3, EntryProblem::Duplicate)]);
+        let (new, edits) = pathenv::fix_entries(
+            &[],
+            &raw,
+            PathOrigin::User,
+            |s| expand_saved(s, true, &saved.env),
+            &targets,
+        );
+        assert_eq!(new, format!("%MULTI%;;{}", a.path().display()));
+        assert_eq!(edits.len(), 1);
+        assert!(saved.targets(&[(1, EntryProblem::Duplicate)]).is_err());
+    }
+
+    #[test]
+    fn a_path_type_changed_after_scanning_is_not_overwritten() {
+        let name = format!(r"Software\clisok-test-changed-type-{}", std::process::id());
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (key, _) = hkcu.create_subkey(&name).unwrap();
+        let raw = r"C:\original;;";
+        let scanned = registry_string(raw, RegType::REG_SZ);
+        key.set_raw_value("Path", &registry_string(raw, RegType::REG_EXPAND_SZ))
+            .unwrap();
+        let backups = tempfile::tempdir().unwrap();
+        let result = fix_path_value(
+            &key,
+            &scanned,
+            &[],
+            &[(1, EntryProblem::Empty)],
+            backups.path(),
+            &Environment::new(),
+        );
+        let after = key.get_raw_value("Path").unwrap();
+        hkcu.delete_subkey_all(&name).unwrap();
+        assert!(result.unwrap_err().contains("PATH changed since the scan"));
+        assert_eq!(after.vtype, RegType::REG_EXPAND_SZ);
+        assert_eq!(String::from_reg_value(&after).unwrap(), raw);
+        assert_eq!(fs::read_dir(backups.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_path_changed_after_scanning_is_not_overwritten() {
+        let name = format!(r"Software\clisok-test-changed-path-{}", std::process::id());
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (key, _) = hkcu.create_subkey(&name).unwrap();
+        key.set_value("Path", &r"C:\original;;").unwrap();
+        let scanned = key.get_raw_value("Path").unwrap();
+        let changed = r"C:\installed-since-scan;;";
+        key.set_value("Path", &changed).unwrap();
+        let backups = tempfile::tempdir().unwrap();
+        let result = fix_path_value(
+            &key,
+            &scanned,
+            &[],
+            &[(1, EntryProblem::Empty)],
+            backups.path(),
+            &Environment::new(),
+        );
+        let after: String = key.get_value("Path").unwrap();
+        hkcu.delete_subkey_all(&name).unwrap();
+        assert!(result.unwrap_err().contains("PATH changed since the scan"));
+        assert_eq!(after, changed);
+        assert_eq!(fs::read_dir(backups.path()).unwrap().count(), 0);
+    }
+
+    #[test]
     fn failed_backup_leaves_the_registry_value_unchanged() {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let name = format!(
@@ -665,7 +844,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let not_a_directory = dir.path().join("blocked");
         fs::write(&not_a_directory, "occupied").unwrap();
-        let result = fix_path_value(&key, &[], &[EntryProblem::Empty], &not_a_directory);
+        let expected = key.get_raw_value("Path").unwrap();
+        let result = fix_path_value(
+            &key,
+            &expected,
+            &[],
+            &[(1, EntryProblem::Empty)],
+            &not_a_directory,
+            &saved_environment(),
+        );
         let after: String = key.get_value("Path").unwrap();
         hkcu.delete_subkey_all(name).unwrap();
         assert!(result.is_err());
