@@ -1,0 +1,32 @@
+tools/action_install.py
+  s_952c14d9527d3b::t_b2e4d7c57f724b 103-104
+docs/src/github-action.md
+  s_952c14d9527d3b::t_b2e4d7c57f724b 24-26
+tests/release/test_artifacts.py
+  s_952c14d9527d3b::t_9883e2307d11e2 4,18-51
+  s_db5280e2a28a79::t_a680dd234591cb 52-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "18c5afa47fcfeebbab70986fafaa39786ae7c702",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_db5280e2a28a79": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148de-35f5-7943-8ec6-e12634bbacee",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
