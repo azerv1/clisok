@@ -23,7 +23,7 @@ pub use registry::{
     AppPath, SavedPaths, broken_app_paths, delete_app_path, fix_user_path, preview_user_path,
     saved_paths,
 };
-pub use spawn::{init, run as run_headless};
+pub use spawn::{init, probe_unavailable, run as run_headless};
 
 pub const PATH_SEPARATOR: char = ';';
 

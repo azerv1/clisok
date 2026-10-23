@@ -24,6 +24,8 @@ including for passing tools. Skipped tools note that the module was not probed.
 Probes share a randomly named temporary working directory created for this run.
 On Unix it is accessible only to its owner (mode `0700`). A directory creation
 failure prevents the probe from starting. Cleanup runs after checks and on Ctrl+C.
+On Windows, probes require a private hidden desktop. If it cannot be created,
+eligible tools are skipped with `not run: hidden desktop unavailable`.
 
 ```
 [BROKEN] CLI002 (user) "C:\gone" — directory does not exist

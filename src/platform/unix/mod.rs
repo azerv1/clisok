@@ -19,6 +19,10 @@ use crate::pathenv::{EntryEdit, EntryProblem, PathEntry, PathIndex, PathRepair};
 
 pub use spawn::{init, kill_children, run as run_headless};
 
+pub fn probe_unavailable() -> Option<&'static str> {
+    None
+}
+
 pub const PATH_SEPARATOR: char = ':';
 
 /// Folders owned by the distro's package manager; skipped unless `--system`,

@@ -154,7 +154,7 @@ fn prepare(tool: Tool, ctx: &Ctx) -> Prepared {
     } else if matches!(res.kind, Kind::Missing) {
         Some("not run: target is missing")
     } else {
-        None
+        platform::probe_unavailable()
     };
     Prepared { res, skip_why }
 }

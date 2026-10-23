@@ -144,6 +144,12 @@ fn desktop() -> Option<&'static [u16]> {
         .as_deref()
 }
 
+pub fn probe_unavailable() -> Option<&'static str> {
+    desktop()
+        .is_none()
+        .then_some("not run: hidden desktop unavailable")
+}
+
 fn env_block() -> Vec<u16> {
     let mut vars: BTreeMap<String, (String, String)> = std::env::vars_os()
         .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
@@ -281,6 +287,7 @@ fn make_inheritable(h: HANDLE) -> io::Result<()> {
 
 #[derive(Clone, Copy)]
 struct ProcessCalls {
+    desktop: fn() -> Option<&'static [u16]>,
     assign: unsafe extern "system" fn(HANDLE, HANDLE) -> i32,
     resume: unsafe extern "system" fn(HANDLE) -> u32,
     wait: unsafe extern "system" fn(HANDLE, u32) -> u32,
@@ -288,6 +295,7 @@ struct ProcessCalls {
 }
 
 const PROCESS_CALLS: ProcessCalls = ProcessCalls {
+    desktop,
     assign: AssignProcessToJobObject,
     resume: ResumeThread,
     wait: WaitForSingleObject,
@@ -331,6 +339,14 @@ fn run_with_calls(
     timeout: Duration,
     calls: &ProcessCalls,
 ) -> io::Result<Output> {
+    let mut desktop_w = (calls.desktop)()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                "not run: hidden desktop unavailable",
+            )
+        })?
+        .to_vec();
     let (app, line) = command_line(program, args)?;
     let app_w = wide(app.as_os_str());
     let mut line_w = wide(&line);
@@ -357,16 +373,13 @@ fn run_with_calls(
         make_inheritable(nul.as_raw_handle())?;
         make_inheritable(wr.as_raw_handle())?;
 
-        let mut desktop_w = desktop().map(<[u16]>::to_vec);
         let mut inherited = HandleList::new([nul.as_raw_handle(), wr.as_raw_handle()])?;
         let mut si = STARTUPINFOEXW {
             lpAttributeList: inherited.as_mut_ptr(),
             ..Default::default()
         };
         si.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
-        si.StartupInfo.lpDesktop = desktop_w
-            .as_mut()
-            .map_or(ptr::null_mut(), |d| d.as_mut_ptr());
+        si.StartupInfo.lpDesktop = desktop_w.as_mut_ptr();
         si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
         si.StartupInfo.wShowWindow = 0; // SW_HIDE
         si.StartupInfo.hStdInput = nul.as_raw_handle();
@@ -465,6 +478,25 @@ fn run_with_calls(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unavailable_desktop_never_launches_a_child() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("interactive.txt");
+        let cmd = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join(r"System32\cmd.exe");
+        let line = format!("echo ran > \"{}\"", marker.display());
+        let result = run_with_calls(
+            &cmd,
+            &["/d", "/c", &line],
+            Duration::from_secs(5),
+            &ProcessCalls {
+                desktop: || None,
+                ..PROCESS_CALLS
+            },
+        );
+        assert!(result.is_err(), "launched without a private desktop");
+        assert!(!marker.exists());
+    }
 
     #[test]
     fn inherited_handle_child() {
