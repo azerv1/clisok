@@ -1,4 +1,4 @@
-//! Pure parsing shared by production, fuzz targets, Miri and benchmarks.
+//! Pure parsing shared by production, fuzz targets and benchmarks.
 
 use std::sync::LazyLock;
 

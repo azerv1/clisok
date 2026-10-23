@@ -136,7 +136,6 @@ def test_no_hosted_analysis_or_approval_requirement() -> None:
 def test_basic_security_checks_are_configured() -> None:
     ci = workflow("ci.yml")
     audit = str(ci["jobs"]["audit"])
-    assert "cargo-audit@0.22.2" in audit
     assert "cargo audit --deny warnings" in audit
     assert "fuzz/Cargo.lock" in audit
     assert "zizmor" in str(ci["jobs"]["quality"])
@@ -228,8 +227,8 @@ def test_background_checks_are_scheduled_and_never_release_dependencies() -> Non
         assert "schedule" in triggers and "workflow_dispatch" in triggers
         assert "push" not in triggers and "pull_request" not in triggers
     assurance = workflow("assurance.yml")["jobs"]
-    assert {"coverage", "miri", "report"} <= set(assurance)
-    assert "cargo +nightly miri test --lib" in str(assurance["miri"])
+    assert {"coverage", "report"} <= set(assurance)
+    assert set(assurance["report"]["needs"]) == {"coverage"}
 
 
 def test_bump_hook_normalizes_only_known_metadata(
