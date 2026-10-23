@@ -1,0 +1,37 @@
+src/platform/windows/pylauncher.rs
+  s_952c14d9527d3b::t_f8a3b2ecfc7ecc 44
+  s_952c14d9527d3b::t_02cd3bac02a930 35-36
+  s_952c14d9527d3b::t_e4d3bbe25cac57 221-227
+  s_952c14d9527d3b::t_4dcb4c1acb6e5f 220
+docs/src/usage.md
+  s_952c14d9527d3b::t_257d72b5dd8114 7-10
+src/inspect/python.rs
+  s_952c14d9527d3b::t_f8a3b2ecfc7ecc 108
+tests/cli.rs
+  s_952c14d9527d3b::t_e4d3bbe25cac57 131-138,143-144,146-148
+  s_952c14d9527d3b::t_257d72b5dd8114 139-142,145
+src/platform/unix/mod.rs
+  s_952c14d9527d3b::t_257d72b5dd8114 205-214
+src/inspect/mod.rs
+  s_952c14d9527d3b::t_257d72b5dd8114 21
+src/parsing.rs
+  s_952c14d9527d3b::t_f8a3b2ecfc7ecc 3-6,43-51,53-107,112-119,134,136,153-154
+  s_952c14d9527d3b::t_e4d3bbe25cac57 142,145-147,150-152,155-164,169-171
+  s_952c14d9527d3b::t_02cd3bac02a930 108-111,139-141,148-149,165-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "22893078845677f809c5da7e3451cd0b02705618",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
