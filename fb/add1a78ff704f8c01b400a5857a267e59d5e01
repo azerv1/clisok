@@ -1,0 +1,38 @@
+tests/release/test_artifacts.py
+  s_952c14d9527d3b::t_00478477c38b1c 48-56
+  s_db5280e2a28a79::t_4fd8a2bae5afa8 57-58
+.github/workflows/ci.yml
+  s_e2c320eb7d5020::t_a9517d9f7eba00 59-60,71-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fbadd1a78ff704f8c01b400a5857a267e59d5e01",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_db5280e2a28a79": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148de-35f5-7943-8ec6-e12634bbacee",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_e2c320eb7d5020": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a168ea-6361-7da0-935a-907b7616bc57",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
