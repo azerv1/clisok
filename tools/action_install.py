@@ -100,6 +100,8 @@ def main() -> None:
         raise ValueError("invalid action repository")
     version = args.version
     action_ref = os.environ.get("ACTION_REF", "")
+    if not version and re.fullmatch(r"[0-9a-fA-F]{40}", action_ref):
+        raise ValueError("pin a release tag, or pass `version:`")
     if not version and VERSION.fullmatch(action_ref):
         version = action_ref
     if not version:

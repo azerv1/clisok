@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import sys
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,42 @@ from conftest import ROOT, load_tool
 
 def workflow(name: str) -> dict[str, Any]:
     return yaml.load((ROOT / ".github/workflows" / name).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+
+@pytest.mark.parametrize("sha", ["a" * 40, "ABCDEF0123" * 4])
+def test_action_sha_requires_an_explicit_release(
+    monkeypatch: pytest.MonkeyPatch, sha: str,
+) -> None:
+    helper = load_tool("action_install")
+    monkeypatch.setenv("ACTION_REF", sha)
+    monkeypatch.delenv("VERSION", raising=False)
+    monkeypatch.setattr(sys, "argv", ["action_install"])
+
+    def no_download(*_: str) -> str:
+        raise AssertionError("SHA pin must fail before looking up a mutable release")
+
+    monkeypatch.setattr(helper, "run", no_download)
+    with pytest.raises(ValueError, match="pin a release tag, or pass `version:`"):
+        helper.main()
+
+
+def test_action_sha_accepts_an_explicit_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    helper = load_tool("action_install")
+    monkeypatch.setenv("ACTION_REF", "a" * 40)
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.delenv("GITHUB_ENV", raising=False)
+    monkeypatch.setattr(sys, "argv", ["action_install", "--assets", str(tmp_path), "--version", "0.3.0"])
+    binary = tmp_path / "clisok"
+    monkeypatch.setattr(helper, "install_archive", lambda *_: binary)
+
+    def version(*args: str) -> str:
+        assert args == (str(binary), "--version")
+        return "clisok 0.3.0"
+
+    monkeypatch.setattr(helper, "run", version)
+    helper.main()
 
 
 def test_release_publishes_only_after_ci_and_smoke_tests() -> None:

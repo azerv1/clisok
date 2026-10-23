@@ -21,6 +21,9 @@ To show each finding as an annotation on the run, add `--output-format github`:
 | `args`    | `check` | Arguments passed to clisok, split on whitespace |
 | `version` | the ref | Release to download; defaults to the ref you used, else the latest |
 
+When pinning the Action to a full commit SHA, also pass `version: 0.3.0` to select
+the release binary. A SHA without `version` fails instead of downloading latest.
+
 The step fails when `check` finds problems. Pass options explicitly through `args`, using the same flags locally and in CI. Linux and Windows runners only.
 
 The action requires Python 3.11+ and the GitHub CLI, provided by the supported
