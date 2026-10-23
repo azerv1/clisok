@@ -312,8 +312,20 @@ fn looks_like_help(output: &str) -> bool {
 /// "No module named fontTools.--help"), so it started and simply took the
 /// flag as an ordinary argument.
 fn echoes_arg(output: &str, arg: &str) -> bool {
-    let pat = format!(r#"(?m)(^|[\s:'"(./\\]){}($|[\s'")])"#, regex::escape(arg));
-    Regex::new(&pat).is_ok_and(|re| re.is_match(output))
+    static FLAGS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+        PROBES
+            .iter()
+            .map(|arg| Regex::new(&echo_pattern(arg)).unwrap())
+            .collect()
+    });
+    if let Some(index) = PROBES.iter().position(|&probe| probe == arg) {
+        return FLAGS[index].is_match(output);
+    }
+    Regex::new(&echo_pattern(arg)).is_ok_and(|re| re.is_match(output))
+}
+
+fn echo_pattern(arg: &str) -> String {
+    format!(r#"(?m)(^|[\s:'"(./\\]){}($|[\s'")])"#, regex::escape(arg))
 }
 
 /// Why a tool that ran counts as a tool error rather than broken.
