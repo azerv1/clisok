@@ -1,0 +1,34 @@
+README.md
+  s_952c14d9527d3b::t_21cc20c0c76a94 66-74,77-84
+  s_952c14d9527d3b::t_23e09161b6bcb4 75-76
+.github/workflows/ci.yml
+  s_952c14d9527d3b::t_43d3c7621115e1 38,57,95
+  s_952c14d9527d3b::t_21cc20c0c76a94 18-21,25,36,39-45,51,62-64,83,93,96-102,109,126
+  s_952c14d9527d3b::t_23e09161b6bcb4 37,94
+  s_952c14d9527d3b::t_00478477c38b1c 52-56
+  s_e2c320eb7d5020::t_d015e18033f2a8 59-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "924302436f77034ea40faa5a9c2c8c252a21f4b6",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_e2c320eb7d5020": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a168ea-6361-7da0-935a-907b7616bc57",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
