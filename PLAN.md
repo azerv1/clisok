@@ -73,7 +73,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **Repair policy** — allow generated shim or launcher repair by default. Require `--reinstall-broken` for reinstallation and network access, and `--unsafe-fixes` for any fix that may change what runs. clisok never deletes or moves a file. Prohibit shell-profile editing, administrator access, and system-package changes.
 
-- **PATH invariant** — clisok never breaks PATH. Before writing, resolve every command name under the old and new persisted PATH (machine + user, expanded). If any previously reachable name would resolve to a different file or disappear, abort the write and report `skipped: would change resolution of X`. The backup stays as a safety net; there is no restore command.
+- **PATH invariant (done)** — before a saved user PATH write, compare every command's first match under the old and new persisted PATH (machine + user, expanded). Safe changes that alter resolution abort with `skipped: would change resolution of X`. Unsafe changes list affected names in the applied-fix messages; they cannot bypass the check on safe removals in the same repair. Repairs retain the scanned value and type, target reported indexes, and save a backup before writing. There is no restore command.
 
 - **Reporting** — every finding carries its `code` and effective `severity` (done). Add a JSON schema version, command mode, inventory entries, planned and applied repair actions, final verdicts, and backup location where applicable. Under `--output-format json`, stdout contains JSON only; progress and diagnostics remain on stderr. This already holds today (`src/main.rs:291`, `src/progress.rs`).
 

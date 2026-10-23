@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::codes::Code;
 use crate::inspect::Reason;
-use crate::pathenv::{self, EntryEdit, EntryProblem, PathEntry, PathOrigin};
+use crate::pathenv::{self, EntryEdit, EntryProblem, PathEntry, PathOrigin, PathRepair};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -73,6 +73,30 @@ pub struct Applied {
     pub message: String,
     /// Where the value from before the change was saved.
     pub backup: PathBuf,
+}
+
+pub fn applied_path(repair: PathRepair) -> Vec<Applied> {
+    repair
+        .edits
+        .into_iter()
+        .map(|e| {
+            let mut message = e
+                .new
+                .map_or_else(|| "removed".into(), |new| format!("changed to \"{new}\""));
+            if !repair.changed_commands.is_empty() {
+                message.push_str(&format!(
+                    "; command resolution changed: {}",
+                    repair.changed_commands.join(", ")
+                ));
+            }
+            Applied {
+                code: e.problem.code(),
+                target: format!("(user) \"{}\"", e.raw),
+                message,
+                backup: repair.backup.clone(),
+            }
+        })
+        .collect()
 }
 
 /// Where the user edits the PATH that holds `entry`.

@@ -15,7 +15,7 @@ use regex::Regex;
 use serde::Serialize;
 
 use crate::inspect::{Inspection, Kind, python};
-use crate::pathenv::{EntryEdit, EntryProblem, PathEntry, PathIndex};
+use crate::pathenv::{EntryEdit, EntryProblem, PathEntry, PathIndex, PathRepair};
 
 pub use spawn::{init, kill_children, run as run_headless};
 
@@ -168,7 +168,7 @@ pub fn saved_paths() -> SavedPaths {
 pub fn fix_user_path(
     _saved: &SavedPaths,
     _fixable: &[(usize, EntryProblem)],
-) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
+) -> Result<Option<PathRepair>, String> {
     Ok(None)
 }
 

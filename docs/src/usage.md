@@ -78,6 +78,10 @@ use the same expansion and preserve the original value type.
 Repairs edit only the reported entries and stop if the saved user PATH value or
 its registry type changed since the scan. Variables that expand into several
 directories are left for manual editing; a repair cannot remove just one of them.
+Before a PATH repair, clisok compares command resolution under the expanded
+machine and user PATH values before and after the edit. Safe repairs that change
+a command's first match are skipped. Unsafe repairs list the changed command
+names in JSON `fixed` messages and in the `--show-fixes` output.
 
 ## `clisok list`
 

@@ -496,16 +496,7 @@ fn apply_fixes(
         platform::fix_user_path(saved, &fixable)
     };
     match path_fix {
-        Ok(Some((edits, backup))) => applied.extend(edits.into_iter().map(|e| {
-            Applied {
-                code: e.problem.code(),
-                target: format!("(user) \"{}\"", e.raw),
-                message: e
-                    .new
-                    .map_or_else(|| "removed".into(), |new| format!("changed to \"{new}\"")),
-                backup: backup.clone(),
-            }
-        })),
+        Ok(Some(repair)) => applied.extend(fix::applied_path(repair)),
         Ok(None) => {}
         Err(e) => eprintln!("clisok: {e}"),
     }

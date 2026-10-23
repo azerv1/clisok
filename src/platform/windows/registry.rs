@@ -13,7 +13,7 @@ use winreg::types::FromRegValue;
 use winreg::{RegKey, RegValue};
 
 use super::expand_vars;
-use crate::pathenv::{self, EntryEdit, EntryProblem, PathEntry, PathOrigin};
+use crate::pathenv::{self, EntryEdit, EntryProblem, PathEntry, PathIndex, PathOrigin, PathRepair};
 
 const SYSTEM_ENV: &str = r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment";
 const USER_ENV: &str = "Environment";
@@ -247,7 +247,7 @@ pub fn saved_paths() -> SavedPaths {
 pub fn fix_user_path(
     saved: &SavedPaths,
     fixable: &[(usize, EntryProblem)],
-) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
+) -> Result<Option<PathRepair>, String> {
     let Some(expected) = &saved.user else {
         return Ok(None);
     };
@@ -282,14 +282,14 @@ pub fn preview_user_path(
     let key = RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey(USER_ENV)
         .map_err(|e| format!("can't read the user PATH: {e}"))?;
-    let (raw, _, edits) = prepare_path_value(
+    let change = prepare_path_value(
         &key,
         expected,
         &saved.entries[..saved.user_start],
         &targets,
         &saved.env,
     )?;
-    Ok((!edits.is_empty()).then_some((raw, edits)))
+    Ok((!change.edits.is_empty()).then_some((change.raw, change.edits)))
 }
 
 /// `fix_user_path` on the `Path` value of `key`, saving the old value in
@@ -301,19 +301,20 @@ fn fix_path_value(
     fixable: &[(usize, EntryProblem)],
     backups: &Path,
     env: &Environment,
-) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
+) -> Result<Option<PathRepair>, String> {
     let fail = |what: &str, e: std::io::Error| format!("{what} the user PATH: {e}");
-    let (raw, new, edits) = prepare_path_value(key, expected, earlier, fixable, env)?;
-    if edits.is_empty() {
+    let change = prepare_path_value(key, expected, earlier, fixable, env)?;
+    if change.edits.is_empty() {
         return Ok(None);
     }
     let (backup, mut file) = backup_file(backups, "user-Path", "txt")?;
-    file.write_all(raw.as_bytes())
+    file.write_all(change.raw.as_bytes())
         .and_then(|()| file.sync_all())
         .map_err(|e| format!("can't save a backup to {}: {e}", backup.display()))?;
     // Recheck after backup I/O as well, immediately before the write.
     ensure_unchanged(key, expected)?;
-    let bytes: Vec<u8> = new
+    let bytes: Vec<u8> = change
+        .new
         .encode_utf16()
         .chain([0])
         .flat_map(u16::to_le_bytes)
@@ -326,7 +327,11 @@ fn fix_path_value(
         },
     )
     .map_err(|e| fail("can't write", e))?;
-    Ok(Some((edits, backup)))
+    Ok(Some(PathRepair {
+        edits: change.edits,
+        backup,
+        changed_commands: change.changed_commands,
+    }))
 }
 
 fn ensure_unchanged(key: &RegKey, expected: &RegValue) -> Result<(), String> {
@@ -339,13 +344,37 @@ fn ensure_unchanged(key: &RegKey, expected: &RegValue) -> Result<(), String> {
     Ok(())
 }
 
+struct PathChange {
+    raw: String,
+    new: String,
+    edits: Vec<EntryEdit>,
+    changed_commands: Vec<String>,
+}
+
+/// Use the expanded spelling as searched, without repairing whitespace or
+/// stray quotes while building the old index. Machine entries come first.
+fn resolution_index(
+    earlier: &[PathEntry],
+    raw: &str,
+    expandable: bool,
+    env: &Environment,
+) -> PathIndex {
+    let user = pathenv::parse_path(&expand_saved(raw, expandable, env), PathOrigin::User);
+    let dirs = earlier
+        .iter()
+        .chain(&user)
+        .map(|entry| PathBuf::from(&entry.raw))
+        .collect::<Vec<_>>();
+    PathIndex::build(&dirs)
+}
+
 fn prepare_path_value(
     key: &RegKey,
     expected: &RegValue,
     earlier: &[PathEntry],
     fixable: &[(usize, EntryProblem)],
     env: &Environment,
-) -> Result<(String, String, Vec<EntryEdit>), String> {
+) -> Result<PathChange, String> {
     ensure_unchanged(key, expected)?;
     let raw =
         String::from_reg_value(expected).map_err(|e| format!("can't read the user PATH: {e}"))?;
@@ -356,7 +385,45 @@ fn prepare_path_value(
         |s| expand_saved(s, expected.vtype == RegType::REG_EXPAND_SZ, env),
         fixable,
     );
-    Ok((raw, new, edits))
+    let mut changed_commands = Vec::new();
+    if !edits.is_empty() {
+        let expandable = expected.vtype == RegType::REG_EXPAND_SZ;
+        let old_index = resolution_index(earlier, &raw, expandable, env);
+        changed_commands =
+            old_index.changed_resolutions(&resolution_index(earlier, &new, expandable, env));
+        let safe: Vec<_> = edits
+            .iter()
+            .filter(|e| matches!(e.problem, EntryProblem::Empty | EntryProblem::Duplicate))
+            .map(|e| (e.index, e.problem))
+            .collect();
+        // Unsafe edits must not silently license an unsafe "safe" removal.
+        let safe_changes = if safe.len() == edits.len() {
+            changed_commands.clone()
+        } else if safe.is_empty() {
+            Vec::new()
+        } else {
+            let (safe_new, _) = pathenv::fix_entries(
+                earlier,
+                &raw,
+                PathOrigin::User,
+                |s| expand_saved(s, expandable, env),
+                &safe,
+            );
+            old_index.changed_resolutions(&resolution_index(earlier, &safe_new, expandable, env))
+        };
+        if !safe_changes.is_empty() {
+            return Err(format!(
+                "skipped: would change resolution of {}",
+                safe_changes.join(", ")
+            ));
+        }
+    }
+    Ok(PathChange {
+        raw,
+        new,
+        edits,
+        changed_commands,
+    })
 }
 
 /// Delete an App Paths registration (`HKCU\...` only), after exporting it to
@@ -680,10 +747,10 @@ mod tests {
         );
         hkcu.delete_subkey_all(&name).unwrap();
 
-        let (edits, backup) = result.unwrap().unwrap();
-        let removed: Vec<&str> = edits.iter().map(|e| e.raw.as_str()).collect();
+        let repair = result.unwrap().unwrap();
+        let removed: Vec<&str> = repair.edits.iter().map(|e| e.raw.as_str()).collect();
         assert_eq!(removed, ["", "%SYSTEMROOT%"]);
-        assert_eq!(fs::read_to_string(backup).unwrap(), raw);
+        assert_eq!(fs::read_to_string(repair.backup).unwrap(), raw);
         let after = after.unwrap();
         assert_eq!(after.vtype, RegType::REG_EXPAND_SZ);
         assert_eq!(
@@ -746,6 +813,145 @@ mod tests {
         for (path, expected) in paths {
             assert_eq!(fs::read_to_string(path).unwrap(), expected);
         }
+    }
+
+    #[test]
+    fn a_safe_duplicate_removal_cannot_drop_a_reachable_command() {
+        // C: and C:\ compare equal as directory keys, but the former searches
+        // this drive's current directory. It is not a redundant root entry.
+        let cwd = std::env::current_dir().unwrap();
+        let fixture = tempfile::Builder::new()
+            .prefix("clisok-resolution-")
+            .suffix(".exe")
+            .tempfile_in(&cwd)
+            .unwrap();
+        let drive = cwd
+            .components()
+            .next()
+            .unwrap()
+            .as_os_str()
+            .to_string_lossy();
+        let raw = format!("{drive}\\;{drive}");
+        let name = format!(r"Software\clisok-test-resolution-{}", std::process::id());
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (key, _) = hkcu.create_subkey(&name).unwrap();
+        key.set_value("Path", &raw).unwrap();
+        let expected = key.get_raw_value("Path").unwrap();
+        let backups = tempfile::tempdir().unwrap();
+        let result = fix_path_value(
+            &key,
+            &expected,
+            &[],
+            &[(1, EntryProblem::Duplicate)],
+            backups.path(),
+            &Environment::new(),
+        );
+        let after: String = key.get_value("Path").unwrap();
+        hkcu.delete_subkey_all(&name).unwrap();
+        let error = result.unwrap_err();
+        assert!(
+            error.contains("skipped: would change resolution of"),
+            "{error}"
+        );
+        assert!(
+            error.contains(
+                &fixture
+                    .path()
+                    .file_stem()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_lowercase()
+            ),
+            "{error}"
+        );
+        assert_eq!(after, raw);
+        assert_eq!(fs::read_dir(backups.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn unsafe_repairs_list_changed_commands_and_keep_machine_resolution_first() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        for file in [
+            a.path().join("tool.exe"),
+            a.path().join("added.exe"),
+            b.path().join("tool.exe"),
+        ] {
+            fs::write(file, "").unwrap();
+        }
+        let raw = format!(" {};{}", a.path().display(), b.path().display());
+        let name = format!(
+            r"Software\clisok-test-unsafe-resolution-{}",
+            std::process::id()
+        );
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (key, _) = hkcu.create_subkey(&name).unwrap();
+        key.set_value("Path", &raw).unwrap();
+        let expected = key.get_raw_value("Path").unwrap();
+        let env = Environment::new();
+        let targets = [(0, EntryProblem::Whitespace)];
+        let system = pathenv::parse_path(&b.path().display().to_string(), PathOrigin::System);
+        let preview = prepare_path_value(&key, &expected, &system, &targets, &env).unwrap();
+        assert_eq!(preview.changed_commands, ["added"]);
+        let backups = tempfile::tempdir().unwrap();
+        let result = fix_path_value(&key, &expected, &[], &targets, backups.path(), &env);
+        let after: String = key.get_value("Path").unwrap();
+        hkcu.delete_subkey_all(&name).unwrap();
+        let repair = result.unwrap().unwrap();
+        assert_eq!(repair.changed_commands, ["added", "tool"]);
+        assert_eq!(after, raw.trim_start());
+        assert_eq!(fs::read_to_string(&repair.backup).unwrap(), raw);
+        let applied = crate::fix::applied_path(repair);
+        assert!(
+            applied[0]
+                .message
+                .ends_with("command resolution changed: added, tool")
+        );
+    }
+
+    #[test]
+    fn unsafe_repairs_do_not_license_a_safe_removal_that_changes_resolution() {
+        let cwd = std::env::current_dir().unwrap();
+        let _fixture = tempfile::Builder::new()
+            .prefix("clisok-mixed-")
+            .suffix(".exe")
+            .tempfile_in(&cwd)
+            .unwrap();
+        let drive = cwd
+            .components()
+            .next()
+            .unwrap()
+            .as_os_str()
+            .to_string_lossy();
+        let dir = tempfile::tempdir().unwrap();
+        let raw = format!("{drive}\\;{drive}; {}", dir.path().display());
+        let name = format!(
+            r"Software\clisok-test-mixed-resolution-{}",
+            std::process::id()
+        );
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (key, _) = hkcu.create_subkey(&name).unwrap();
+        key.set_value("Path", &raw).unwrap();
+        let expected = key.get_raw_value("Path").unwrap();
+        let backups = tempfile::tempdir().unwrap();
+        let result = fix_path_value(
+            &key,
+            &expected,
+            &[],
+            &[(1, EntryProblem::Duplicate), (2, EntryProblem::Whitespace)],
+            backups.path(),
+            &Environment::new(),
+        );
+        let after: String = key.get_value("Path").unwrap();
+        hkcu.delete_subkey_all(&name).unwrap();
+        assert!(
+            result
+                .unwrap_err()
+                .contains("skipped: would change resolution of")
+        );
+        assert_eq!(after, raw);
+        assert_eq!(fs::read_dir(backups.path()).unwrap().count(), 0);
     }
 
     #[test]

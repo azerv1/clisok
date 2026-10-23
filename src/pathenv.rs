@@ -209,6 +209,14 @@ pub struct EntryEdit {
     pub new: Option<String>,
 }
 
+/// A saved PATH repair and the command names whose resolution it changed.
+#[derive(Debug)]
+pub struct PathRepair {
+    pub edits: Vec<EntryEdit>,
+    pub backup: PathBuf,
+    pub changed_commands: Vec<String>,
+}
+
 /// `raw`, a saved PATH value read after the entries in `earlier`, with its
 /// entries whose index and problem are in `fixable` fixed: empty and repeated entries
 /// removed, quotes and surrounding whitespace cleaned off. Each entry is
@@ -300,6 +308,22 @@ impl PathIndex {
             .get(&platform::lookup_key(name))
             .map(Vec::as_slice)
             .unwrap_or(&[])
+    }
+
+    #[cfg(windows)]
+    pub fn changed_resolutions(&self, new: &Self) -> Vec<String> {
+        let names: HashSet<_> = self.by_name.keys().chain(new.by_name.keys()).collect();
+        let mut changed: Vec<String> = names
+            .into_iter()
+            .filter(|name| {
+                let first =
+                    |index: &Self| index.lookup(name).first().map(|p| platform::path_key(p));
+                first(self) != first(new)
+            })
+            .cloned()
+            .collect();
+        changed.sort();
+        changed
     }
 }
 
