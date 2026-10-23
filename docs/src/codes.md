@@ -211,7 +211,7 @@ The test run didn't finish within the timeout, even when retried on its own. The
 
 **Default:** tool error, shown as `[ERROR]`; doesn't fail the run
 
-The tool started, but `--version`, `-V`, `--help` and `-h` all ended in an error of its own. Usually it works and just refuses those flags. Doesn't fail the run.
+The tool started, but `--version`, `--help` and `-h` all ended in an error of its own. Usually it works and just refuses those flags. Doesn't fail the run.
 
 **Fix:** None.
 

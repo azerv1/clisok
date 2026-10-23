@@ -96,7 +96,7 @@ codes! {
     Cli203 = 203, Warn + tool_error, "timed out",
         "The test run didn't finish within the timeout, even when retried on its own. The tool may wait for input or the network. Doesn't fail the run; use `--skip NAME` if it is expected.";
     Cli204 = 204, Warn + tool_error, "exited with an error",
-        "The tool started, but `--version`, `-V`, `--help` and `-h` all ended in an error of its own. Usually it works and just refuses those flags. Doesn't fail the run.";
+        "The tool started, but `--version`, `--help` and `-h` all ended in an error of its own. Usually it works and just refuses those flags. Doesn't fail the run.";
     Cli205 = 205, Error, "crashed when run",
         "The test run ended because of a Unix signal, such as SIGSEGV or SIGABRT. The tool crashed instead of answering the probe. The attempt records the signal and a shell-compatible exit status (128 + signal). Timeouts are reported separately. Investigate or reinstall the tool.";
     Cli301 = 301, Error, "App Paths target does not exist",

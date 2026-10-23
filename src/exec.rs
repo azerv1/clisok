@@ -338,7 +338,7 @@ const CONSOLE_NOTE: &str = "not run: needs an interactive console or a display";
 
 /// The flags of a test run, in order. `--version` goes first because it
 /// rarely opens a pager or a browser; help is the fallback for tools without it.
-pub const PROBES: &[&str] = &["--version", "-V", "--help", "-h"];
+pub const PROBES: &[&str] = &["--version", "--help", "-h"];
 
 /// Try each of `PROBES` in turn, stopping at the first conclusive answer.
 pub fn run_probe(path: &Path, timeout: Duration) -> (Outcome, Vec<Attempt>) {
@@ -946,15 +946,13 @@ operable program or batch file."#
     fn rejected_version_falls_back_to_help() {
         let (outcome, args) = probe_with(&[
             (2, "error: unrecognized option '--version'\n"),
-            (1, ""),
             (0, "Usage: tool [options]\n"),
         ]);
         assert!(matches!(outcome, Outcome::Pass));
-        assert_eq!(args, ["--version", "-V", "--help"]);
+        assert_eq!(args, ["--version", "--help"]);
         // --help can still find what --version didn't load.
         let (outcome, _) = probe_with(&[
             (2, "unknown option --version\n"),
-            (1, ""),
             (1, "No module named 'dep'\n"),
         ]);
         assert!(matches!(outcome, Outcome::Broken(_)));
@@ -962,9 +960,9 @@ operable program or batch file."#
 
     #[test]
     fn no_answer_to_any_flag_is_started() {
-        let (outcome, args) = probe_with(&[(1, ""), (1, ""), (1, ""), (1, "")]);
+        let (outcome, args) = probe_with(&[(1, ""), (1, ""), (1, "")]);
         assert!(matches!(outcome, Outcome::Started(_)));
-        assert_eq!(args, PROBES);
+        assert_eq!(args, ["--version", "--help", "-h"]);
     }
 
     #[test]
