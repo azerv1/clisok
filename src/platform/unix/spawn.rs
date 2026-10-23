@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::exec::{HEADLESS_ENV, HEADLESS_ENV_REMOVE, capture_output};
+use crate::exec::{HEADLESS_ENV, capture_output, keep_probe_env};
 use crate::platform::work_dir;
 
 pub struct Output {
@@ -187,9 +187,8 @@ fn run_with_wait(
         .stdin(Stdio::null())
         .stdout(writer.try_clone()?)
         .stderr(writer);
-    for k in HEADLESS_ENV_REMOVE {
-        cmd.env_remove(k);
-    }
+    cmd.env_clear()
+        .envs(std::env::vars_os().filter(|(k, _)| keep_probe_env(k)));
     for (k, v) in HEADLESS_ENV {
         cmd.env(k, v);
     }
@@ -389,7 +388,10 @@ mod tests {
     fn captures_output_env_and_cwd() {
         let out = run(
             Path::new("/bin/sh"),
-            &["-c", "echo $CI $TERM ${DISPLAY:-none}; pwd; echo err >&2"],
+            &[
+                "-c",
+                "echo $NO_COLOR $TERM ${DISPLAY:-none}; pwd; echo err >&2",
+            ],
             Duration::from_secs(10),
         )
         .unwrap();

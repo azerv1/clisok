@@ -32,6 +32,15 @@ Linux also adopts detached descendants as a subreaper. Cleanup kills and reaps
 those descendants after checks and on Ctrl+C, without consuming tracked probes'
 exit statuses. Probes are skipped if subreaper setup is unavailable.
 
+Probes receive `NO_COLOR=1`, `TERM=dumb`, `GIT_TERMINAL_PROMPT=0`, UTF-8 Python
+output settings and offscreen GUI hints. Standard input is closed to interaction.
+They do not receive `CI`, display/session variables, `ACTIONS_*`, `AWS_*`,
+`AZURE_*`, or names ending in `_TOKEN`, `_SECRET`, `_PASSWORD` or `_API_KEY`.
+The bare names `TOKEN`, `SECRET`, `PASSWORD` and `API_KEY` are removed too.
+Matching is case-insensitive; other environment variables are inherited.
+On Unix, `BROWSER=true` prevents browser launches, and WSL's Windows PATH
+directories are removed from the probe PATH.
+
 ```
 [BROKEN] CLI002 (user) "C:\gone" — directory does not exist
          help: remove the entry if the program is gone; reconnect the drive or share if not (user PATH)

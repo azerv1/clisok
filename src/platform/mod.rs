@@ -60,6 +60,60 @@ mod tests {
     use super::*;
 
     #[test]
+    fn probe_environment_child() {
+        if !std::env::args().any(|a| a == "clisok-probe-environment") {
+            return;
+        }
+        #[cfg(windows)]
+        let (program, args) = (
+            std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+                .join(r"System32\cmd.exe"),
+            vec![
+                "/d",
+                "/c",
+                "if defined CLISOK_FIXTURE_TOKEN exit /b 7 & if defined AWS_CLISOK_FIXTURE exit /b 7 & if defined AZURE_CLISOK_FIXTURE exit /b 7 & if defined ACTIONS_CLISOK_FIXTURE exit /b 7 & if defined CI exit /b 7 & if not \"%NO_COLOR%\"==\"1\" exit /b 8 & if not \"%GIT_TERMINAL_PROMPT%\"==\"0\" exit /b 8 & exit /b 0",
+            ],
+        );
+        #[cfg(unix)]
+        let (program, args) = (
+            std::path::PathBuf::from("/bin/sh"),
+            vec![
+                "-c",
+                "[ -z \"${CLISOK_FIXTURE_TOKEN+x}${AWS_CLISOK_FIXTURE+x}${AZURE_CLISOK_FIXTURE+x}${ACTIONS_CLISOK_FIXTURE+x}${CI+x}\" ] && [ \"$NO_COLOR\" = 1 ] && [ \"$GIT_TERMINAL_PROMPT\" = 0 ]",
+            ],
+        );
+        let out = run_headless(&program, &args, std::time::Duration::from_secs(5)).unwrap();
+        assert_eq!(out.exit, Some(0));
+    }
+
+    #[test]
+    fn actual_children_receive_filtered_environment_and_headless_hints() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "platform::tests::probe_environment_child",
+                "--nocapture",
+                "--skip",
+                "clisok-probe-environment",
+            ])
+            .envs([
+                ("CLISOK_FIXTURE_TOKEN", "synthetic"),
+                ("AWS_CLISOK_FIXTURE", "synthetic"),
+                ("AZURE_CLISOK_FIXTURE", "synthetic"),
+                ("ACTIONS_CLISOK_FIXTURE", "synthetic"),
+                ("CI", "1"),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
     fn work_directories_are_unique_and_do_not_reuse_a_precreated_name() {
         let root = tempfile::tempdir().unwrap();
         let predictable = root.path().join(format!("clisok-{}", std::process::id()));

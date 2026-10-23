@@ -16,7 +16,6 @@ pub const HEADLESS_ENV: &[(&str, &str)] = &[
     ("PYTHONUTF8", "1"),
     ("PYTHONIOENCODING", "utf-8"),
     ("NO_COLOR", "1"),
-    ("CI", "1"),
     ("TERM", "dumb"),
     ("GIT_TERMINAL_PROMPT", "0"),
     ("QT_QPA_PLATFORM", "offscreen"),
@@ -28,11 +27,24 @@ pub const HEADLESS_ENV: &[(&str, &str)] = &[
 /// WSLg and desktop sessions provide) and the D-Bus session that could ask
 /// a running desktop service to open a window.
 pub const HEADLESS_ENV_REMOVE: &[&str] = &[
+    "CI",
     "DISPLAY",
     "WAYLAND_DISPLAY",
     "XDG_RUNTIME_DIR",
     "DBUS_SESSION_BUS_ADDRESS",
 ];
+
+pub fn keep_probe_env(name: &std::ffi::OsStr) -> bool {
+    let name = name.to_string_lossy().to_ascii_uppercase();
+    !HEADLESS_ENV_REMOVE.contains(&name.as_str())
+        && !["ACTIONS_", "AWS_", "AZURE_"]
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+        && !["_TOKEN", "_SECRET", "_PASSWORD", "_API_KEY"]
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
+        && !["TOKEN", "SECRET", "PASSWORD", "API_KEY"].contains(&name.as_str())
+}
 
 /// Kept in the report for failed runs.
 const MAX_OUTPUT: usize = 4000;
@@ -455,6 +467,43 @@ pub fn trim_output(mut a: Attempt) -> Attempt {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_environment_removes_credential_names() {
+        for name in [
+            "GITHUB_TOKEN",
+            "GH_TOKEN",
+            "NPM_TOKEN",
+            "ACTIONS_RUNTIME_TOKEN",
+            "ACTIONS_CACHE_URL",
+            "AWS_ACCESS_KEY_ID",
+            "AZURE_CLIENT_ID",
+            "SERVICE_TOKEN",
+            "service_secret",
+            "DB_PASSWORD",
+            "OPENAI_API_KEY",
+            "CI",
+        ] {
+            assert!(
+                !keep_probe_env(std::ffi::OsStr::new(name)),
+                "{name} was retained"
+            );
+        }
+        for name in [
+            "PATH",
+            "SystemRoot",
+            "HOME",
+            "USERPROFILE",
+            "JAVA_HOME",
+            "NO_COLOR",
+            "GIT_TERMINAL_PROMPT",
+        ] {
+            assert!(
+                keep_probe_env(std::ffi::OsStr::new(name)),
+                "{name} was removed"
+            );
+        }
+    }
 
     fn run(exit: i32, output: &str) -> Attempt {
         Attempt {

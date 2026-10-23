@@ -16,7 +16,7 @@ use std::ptr;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use crate::exec::{HEADLESS_ENV, HEADLESS_ENV_REMOVE, capture_output};
+use crate::exec::{HEADLESS_ENV, capture_output, keep_probe_env};
 use crate::platform::work_dir;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GENERIC_ALL, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation, WAIT_FAILED,
@@ -152,12 +152,10 @@ pub fn probe_unavailable() -> Option<&'static str> {
 
 fn env_block() -> Vec<u16> {
     let mut vars: BTreeMap<String, (String, String)> = std::env::vars_os()
+        .filter(|(k, _)| keep_probe_env(k))
         .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
         .map(|(k, v)| (k.to_uppercase(), (k, v)))
         .collect();
-    for k in HEADLESS_ENV_REMOVE {
-        vars.remove(*k);
-    }
     for (k, v) in HEADLESS_ENV {
         vars.insert(k.to_string(), (k.to_string(), v.to_string()));
     }
@@ -712,7 +710,7 @@ mod tests {
         let cmd = PathBuf::from(root).join(r"System32\cmd.exe");
         let out = run(
             &cmd,
-            &["/d", "/c", "echo %CI% %TERM% & cd"],
+            &["/d", "/c", "echo %NO_COLOR% %TERM% & cd"],
             Duration::from_secs(10),
         )
         .unwrap();
