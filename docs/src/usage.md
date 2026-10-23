@@ -57,6 +57,18 @@ Tools
 
 Exit status: 0 when nothing fails, 1 when something does, 2 when clisok itself can't run (empty PATH, bad config).
 
+### Config trust boundary
+
+Automatically discovered project configs cannot enable unsafe fixes, saved PATH
+and App Paths checks, or extra search locations. clisok warns and ignores
+`fix.unsafe-fixes`, `check.registry` and `check.extra` in those files. Set them in
+your user config or select a file explicitly with `--config`.
+
+Project `skip` and `unfixable` lists add restrictions to your user config;
+`fixable` lists intersect. Other defaults and per-code severities still apply.
+Full output names the config files read on stderr. See
+[Configuration](configuration.md) for discovery boundaries and merge rules.
+
 ## `clisok list`
 
 Lists every command on PATH and the copies it shadows. Nothing is run. Commands found only in the OS's own folders are left out unless `--system` is given. OS copies are marked `[OS]`, and programs from the config's `extra` places are marked `[EXTRA]`.

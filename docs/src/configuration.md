@@ -1,6 +1,7 @@
 # Configuration
 
 clisok reads settings from TOML files. Command-line flags beat every file.
+The example below belongs in your user file or a file selected with `--config`:
 
 ```toml
 [check]
@@ -22,9 +23,15 @@ unfixable = ["CLI301"]   # never delete App Paths keys, even with --unsafe-fixes
 ## Where clisok looks
 
 1. **User file** — `%APPDATA%\clisok\config.toml` on Windows, `$XDG_CONFIG_HOME/clisok/config.toml` elsewhere (default `~/.config/clisok/config.toml`).
-2. **Project file** — `.clisok.toml` in the current folder or the nearest folder above it. The search stops at a folder holding `.git`, or at your home folder.
+2. **Project file** — `.clisok.toml` in the current folder or the nearest folder above it. The search stops at a folder holding `.git`, your home folder, or the filesystem root. On Unix it stops before reading any folder owned by another user.
 
-The project file is read after the user file, and its settings replace the user file's. `[severity]` entries merge per code; `[fix]` lists are replaced as a whole. `--config FILE` reads only that file; `--no-config` reads none. Both reports list the files read under `config` in JSON.
+The project file is read after the user file. Its ordinary defaults replace the user file's, and `[severity]` entries merge per code. These settings have additional rules:
+
+- **`fix.unsafe-fixes`, `check.registry`, `check.extra`** — accepted only from the user file or `--config`. A discovered project file gets a warning for each of these keys, and the values are ignored before variable expansion.
+- **`check.skip`, `fix.unfixable`** — project entries are added to the user lists. An empty project list cannot remove a user restriction.
+- **`fix.fixable`** — only codes allowed by both files remain fixable. An absent list allows all codes; an empty list allows none.
+
+`--config FILE` reads only that file and trusts all its settings; `--no-config` reads none. Both commands list the files read under `config` in JSON and on stderr with `full` output.
 
 ## Variables
 

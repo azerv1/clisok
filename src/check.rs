@@ -567,6 +567,13 @@ pub fn check(args: &CheckArgs) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    let format = args
+        .output_format
+        .or(config.output_format)
+        .unwrap_or(OutputFormat::Full);
+    if format == OutputFormat::Full {
+        config.report_files();
+    }
     let system = args.system || config.system.unwrap_or(false);
     let skip = if args.skip.is_empty() {
         config.skip.clone().unwrap_or_default()
@@ -711,10 +718,6 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         app_paths,
         tools,
     };
-    let format = args
-        .output_format
-        .or(config.output_format)
-        .unwrap_or(OutputFormat::Full);
     let out = match (format, args.statistics) {
         (OutputFormat::Json, true) => to_json(&report.statistics()),
         (_, true) => Ok(statistics_text(&report.statistics())),

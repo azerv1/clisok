@@ -49,6 +49,9 @@ pub fn list(args: &ListArgs) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if args.output_format == ListFormat::Full {
+        config.report_files();
+    }
     let system = args.system || config.system.unwrap_or(false);
     let entries = pathenv::process_path();
     if entries.is_empty() {

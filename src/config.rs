@@ -18,13 +18,19 @@ use crate::output::OutputFormat;
 /// The project file's name.
 pub const FILE_NAME: &str = ".clisok.toml";
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Source {
+    Trusted,
+    Project,
+}
+
 /// Every setting, for the docs generator (a test): key, value type, meaning.
 #[cfg_attr(not(test), allow(dead_code))]
 pub const KEYS: &[(&str, &str, &str)] = &[
     (
         "check.skip",
         "list of strings",
-        "Don't run these tools, like `--skip`.",
+        "Don't run these tools, like `--skip`. Project entries add to the user list.",
     ),
     (
         "check.timeout",
@@ -49,12 +55,12 @@ pub const KEYS: &[(&str, &str, &str)] = &[
     (
         "check.registry",
         "boolean",
-        "Windows only: also check the saved PATH and App Paths, like `--registry`.",
+        "Windows only: also check the saved PATH and App Paths, like `--registry`. User file or `--config` only.",
     ),
     (
         "check.extra",
         "list of strings",
-        "Files or folders off PATH to check statically; never run. Globs allowed. Also listed by `list`.",
+        "Files or folders off PATH to check statically; never run. Globs allowed. Also listed by `list`. User file or `--config` only.",
     ),
     (
         "severity.CLInnn",
@@ -64,17 +70,17 @@ pub const KEYS: &[(&str, &str, &str)] = &[
     (
         "fix.fixable",
         "list of codes",
-        "Only these codes' fixes may be applied by `--fix`; default all.",
+        "Only these codes' fixes may be applied by `--fix`; default all. Project and user lists intersect; an empty list allows none.",
     ),
     (
         "fix.unfixable",
         "list of codes",
-        "These codes' fixes are never applied; they stay advice.",
+        "These codes' fixes are never applied; they stay advice. Project entries add to the user list.",
     ),
     (
         "fix.unsafe-fixes",
         "boolean",
-        "With `--fix`, also apply unsafe fixes, like `--unsafe-fixes`.",
+        "With `--fix`, also apply unsafe fixes, like `--unsafe-fixes`. User file or `--config` only.",
     ),
 ];
 
@@ -146,16 +152,27 @@ impl ConfigArgs {
             return Ok(Config::default());
         }
         let files = match &self.config {
-            Some(f) => vec![f.clone()],
+            Some(f) => vec![(f.clone(), Source::Trusted)],
             None => {
                 let cwd = std::env::current_dir().unwrap_or_default();
-                discover(&cwd, user_file(), home().as_deref())
+                let user = user_file();
+                discover(&cwd, user.clone(), home().as_deref())
+                    .into_iter()
+                    .map(|f| {
+                        let source = if Some(&f) == user.as_ref() {
+                            Source::Trusted
+                        } else {
+                            Source::Project
+                        };
+                        (f, source)
+                    })
+                    .collect()
             }
         };
         let mut config = Config::default();
-        for f in files {
+        for (f, source) in files {
             let src = fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))?;
-            config.merge(parse(&src, &f, &env_var)?, f);
+            config.merge(parse(&src, &f, &env_var, source)?, f, source);
         }
         Ok(config)
     }
@@ -184,10 +201,23 @@ fn user_file() -> Option<PathBuf> {
 }
 
 /// The files to read, in order: the user file, then the nearest
-/// `.clisok.toml` from `start` upward, stopping at a `.git` folder or home.
+/// `.clisok.toml` from `start` upward, stopping at a `.git` folder, home,
+/// or (on Unix) before a directory owned by someone else.
 fn discover(start: &Path, user: Option<PathBuf>, home: Option<&Path>) -> Vec<PathBuf> {
+    discover_owned(start, user, home, &owned_directory)
+}
+
+fn discover_owned(
+    start: &Path,
+    user: Option<PathBuf>,
+    home: Option<&Path>,
+    owned: &dyn Fn(&Path) -> bool,
+) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = user.into_iter().filter(|f| f.is_file()).collect();
     for dir in start.ancestors() {
+        if !owned(dir) {
+            break;
+        }
         let candidate = dir.join(FILE_NAME);
         if candidate.is_file() {
             if !files.contains(&candidate) {
@@ -202,9 +232,36 @@ fn discover(start: &Path, user: Option<PathBuf>, home: Option<&Path>) -> Vec<Pat
     files
 }
 
+#[cfg(unix)]
+fn owned_directory(dir: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: geteuid has no preconditions and does not modify process state.
+    let uid = unsafe { libc::geteuid() };
+    fs::metadata(dir).is_ok_and(|m| m.uid() == uid)
+}
+
+#[cfg(windows)]
+fn owned_directory(_dir: &Path) -> bool {
+    true
+}
+
 impl Config {
-    /// Lay a later file over this one: its settings win, severities merge per code.
-    fn merge(&mut self, other: Config, file: PathBuf) {
+    pub fn report_files(&self) {
+        for file in &self.files {
+            eprintln!("clisok: config: {}", file.display());
+        }
+    }
+
+    /// Later defaults win, but project lists may only narrow user restrictions.
+    fn merge(&mut self, mut other: Config, file: PathBuf, source: Source) {
+        if source == Source::Project {
+            union(&mut self.skip, other.skip.take());
+            union(&mut self.unfixable, other.unfixable.take());
+            if let (Some(user), Some(project)) = (&mut self.fixable, &other.fixable) {
+                user.retain(|code| project.contains(code));
+                other.fixable = None;
+            }
+        }
         self.skip = other.skip.or(self.skip.take());
         self.timeout = other.timeout.or(self.timeout);
         self.jobs = other.jobs.or(self.jobs);
@@ -220,13 +277,40 @@ impl Config {
     }
 }
 
+fn union<T: PartialEq>(existing: &mut Option<Vec<T>>, incoming: Option<Vec<T>>) {
+    if let Some(incoming) = incoming {
+        let values = existing.get_or_insert_with(Vec::new);
+        for value in incoming {
+            if !values.contains(&value) {
+                values.push(value);
+            }
+        }
+    }
+}
+
 /// Parse one file and expand its variables. Errors name the file and line.
 fn parse(
     src: &str,
     path: &Path,
     lookup: &dyn Fn(&str) -> Option<String>,
+    source: Source,
 ) -> Result<Config, String> {
-    let file: File = toml::from_str(src).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut file: File = toml::from_str(src).map_err(|e| format!("{}: {e}", path.display()))?;
+    if source == Source::Project {
+        // Filter before expansion: ignored project paths must not require variables.
+        for (key, present) in [
+            ("fix.unsafe-fixes", file.fix.unsafe_fixes.take().is_some()),
+            ("check.registry", file.check.registry.take().is_some()),
+            ("check.extra", file.check.extra.take().is_some()),
+        ] {
+            if present {
+                eprintln!(
+                    "clisok: {}: warning: ignoring {key} in project config; use the user config or --config",
+                    path.display()
+                );
+            }
+        }
+    }
     let expand_all = |list: Option<Vec<Spanned<String>>>| -> Result<Option<Vec<String>>, String> {
         list.map(|items| {
             items
@@ -264,6 +348,14 @@ pub use clisok::parsing::expand;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse(
+        src: &str,
+        path: &Path,
+        lookup: &dyn Fn(&str) -> Option<String>,
+    ) -> Result<Config, String> {
+        super::parse(src, path, lookup, Source::Trusted)
+    }
 
     fn vars(name: &str) -> Option<String> {
         match name {
@@ -384,8 +476,16 @@ mod tests {
         let mut c = Config::default();
         let user = "[check]\ntimeout = 5\nskip = [\"a\"]\n[severity]\nCLI007 = \"error\"\n";
         let project = "[check]\nskip = [\"b\"]\n[severity]\nCLI008 = \"off\"\n";
-        c.merge(parse(user, Path::new("u"), &vars).unwrap(), "u".into());
-        c.merge(parse(project, Path::new("p"), &vars).unwrap(), "p".into());
+        c.merge(
+            parse(user, Path::new("u"), &vars).unwrap(),
+            "u".into(),
+            Source::Trusted,
+        );
+        c.merge(
+            parse(project, Path::new("p"), &vars).unwrap(),
+            "p".into(),
+            Source::Trusted,
+        );
         assert_eq!(c.timeout, Some(5));
         assert_eq!(c.skip, Some(vec!["b".to_string()]));
         assert_eq!(c.severity.len(), 2);
@@ -417,5 +517,130 @@ mod tests {
             discover(&deep, Some(tmp.path().join("missing.toml")), None),
             [repo.join(FILE_NAME)]
         );
+    }
+
+    #[test]
+    fn project_cannot_set_trusted_options_even_before_variable_expansion() {
+        let src = "[check]\nregistry = true\nextra = ['${NOPE}']\n[fix]\nunsafe-fixes = true\n";
+        let c = super::parse(src, Path::new("project"), &vars, Source::Project).unwrap();
+        assert_eq!(c.registry, None);
+        assert_eq!(c.extra, None);
+        assert_eq!(c.unsafe_fixes, None);
+        let c = parse(
+            &src.replace("${NOPE}", "${HOME}"),
+            Path::new("trusted"),
+            &vars,
+        )
+        .unwrap();
+        assert_eq!(c.registry, Some(true));
+        assert_eq!(c.extra, Some(vec!["/home/me".into()]));
+        assert_eq!(c.unsafe_fixes, Some(true));
+    }
+
+    #[test]
+    fn project_lists_preserve_user_restrictions() {
+        let user = "[check]\nskip = ['a']\ntimeout = 5\n[fix]\nfixable = ['CLI001', 'CLI007']\nunfixable = ['CLI301']\n";
+        for (project, skips, fixable, unfixable) in [
+            (
+                "[check]\nskip = []\n[fix]\nunfixable = []\n",
+                vec!["a"],
+                vec![Code::Cli001, Code::Cli007],
+                vec![Code::Cli301],
+            ),
+            (
+                "[check]\nskip = ['b', 'a']\n[fix]\nfixable = ['CLI007', 'CLI301']\nunfixable = ['CLI007', 'CLI301']\n",
+                vec!["a", "b"],
+                vec![Code::Cli007],
+                vec![Code::Cli301, Code::Cli007],
+            ),
+            (
+                "[fix]\nfixable = []\n",
+                vec!["a"],
+                vec![],
+                vec![Code::Cli301],
+            ),
+        ] {
+            let mut c = parse(user, Path::new("user"), &vars).unwrap();
+            let p = super::parse(project, Path::new("project"), &vars, Source::Project).unwrap();
+            c.merge(p, "project".into(), Source::Project);
+            assert_eq!(c.skip.unwrap(), skips);
+            assert_eq!(c.fixable.unwrap(), fixable);
+            assert_eq!(c.unfixable.unwrap(), unfixable);
+            assert_eq!(c.timeout, Some(5));
+        }
+        // An absent user allowlist means unrestricted, not "allow no fixes".
+        let mut c = Config::default();
+        c.merge(
+            parse("[fix]\nfixable = ['CLI007']\n", Path::new("p"), &vars).unwrap(),
+            "p".into(),
+            Source::Project,
+        );
+        assert_eq!(c.fixable, Some(vec![Code::Cli007]));
+        c.merge(
+            parse("[fix]\nfixable = ['CLI001']\n", Path::new("p"), &vars).unwrap(),
+            "p".into(),
+            Source::Project,
+        );
+        assert_eq!(c.fixable, Some(vec![]));
+    }
+
+    #[test]
+    fn discovery_does_not_read_or_cross_a_foreign_owned_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let foreign = tmp.path().join("foreign");
+        let start = foreign.join("owned");
+        fs::create_dir_all(&start).unwrap();
+        fs::write(foreign.join(FILE_NAME), "").unwrap();
+        fs::write(tmp.path().join(FILE_NAME), "").unwrap();
+        let user = tmp.path().join("user.toml");
+        fs::write(&user, "").unwrap();
+        assert_eq!(
+            discover_owned(&start, Some(user.clone()), None, &|dir| dir != foreign),
+            vec![user.clone()]
+        );
+        fs::remove_file(foreign.join(FILE_NAME)).unwrap();
+        assert_eq!(
+            discover_owned(&start, Some(user), None, &|dir| dir != foreign).len(),
+            1
+        );
+        fs::write(start.join(FILE_NAME), "").unwrap();
+        assert_eq!(
+            discover_owned(&start, None, None, &|dir| dir != foreign),
+            vec![start.join(FILE_NAME)]
+        );
+        assert!(discover_owned(&start, None, None, &|_| false).is_empty());
+    }
+
+    #[test]
+    fn discovery_stops_at_home_before_looking_above_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let start = home.join("project");
+        fs::create_dir_all(&start).unwrap();
+        fs::write(tmp.path().join(FILE_NAME), "").unwrap();
+        assert!(discover(&start, None, Some(&home)).is_empty());
+        fs::write(home.join(FILE_NAME), "").unwrap();
+        assert_eq!(
+            discover(&start, None, Some(&home)),
+            vec![home.join(FILE_NAME)]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_discovery_checks_actual_directory_ownership() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(owned_directory(tmp.path()));
+        assert!(!owned_directory(&tmp.path().join("missing")));
+        // A privileged test run can also exercise a real foreign-owned directory.
+        if unsafe { libc::geteuid() } == 0 {
+            let foreign = tmp.path().join("foreign");
+            let start = foreign.join("owned");
+            fs::create_dir_all(&start).unwrap();
+            fs::write(foreign.join(FILE_NAME), "").unwrap();
+            std::os::unix::fs::chown(&foreign, Some(1), None).unwrap();
+            assert!(!owned_directory(&foreign));
+            assert!(discover(&start, None, None).is_empty());
+        }
     }
 }

@@ -92,6 +92,121 @@ impl Fixture {
     fn assert_not_run(&self) {
         assert!(!self.marker.exists(), "fixture performed an action");
     }
+
+    fn configured(&self, subcommand: &str, args: &[&str]) -> Output {
+        Command::new(env!("CARGO_BIN_EXE_clisok"))
+            .arg(subcommand)
+            .args(args)
+            .env("PATH", &self.commands)
+            .env("APPDATA", self.root.path().join("user"))
+            .env("XDG_CONFIG_HOME", self.root.path().join("user"))
+            .env("HOME", self.root.path())
+            .env("USERPROFILE", self.root.path())
+            .current_dir(self.root.path())
+            .output()
+            .unwrap()
+    }
+}
+
+#[test]
+fn discovered_project_cannot_enable_trusted_options() {
+    let fixture = Fixture::new();
+    fixture.native("native-probe");
+    let project = fixture.root.path().join(".clisok.toml");
+    fs::write(
+        &project,
+        "[check]\nregistry = true\nextra = ['${CLISOK_MISSING_PROJECT_VAR}']\n[fix]\nunsafe-fixes = true\n",
+    ).unwrap();
+    let out = fixture.configured("list", &["--output-format", "json"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(report["config"], serde_json::json!([project]));
+    assert_eq!(report["extra"], serde_json::json!([]));
+    let warnings = String::from_utf8_lossy(&out.stderr);
+    for key in ["fix.unsafe-fixes", "check.registry", "check.extra"] {
+        assert!(warnings.contains(key), "{warnings}");
+    }
+
+    let out = fixture.configured("list", &["--no-config", "--output-format", "json"]);
+    assert!(out.status.success());
+    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(report["config"], serde_json::json!([]));
+    assert!(out.stderr.is_empty());
+}
+
+#[test]
+fn user_and_explicit_configs_keep_trusted_options() {
+    let fixture = Fixture::new();
+    fixture.native("native-probe");
+    let user_dir = fixture.root.path().join("user").join("clisok");
+    fs::create_dir_all(&user_dir).unwrap();
+    let config = user_dir.join("config.toml");
+    let extra = fixture
+        .root
+        .path()
+        .join(if cfg!(windows) { "extra.exe" } else { "extra" });
+    fs::copy(env!("CARGO_BIN_EXE_clisok"), &extra).unwrap();
+    fs::write(
+        &config,
+        format!(
+            "[check]\nextra = ['{}']\nregistry = true\n[fix]\nunsafe-fixes = true\n",
+            extra.display()
+        ),
+    )
+    .unwrap();
+    fs::write(
+        fixture.root.path().join(".clisok.toml"),
+        "[check]\nextra = []\n",
+    )
+    .unwrap();
+
+    let out = fixture.configured("list", &["--output-format", "json"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(report["extra"][0]["path"], serde_json::json!(extra));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("check.extra"));
+
+    let out = fixture.configured(
+        "list",
+        &[
+            "--config",
+            config.to_str().unwrap(),
+            "--output-format",
+            "json",
+        ],
+    );
+    assert!(out.status.success());
+    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(report["config"], serde_json::json!([config]));
+    assert_eq!(report["extra"][0]["path"], serde_json::json!(extra));
+    assert!(out.stderr.is_empty());
+}
+
+#[test]
+fn full_output_names_config_files_on_stderr() {
+    let fixture = Fixture::new();
+    fixture.native("native-probe");
+    let config = fixture.root.path().join(".clisok.toml");
+    fs::write(&config, "[check]\nskip = ['native-probe']\n").unwrap();
+    for subcommand in ["list", "check"] {
+        let out = fixture.configured(subcommand, &[]);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains(config.to_str().unwrap()), "{stderr}");
+        assert!(!String::from_utf8_lossy(&out.stdout).contains(config.to_str().unwrap()));
+    }
 }
 
 fn assert_tool<'a>(
