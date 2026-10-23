@@ -1,0 +1,42 @@
+src/platform/unix/shebang.rs
+  s_952c14d9527d3b::t_b2a71484dc8896 100-101,104,106,108-110,217
+  s_952c14d9527d3b::t_0f9ab2cb481281 159-162
+  s_952c14d9527d3b::t_f3c61213f700c7 86-94,98-99,102-103,105,107,111-122,127-158,163-166,208-209,218,221-223,238,244-245
+  s_952c14d9527d3b::t_34108075b6ee93 95-97,167-192,194-207,343-346,350-353
+  s_952c14d9527d3b::t_323134a1ddf541 123-126,193,337-339
+  s_952c14d9527d3b::t_cb5eba4b4e7c76 330-336,340-342,347-349,362-363
+  s_952c14d9527d3b::t_101a747b8667e6 354-361
+  s_952c14d9527d3b::t_87e0e9adad9992 329
+docs/src/usage.md
+  s_952c14d9527d3b::t_f3c61213f700c7 15-18
+tests/cli.rs
+  s_952c14d9527d3b::t_cb5eba4b4e7c76 154-168
+  s_952c14d9527d3b::t_b2a71484dc8896 143-146,150
+  s_db5280e2a28a79::t_6b4cf00635444d 151-153
+src/platform/unix/mod.rs
+  s_952c14d9527d3b::t_b2a71484dc8896 206-208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "99c1b377b6025d509636cd6b390123a14b9b39f8",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_db5280e2a28a79": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148de-35f5-7943-8ec6-e12634bbacee",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
