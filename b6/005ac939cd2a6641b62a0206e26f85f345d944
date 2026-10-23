@@ -1,0 +1,32 @@
+src/platform/windows/spawn.rs
+  s_952c14d9527d3b::t_ecce27a90f34cb 19,155,713
+src/platform/mod.rs
+  s_952c14d9527d3b::t_ecce27a90f34cb 62-87,99,109,111
+  s_952c14d9527d3b::t_e8ceb92d7f8963 88-98,100-108,110,112-115
+src/platform/unix/spawn.rs
+  s_952c14d9527d3b::t_ecce27a90f34cb 20,190
+  s_952c14d9527d3b::t_905cb7d0625925 191,391-394
+src/exec.rs
+  s_952c14d9527d3b::t_a9cd82c1fce028 471-474,486
+  s_952c14d9527d3b::t_ecce27a90f34cb 30,40-42
+  s_952c14d9527d3b::t_a188128030986c 37-39,43-44
+  s_952c14d9527d3b::t_7ff143efd39c84 45-48,475-485,487-507
+docs/src/usage.md
+  s_952c14d9527d3b::t_ecce27a90f34cb 35-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b6005ac939cd2a6641b62a0206e26f85f345d944",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
