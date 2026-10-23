@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::codes::{CODES, Code, Severity};
 use crate::fix::Fix;
 use crate::pathenv::PathEntry;
-use crate::report::{Report, Verdict};
+use crate::report::{Report, Verdict, terminal_text};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum OutputFormat {
@@ -139,7 +139,13 @@ pub fn concise(report: &Report) -> String {
         } else {
             ""
         };
-        let _ = writeln!(s, "{}: {}{star} {}", i.location.label(), i.code, i.message);
+        let _ = writeln!(
+            s,
+            "{}: {}{star} {}",
+            terminal_text(i.location.label()),
+            i.code,
+            terminal_text(&i.message)
+        );
     }
     let n = items.len();
     let _ = writeln!(s, "Found {n} finding{}.", if n == 1 { "" } else { "s" });
@@ -296,6 +302,72 @@ mod tests {
             app_paths: vec![],
             tools: vec![tool],
         }
+    }
+
+    #[test]
+    fn terminal_reports_strip_controls_from_untrusted_fields_but_json_keeps_them() {
+        let dirty = "bad\u{1b}[2J\nline\r\u{7}\u{7f}\u{85}\tend";
+        let mut report = report();
+        let t = &mut report.tools[0];
+        t.name = dirty.into();
+        t.path = dirty.into();
+        t.note = Some(dirty.into());
+        t.code = Some(Code::Cli204);
+        t.shadowed = vec![dirty.into()];
+        t.ms = 10;
+        t.reasons = Finding::new(
+            Reason::FailedToStart {
+                error: dirty.into(),
+            },
+            &Severities::default(),
+        )
+        .into_iter()
+        .collect();
+        report.path_problems[0].entry.raw = dirty.into();
+        report.path_problems[0].fix.as_mut().unwrap().message = dirty.into();
+        report.fixed.push(crate::fix::Applied {
+            code: Code::Cli007,
+            target: dirty.into(),
+            message: dirty.into(),
+            backup: dirty.into(),
+        });
+        report.app_paths.extend(crate::report::AppPathIssue::new(
+            crate::platform::AppPath {
+                key: dirty.into(),
+                target: dirty.into(),
+            },
+            &Severities::default(),
+        ));
+        for text in [report.to_text(true, true), concise(&report)] {
+            assert!(
+                text.chars()
+                    .all(|c| !c.is_control() || matches!(c, '\n' | '\t')),
+                "{text:?}"
+            );
+            assert!(text.contains("bad[2Jline\tend"), "{text:?}");
+            assert!(!text.contains("bad[2J\nline"), "untrusted newline survived");
+        }
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["tools"][0]["name"], dirty);
+        let list = crate::report::ListReport {
+            schema: SCHEMA_VERSION,
+            command: "list",
+            commands: vec![crate::discover::PathCommand {
+                name: dirty.into(),
+                copies: vec![
+                    crate::discover::FileCopy {
+                        path: dirty.into(),
+                        os: false,
+                    },
+                    crate::discover::FileCopy {
+                        path: dirty.into(),
+                        os: false,
+                    },
+                ],
+            }],
+        };
+        assert!(!list.to_text().contains('\u{1b}'));
+        assert!(!list.to_text().contains("bad[2J\nline"));
     }
 
     #[test]

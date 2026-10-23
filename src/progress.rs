@@ -6,9 +6,14 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use crate::platform::cursor_visible;
+use crate::report::terminal_text;
 
 const BAR_WIDTH: usize = 30;
 const NAME_WIDTH: usize = 28;
+
+fn progress_name(name: &str) -> String {
+    terminal_text(name).chars().take(NAME_WIDTH).collect()
+}
 
 pub struct Progress {
     total: usize,
@@ -36,7 +41,7 @@ impl Progress {
         let mut n = done.lock().unwrap_or_else(|e| e.into_inner());
         *n += 1;
         let filled = *n * BAR_WIDTH / self.total.max(1);
-        let name: String = name.chars().take(NAME_WIDTH).collect();
+        let name = progress_name(name);
         let mut err = io::stderr().lock();
         let _ = write!(
             err,
@@ -68,5 +73,23 @@ impl Drop for Progress {
         if self.done.is_some() {
             cursor_visible(true);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_strips_controls_before_limiting_name_width() {
+        let name = format!(
+            "{}hello\tworld{}",
+            "\u{1b}\r\u{85}".repeat(30),
+            "x".repeat(40)
+        );
+        let shown = progress_name(&name);
+        assert!(shown.starts_with("hello\tworld"));
+        assert_eq!(shown.chars().count(), NAME_WIDTH);
+        assert!(shown.chars().all(|c| !c.is_control() || c == '\t'));
     }
 }

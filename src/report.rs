@@ -157,7 +157,7 @@ impl AppPathIssue {
 /// The indented `help:` / `fix:` line under a finding.
 fn write_fix(s: &mut String, fix: Option<&Fix>) {
     if let Some(f) = fix {
-        let _ = writeln!(s, "         {} {}", f.label(), f.message);
+        let _ = writeln!(s, "         {} {}", f.label(), terminal_text(&f.message));
     }
 }
 
@@ -174,6 +174,16 @@ fn severity_tag(s: Severity) -> &'static str {
 pub fn print_stdout(text: &str) {
     use std::io::Write as _;
     let _ = std::io::stdout().lock().write_all(text.as_bytes());
+}
+
+/// One untrusted terminal field, with C0/C1 controls (except tab) removed.
+/// Call before adding layout newlines, so filenames cannot inject report lines.
+pub fn terminal_text(value: impl std::fmt::Display) -> String {
+    value
+        .to_string()
+        .chars()
+        .filter(|&c| c == '\t' || !c.is_control())
+        .collect()
 }
 
 /// One line of `--statistics`.
@@ -310,12 +320,22 @@ impl Report {
         if show_fixes && !self.fixed.is_empty() {
             s.push_str("Fixed\n");
             for f in &self.fixed {
-                let _ = writeln!(s, "[FIXED]  {} {} — {}", f.code, f.target, f.message);
+                let _ = writeln!(
+                    s,
+                    "[FIXED]  {} {} — {}",
+                    f.code,
+                    terminal_text(&f.target),
+                    terminal_text(&f.message)
+                );
             }
             let mut backups: Vec<&PathBuf> = self.fixed.iter().map(|f| &f.backup).collect();
             backups.dedup();
             for b in backups {
-                let _ = writeln!(s, "         backup of the old value: {}", b.display());
+                let _ = writeln!(
+                    s,
+                    "         backup of the old value: {}",
+                    terminal_text(b.display())
+                );
             }
             s.push('\n');
         }
@@ -329,7 +349,7 @@ impl Report {
                 } else {
                     ""
                 };
-                let (code, origin, raw) = (p.code, p.entry.origin, &p.entry.raw);
+                let (code, origin, raw) = (p.code, p.entry.origin, terminal_text(&p.entry.raw));
                 let _ = writeln!(s, "{tag} {code}{star} ({origin}) \"{raw}\" — {}", p.problem);
                 write_fix(&mut s, p.fix.as_ref());
             }
@@ -341,8 +361,8 @@ impl Report {
             for a in &self.app_paths {
                 let (tag, key, target) = (
                     severity_tag(a.severity),
-                    &a.app_path.key,
-                    a.app_path.target.display(),
+                    terminal_text(&a.app_path.key),
+                    terminal_text(a.app_path.target.display()),
                 );
                 let _ = writeln!(
                     s,
@@ -366,23 +386,29 @@ impl Report {
             s.push_str("Tools\n");
         }
         for t in tools {
-            let _ = writeln!(s, "{} {}  {}", t.verdict.tag(), t.name, t.path.display());
+            let _ = writeln!(
+                s,
+                "{} {}  {}",
+                t.verdict.tag(),
+                terminal_text(&t.name),
+                terminal_text(t.path.display())
+            );
             for r in &t.reasons {
-                let _ = writeln!(s, "         {r}");
+                let _ = writeln!(s, "         {}", terminal_text(r));
                 write_fix(&mut s, r.fix.as_ref());
             }
             match (&t.note, t.code) {
                 (Some(n), Some(c)) => {
-                    let _ = writeln!(s, "         {c} {n}");
+                    let _ = writeln!(s, "         {c} {}", terminal_text(n));
                 }
                 (Some(n), None) => {
-                    let _ = writeln!(s, "         {n}");
+                    let _ = writeln!(s, "         {}", terminal_text(n));
                 }
                 (None, _) => {}
             }
             if verbose {
                 for sh in &t.shadowed {
-                    let _ = writeln!(s, "         shadows {}", sh.display());
+                    let _ = writeln!(s, "         shadows {}", terminal_text(sh.display()));
                 }
             }
         }
@@ -393,7 +419,7 @@ impl Report {
             let list: Vec<String> = slow
                 .iter()
                 .take(5)
-                .map(|t| format!("{} {:.1}s", t.name, t.ms as f64 / 1000.0))
+                .map(|t| format!("{} {:.1}s", terminal_text(&t.name), t.ms as f64 / 1000.0))
                 .collect();
             if !list.is_empty() {
                 let _ = writeln!(s, "\nSlowest: {}", list.join(", "));
@@ -426,7 +452,7 @@ impl Report {
                     let _ = writeln!(
                         s,
                         "Fixed {n} problem{plural}; backups in {}.",
-                        dir.display()
+                        terminal_text(dir.display())
                     );
                 }
                 None => {
@@ -476,12 +502,17 @@ impl ListReport {
             let _ = writeln!(
                 s,
                 "{}  {}{}",
-                c.name,
-                c.active().path.display(),
+                terminal_text(&c.name),
+                terminal_text(c.active().path.display()),
                 os_tag(c.active().os)
             );
             for sh in c.shadowed() {
-                let _ = writeln!(s, "    shadows {}{}", sh.path.display(), os_tag(sh.os));
+                let _ = writeln!(
+                    s,
+                    "    shadows {}{}",
+                    terminal_text(sh.path.display()),
+                    os_tag(sh.os)
+                );
             }
         }
         let shadowing = self

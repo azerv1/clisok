@@ -40,6 +40,9 @@ The bare names `TOKEN`, `SECRET`, `PASSWORD` and `API_KEY` are removed too.
 Matching is case-insensitive; other environment variables are inherited.
 On Unix, `BROWSER=true` prevents browser launches, and WSL's Windows PATH
 directories are removed from the probe PATH.
+Terminal reports and progress remove C0/C1 control characters, except tab, from
+untrusted names, paths and messages. JSON retains the original values with
+JSON escaping.
 
 ```
 [BROKEN] CLI002 (user) "C:\gone" — directory does not exist
