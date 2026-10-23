@@ -26,6 +26,8 @@ On Unix it is accessible only to its owner (mode `0700`). A directory creation
 failure prevents the probe from starting. Cleanup runs after checks and on Ctrl+C.
 On Windows, probes require a private hidden desktop. If it cannot be created,
 eligible tools are skipped with `not run: hidden desktop unavailable`.
+Batch files whose path contains `%` are also skipped, because cmd expands
+variables in those paths even inside quotes.
 Linux also adopts detached descendants as a subreaper. Cleanup kills and reaps
 those descendants after checks and on Ctrl+C, without consuming tracked probes'
 exit statuses. Probes are skipped if subreaper setup is unavailable.

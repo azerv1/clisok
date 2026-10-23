@@ -209,12 +209,19 @@ fn quote(arg: &OsStr, out: &mut Vec<u16>) {
 }
 
 /// Application name and command line. Batch files run through cmd.exe.
-fn command_line(program: &Path, args: &[&str]) -> io::Result<(PathBuf, OsString)> {
-    let is_batch = program
+fn is_batch(program: &Path) -> bool {
+    program
         .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
-    if !is_batch {
+        .is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"))
+}
+
+pub(super) fn unsafe_batch_path(program: &Path) -> bool {
+    is_batch(program) && program.as_os_str().encode_wide().any(|c| c == b'%' as u16)
+}
+
+fn command_line(program: &Path, args: &[&str]) -> io::Result<(PathBuf, OsString)> {
+    if !is_batch(program) {
         let mut line = Vec::new();
         quote(program.as_os_str(), &mut line);
         for a in args {
@@ -222,6 +229,12 @@ fn command_line(program: &Path, args: &[&str]) -> io::Result<(PathBuf, OsString)
             quote(OsStr::new(a), &mut line);
         }
         return Ok((program.to_path_buf(), OsString::from_wide(&line)));
+    }
+    if unsafe_batch_path(program) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not run: batch file path contains % (cmd expands variables)",
+        ));
     }
     if args
         .iter()
@@ -690,6 +703,7 @@ mod tests {
             r#"cmd.exe /d /e:ON /v:OFF /c ""C:\My Tools\x.cmd" --help""#
         );
         assert!(command_line(Path::new(r"C:\x.bat"), &["a&b"]).is_err());
+        assert!(command_line(Path::new(r"C:\%TEMP%\x.cmd"), &["--help"]).is_err());
     }
 
     #[test]

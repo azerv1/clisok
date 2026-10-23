@@ -114,6 +114,9 @@ pub fn never_scan(_dir: &Path) -> bool {
 /// Files that are never run, whatever else is true about them: Windows' own
 /// programs. The hidden desktop, job objects and GUI checks cover the rest.
 pub fn never_run(path: &Path) -> Option<&'static str> {
+    if spawn::unsafe_batch_path(path) {
+        return Some("not run: batch file path contains % (cmd expands variables)");
+    }
     path.parent()
         .is_some_and(is_os_dir)
         .then_some("not run: Windows' own program (static checks only)")

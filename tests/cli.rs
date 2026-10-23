@@ -106,6 +106,25 @@ impl Fixture {
 }
 
 #[test]
+#[cfg(windows)]
+fn batch_paths_containing_percent_are_skipped_without_attempts() {
+    let mut fixture = Fixture::new();
+    fixture.commands = fixture.commands.join("%TEMP%");
+    fs::create_dir(&fixture.commands).unwrap();
+    let target = env!("CARGO_BIN_EXE_clisok");
+    fixture.script("percent-launcher", &format!("@\"{target}\" %*\r\n"));
+    let report = fixture.check(&[]);
+    let tool = assert_tool(&report, "percent-launcher", "shim", "skip", 0);
+    assert!(
+        tool["note"]
+            .as_str()
+            .unwrap()
+            .contains("batch file path contains %")
+    );
+    fixture.assert_not_run();
+}
+
+#[test]
 fn toml_support_is_removed_from_check_and_list() {
     let fixture = Fixture::new();
     fixture.native("native-probe");
