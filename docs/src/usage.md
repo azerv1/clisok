@@ -43,9 +43,9 @@ Tools
 - **`--statistics`** — print how many findings each code has, most first, instead of the findings: `19  CLI107  [ ] hidden behind an OS copy`. `[*]` means `--fix` fixes all of them, `[-]` some. With `--output-format json`, a list of `code`, `name`, `count` and `fixable`. The exit status is the same as without it.
 - **`-v`, `--verbose`** — also list passing and skipped tools, and shadowed copies.
 - **`--skip NAME`** — don't run this tool. Repeatable.
-- **`--fix`** — apply the safe fixes, marked `[*]` and shown as `fix:` lines. On Windows that removes empty and repeated entries from the saved user PATH (they need `--registry` to show up). The old value is saved under `%LOCALAPPDATA%\clisok\backups\` first, and the report shows what is left afterwards. Advice (`help:` lines) is never applied.
+- **`--fix`** — apply the safe fixes, marked `[*]` and shown as `fix:` lines. On Windows this implies `--registry` and removes empty and repeated entries from the saved user PATH. The old value is saved under `%LOCALAPPDATA%\clisok\backups\` first, and the report shows what is left afterwards. Advice (`help:` lines) is never applied.
 - **`--unsafe-fixes`** — with `--fix`, also apply the unsafe fixes (`fix (unsafe):` lines): clean quotes and spaces off user PATH entries, which can make a dead entry live and change which program runs, and delete user App Paths keys whose program is missing, which may only be on an unplugged drive. Each key is exported to a `.reg` file in the backups folder first; `reg import` restores it.
-- **`--diff`** — print what `--fix` (with `--unsafe-fixes`, if given) would change, as a diff, then exit without changing or running anything. Exit status 1 when there is something to fix.
+- **`--diff`** — print what `--fix` (with `--unsafe-fixes`, if given) would change, as a diff, then exit without changing or running anything. On Windows this implies `--registry`. Exit status 1 when there is something to fix.
 - **`--show-fixes`** — with `--fix`, list every applied fix in a `Fixed` section instead of only counting them.
 - **`--exit-non-zero-on-fix`** — with `--fix`, exit 1 when anything was fixed, even if nothing is left.
 - **`--ignore CODE`** — drop findings with this code, e.g. `CLI007`. Repeatable.

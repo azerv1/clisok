@@ -55,8 +55,7 @@ pub struct CheckArgs {
     #[arg(long, value_name = "NAME")]
     skip: Vec<String>,
     /// Apply the safe fixes (the `fix:` lines). On Windows that removes empty
-    /// and repeated entries from the saved user PATH; needs --registry to
-    /// find them
+    /// and repeated entries from the saved user PATH; implies --registry
     #[arg(long)]
     fix: bool,
     /// Also apply the unsafe fixes (`fix (unsafe):`): clean quotes and spaces
@@ -64,7 +63,8 @@ pub struct CheckArgs {
     #[arg(long, requires = "fix_mode")]
     unsafe_fixes: bool,
     /// Print what --fix would change as a diff, then exit without changing
-    /// or running anything; exit 1 if there is something to fix
+    /// or running anything; exit 1 if there is something to fix.
+    /// On Windows, implies --registry
     #[arg(long)]
     diff: bool,
     /// List every fix --fix applied, not just how many
@@ -308,7 +308,7 @@ fn cost_rank(p: &Prepared) -> u8 {
 
 #[cfg(windows)]
 fn check_registry(args: &CheckArgs) -> bool {
-    args.registry
+    args.registry || args.fix || args.diff
 }
 #[cfg(unix)]
 fn check_registry(_: &CheckArgs) -> bool {
@@ -826,6 +826,27 @@ mod tests {
             fixable_problems(&issues, false),
             [(1, EntryProblem::Duplicate)]
         );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn fix_and_diff_enable_saved_settings_checks() {
+        use clap::Parser;
+        for (flags, expected) in [
+            (vec![], false),
+            (vec!["--registry"], true),
+            (vec!["--fix"], true),
+            (vec!["--diff"], true),
+            (vec!["--fix", "--unsafe-fixes"], true),
+            (vec!["--diff", "--unsafe-fixes"], true),
+        ] {
+            let cli = crate::Cli::try_parse_from([vec!["clisok", "check"], flags.clone()].concat())
+                .unwrap();
+            let Some(crate::Command::Check(args)) = cli.command else {
+                panic!("expected check")
+            };
+            assert_eq!(check_registry(&args), expected, "{flags:?}");
+        }
     }
 
     #[test]
