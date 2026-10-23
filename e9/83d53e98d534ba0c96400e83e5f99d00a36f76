@@ -1,0 +1,23 @@
+src/platform/windows/spawn.rs
+  s_952c14d9527d3b::t_20e9a515871792 16,37,40-41,44-55,59-60,65-66,71-72,85-100,361,363-367,370-371,387
+  s_952c14d9527d3b::t_05a047cef34b49 38-39,56-58,61-64,67-70,73-84,384,390,469-472,478-487,489-492,499-521
+  s_952c14d9527d3b::t_5cebe4777d780a 397,473-477,488,493-498,522-525
+  s_952c14d9527d3b::t_65309664c9fb12 362
+  s_952c14d9527d3b::t_5d315ebc11591d 372-374,385-386,526-527
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e983d53e98d534ba0c96400e83e5f99d00a36f76",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
