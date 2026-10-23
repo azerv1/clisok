@@ -6,7 +6,7 @@ branding:
 
 inputs:
   version:
-    description: "Release tag to use; defaults to the action ref when versioned, otherwise latest."
+    description: "Release tag; required with a SHA-pinned Action, otherwise defaults to a versioned ref or latest."
     default: ""
   args:
     description: "Arguments split on whitespace, e.g. check --output-format github."

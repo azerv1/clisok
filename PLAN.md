@@ -30,13 +30,13 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **`clisok check [existing options]`** — preserve the current PATH, launcher, dependency, and test-run checks (`--version`, then `--help`), including `--output-format`, `--verbose`, `--skip`, `--jobs`, `--timeout`, Windows `--registry`, and `--system` (now on every platform).
   - **Repair preview** (done) — each finding may carry a fix, printed under it; JSON carries the same. Plain `check` is the preview. See **Fixes**.
-  - **Hidden behind an OS copy** — when an OS-owned copy is active and hides a user-installed copy, report a tool-level `[WARN]`. The OS copy is never run, the hidden copy gets static inspection only, and the exit code is unaffected. Today the whole command is dropped (`src/discover.rs:58`).
+  - **Hidden behind an OS copy (done)** — when an OS-owned copy is active and hides a user-installed copy, report a tool-level `[WARN]`. The OS copy is never run, the hidden copy gets static inspection only, and the exit code is unaffected.
 
 - **Error codes** (done) — every finding has a permanent code: CLI0xx PATH entries, CLI1xx tool checks, CLI2xx the test run, CLI3xx registry. A code is never renumbered or reused. `--ignore CODE` drops a code; the list lives in `src/codes.rs`.
 
 - **Settings** — command-line flags only; TOML configuration support was removed. Expected-tool rules are out of scope: that is pathlint's job.
 
-- **Docs** (done) — an mdBook site in `docs/`, deployed to GitHub Pages. The codes page and the config key table are generated from the source; a test fails when they are stale.
+- **Docs** (done) — an mdBook site in `docs/`, deployed to GitHub Pages. The codes page is generated from the source; a test fails when it is stale. Settings are CLI flags only.
 
 - **Name and scope** (done) — renamed from pathsok, then binok, to clisok, since the tool checks the system's CLI tools, not only PATH. Codes moved from `PATHnnn` to `CLInnn` before any of them was released. PATH-entry checks and `list` stay even though pathlint and patholog also cover them: PATH entries are one input to the executables check.
 
@@ -75,7 +75,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **PATH invariant (done)** — before a saved user PATH write, compare every command's first match under the old and new persisted PATH (machine + user, expanded). Safe changes that alter resolution abort with `skipped: would change resolution of X`. Unsafe changes list affected names in the applied-fix messages; they cannot bypass the check on safe removals in the same repair. Repairs retain the scanned value and type, target reported indexes, and save a backup before writing. There is no restore command.
 
-- **Reporting** — every finding carries its `code` and effective `severity` (done). Add a JSON schema version, command mode, inventory entries, planned and applied repair actions, final verdicts, and backup location where applicable. Under `--output-format json`, stdout contains JSON only; progress and diagnostics remain on stderr. This already holds today (`src/main.rs:291`, `src/progress.rs`).
+- **Reporting** — every finding carries its `code` and effective `severity` (done). Reports include a JSON schema version, command mode, applied repairs, final verdicts and backup locations where applicable. Under `--output-format json`, stdout contains JSON only; progress and diagnostics remain on stderr.
 
 **Platform path** — common Unix behavior → OS-specific binary inspection → OS-specific safety rules.
 
@@ -97,7 +97,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 ## Platform Matrix and CI
 
-- **Windows** — targets every Microsoft-supported Windows 11 x64 feature release. Tested on GitHub-hosted `windows-2022` and `windows-2025` runners, plus a manual smoke run on a real Windows 11 machine with a fixture PATH before each release. Windows 10 22H2 is best-effort and untested.
+- **Windows** — targets every Microsoft-supported Windows 11 x64 feature release. Native CI uses `windows-2025`; a manual smoke run on a real Windows 11 machine with a fixture PATH is required before each release. Windows 10 22H2 is best-effort and untested.
 
 - **macOS** — current major and previous two majors on Apple Silicon. Intel runs natively only while GitHub's `macos-15-intel` runner exists (retiring fall 2027); fixtures cover x86_64 and universal Mach-O files on Apple Silicon.
 

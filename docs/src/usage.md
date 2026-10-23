@@ -63,7 +63,7 @@ Tools
 - **`-v`, `--verbose`** — also list passing and skipped tools, and shadowed copies.
 - **`--skip NAME`** — don't run this tool. Repeatable.
 - **`--static`** — inspect files without starting tools or interpreter probes. More specific skip reasons remain visible. This works as root or elevated without `--allow-root` and cannot be combined with `--fix`.
-- **`--allow-root`** — allow probes when running as root or elevated. Without it, a privileged `check` exits 2 before scanning, fixing or probing. `--diff`, `list` and `rule` remain available without the override.
+- **`--allow-root`** — allow probes when running as root or elevated. Without it, a privileged `check` exits 2 before scanning, fixing or probing. `--static`, `--diff`, `list` and `rule` remain available without the override.
 - **`--fix`** — apply the safe fixes, marked `[*]` and shown as `fix:` lines. On Windows this implies `--registry` and removes empty and repeated entries from the saved user PATH. The old value is saved under `%LOCALAPPDATA%\clisok\backups\` first, and the report shows what is left afterwards. Advice (`help:` lines) is never applied.
 - **`--unsafe-fixes`** — with `--fix`, also apply the unsafe fixes (`fix (unsafe):` lines): clean quotes and spaces off user PATH entries, which can make a dead entry live and change which program runs, and delete user App Paths keys whose program is missing, which may only be on an unplugged drive. Each key is exported to a `.reg` file in the backups folder first; `reg import` restores it.
 - **`--diff`** — print what `--fix` (with `--unsafe-fixes`, if given) would change, as a diff, then exit without changing or running anything. On Windows this implies `--registry`. Exit status 1 when there is something to fix.
@@ -103,6 +103,19 @@ Before a PATH repair, clisok compares command resolution under the expanded
 machine and user PATH values before and after the edit. Safe repairs that change
 a command's first match are skipped. Unsafe repairs list the changed command
 names in JSON `fixed` messages and in the `--show-fixes` output.
+
+## Trust boundary
+
+Eligible probes execute programs found on your PATH, with your permissions and
+the probe environment described above. Plain scripts, installers, GUI programs,
+app execution aliases, skipped tools and OS-owned programs receive static
+inspection only. Hidden copies are also inspected without being run.
+
+`check --static` starts no child processes, including interpreter module probes.
+It cannot be combined with `--fix`. Options come only from the command line;
+user and project configuration files cannot widen execution or repair behavior.
+Windows repairs affect only reported user settings, after a backup and the
+resolution checks described above. System settings are never repaired.
 
 ## `clisok list`
 

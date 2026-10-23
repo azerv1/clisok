@@ -34,7 +34,7 @@ Report bugs and feature requests through GitHub issues.
 ## GitHub Action
 
 ```yaml
-- uses: azerv1/clisok@0.4.0
+- uses: azerv1/clisok@0.3.0
   with:
     args: check --skip some-noisy-tool
 ```
@@ -78,14 +78,15 @@ while still acquiring missing ones. See the [act usage guide](https://nektosact.
 The acceptance limit is 20 minutes total on this machine, including setup and
 downloads; timing has not been measured yet. Workflow job timeouts apply on GitHub;
 `act` [ignores them](https://nektosact.com/not_supported.html), so stop the local run
-at 20 minutes and record the unfinished step if it overruns. Fuzzing, mutation,
-Miri and reproducibility workflows are separate scheduled or manual runs.
+at 20 minutes and record the unfinished step if it overruns. Fuzzing, mutation
+and reproducibility workflows are separate scheduled or manual runs.
 
 ## Releases
 
 Before the first release, set the Git remote and run
-`uv run python tools/github_setup.py` to configure branch/tag protection and
-secret scanning. This changes GitHub settings and requires admin rights.
+`uv run python tools/github_setup.py` to configure branch/tag protection,
+secret scanning and private vulnerability reporting. This changes GitHub settings
+and requires admin rights; see [SECURITY.md](SECURITY.md) for private reports.
 
 Run `uvx --from commitizen==4.19.2 cz bump`, review the version/changelog, then
 `git push --follow-tags`. Tags with or without a `v` prefix must match Cargo.toml.
@@ -94,12 +95,15 @@ Distribution uses GitHub Releases; crates.io publishing remains disabled.
 Releases require CI on the exact tagged commit and smoke tests of the final
 Windows/Linux archives. The GitHub Action verifies the archive checksum and
 requested version before execution.
+Checksums detect corrupted or changed downloads. They are not independent proof
+of who built a release, since the archive and manifest come from the same release.
 
-Nightly checks run coverage (90% lines), Miri on the pure library, and one-hour
-fuzz campaigns for Python entry-module parsing.
+Nightly checks run coverage (90% lines) and two-minute fuzz campaigns for Python
+entry-module parsing. The whole fuzz job, including setup, has a five-minute
+limit. Miri is omitted while the library has no unsafe code.
 Weekly checks run parser mutation tests (80%), benchmarks, and two clean Linux
 builds for reproducibility. These checks do not delay releases; missing results
-are reported as missing. Miri and fuzzing do not cover the native backends.
+are reported as missing. Fuzzing does not cover the native backends.
 
 The 15–30 minute release target has not been measured on GitHub.
 

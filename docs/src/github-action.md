@@ -3,7 +3,7 @@
 Check the runner's PATH, for example after your setup steps:
 
 ```yaml
-- uses: azerv1/clisok@0.4.0
+- uses: azerv1/clisok@0.3.0
   with:
     args: check --skip some-noisy-tool
 ```
@@ -11,7 +11,7 @@ Check the runner's PATH, for example after your setup steps:
 To show each finding as an annotation on the run, add `--output-format github`:
 
 ```yaml
-- uses: azerv1/clisok@0.4.0
+- uses: azerv1/clisok@0.3.0
   with:
     args: check --output-format github
 ```
@@ -20,6 +20,7 @@ To show each finding as an annotation on the run, add `--output-format github`:
 |-----------|---------|---------|
 | `args`    | `check` | Arguments passed to clisok, split on whitespace |
 | `version` | the ref | Release to download; defaults to the ref you used, else the latest |
+| `assets-directory` | empty | Verify existing release archives and `SHA256SUMS` in this directory instead of downloading |
 
 When pinning the Action to a full commit SHA, also pass `version: 0.3.0` to select
 the release binary. A SHA without `version` fails instead of downloading latest.
@@ -30,6 +31,8 @@ The action requires Python 3.11+ and the GitHub CLI, provided by the supported
 GitHub-hosted runners. It downloads the release archive and checksum manifest,
 verifies the archive checksum, extracts only the executable, and checks its
 version before running it. A checksum mismatch or wrong version fails the step.
+The checksum detects corrupted or changed downloads; it does not independently
+authenticate the publisher, because the manifest and archive share a release.
 
 The executable runs by absolute path and is never added to PATH. An optional
 `assets-directory` input points to pre-downloaded release files; all checksum and

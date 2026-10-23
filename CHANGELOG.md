@@ -4,12 +4,18 @@
 
 - Remove TOML configuration files and the `--config` and `--no-config` flags. Options are supplied on the command line. Config-only severity overrides, fix allowlists and off-PATH extra locations are removed.
 - JSON report schema is now 2: remove `config` from both reports and `extra` from `list`.
+- Privileged probes require `check --allow-root`; `check --static` remains available without it.
+
+### Added
+
+- `check --static` inspects files without starting tools or interpreter probes.
+- Windows repairs target scanned entries, detect concurrent PATH changes and protect command resolution. `--fix` and `--diff` include registry checks automatically.
 
 ## 0.3.0 (2026-10-07)
 
 ### BREAKING CHANGE
 
-- the old flat options now live under `pathsok check` (e.g. `pathsok check --json`); bare `pathsok` prints help instead of running a check.
+- The old flat options moved under `check`. With the current name and flags, use `clisok check --output-format json`; bare `clisok` prints help instead of running a check. The tool was previously named `pathsok`.
 
 ### Feat
 
