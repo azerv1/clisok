@@ -346,6 +346,9 @@ fn entry_issues(entries: &[pathenv::PathEntry], sev: &Severities) -> Vec<EntryIs
 /// ones, and broken App Paths registrations.
 fn path_findings(
     entries: &[PathEntry],
+    persisted: &[PathEntry],
+    cut: &[PathEntry],
+    registrations: &[platform::AppPath],
     registry: bool,
     severities: &Severities,
 ) -> (Vec<EntryIssue>, Vec<AppPathIssue>) {
@@ -355,10 +358,14 @@ fn path_findings(
     // terminal started before PATH was changed.
     let session: HashSet<String> = entries.iter().map(|e| path_key(&e.dir)).collect();
     let mut reported = HashSet::new();
-    for e in platform::persisted_path() {
+    for e in persisted {
         let key = path_key(&e.dir);
         if e.dir.is_dir() && !session.contains(&key) && reported.insert(key) {
-            path_problems.extend(EntryIssue::new(e, EntryProblem::NotInSession, severities));
+            path_problems.extend(EntryIssue::new(
+                e.clone(),
+                EntryProblem::NotInSession,
+                severities,
+            ));
         }
     }
     let mut app_paths = Vec::new();
@@ -369,12 +376,13 @@ fn path_findings(
             .map(|p| (path_key(&p.entry.dir), p.problem.to_string()))
             .collect();
         path_problems.extend(
-            entry_issues(&platform::persisted_path(), severities)
+            entry_issues(persisted, severities)
                 .into_iter()
                 .filter(|p| !known.contains(&(path_key(&p.entry.dir), p.problem.to_string()))),
         );
-        app_paths = platform::broken_app_paths()
-            .into_iter()
+        app_paths = registrations
+            .iter()
+            .cloned()
             .filter_map(|a| AppPathIssue::new(a, severities))
             .collect();
     }
@@ -382,13 +390,13 @@ fn path_findings(
     // A saved PATH cut off by a length limit lost every entry after the cut,
     // and nothing else shows that. Its stub is reported as the cut, not as a
     // plain missing folder.
-    let cut = platform::truncated_saved_paths();
     let cut_keys: HashSet<String> = cut.iter().map(|e| path_key(&e.dir)).collect();
     path_problems.retain(|p| {
         !(p.problem == EntryProblem::Missing && cut_keys.contains(&path_key(&p.entry.dir)))
     });
     path_problems.extend(
-        cut.into_iter()
+        cut.iter()
+            .cloned()
             .filter_map(|entry| EntryIssue::new(entry, EntryProblem::Truncated, severities)),
     );
     (path_problems, app_paths)
@@ -547,7 +555,21 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     let severities = severities(args, &config);
     let registry = check_registry(args, &config);
     let findings = || {
-        let (mut path_problems, mut app_paths) = path_findings(&entries, registry, &severities);
+        let persisted = platform::persisted_path();
+        let cut = platform::truncated_saved_paths();
+        let registrations = if registry {
+            platform::broken_app_paths()
+        } else {
+            Vec::new()
+        };
+        let (mut path_problems, mut app_paths) = path_findings(
+            &entries,
+            &persisted,
+            &cut,
+            &registrations,
+            registry,
+            &severities,
+        );
         limit_fixes(&config, &mut path_problems, &mut app_paths);
         (path_problems, app_paths)
     };
@@ -765,6 +787,89 @@ mod tests {
 
     fn severities(pairs: &[(Code, Severity)]) -> Severities {
         Severities(pairs.iter().copied().collect())
+    }
+
+    #[test]
+    fn path_findings_use_only_the_supplied_saved_entries() {
+        use pathenv::PathOrigin;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let process = PathEntry {
+            raw: tmp.path().display().to_string(),
+            dir: tmp.path().to_path_buf(),
+            origin: PathOrigin::Process,
+        };
+        let saved_dir = tmp.path().join("saved");
+        fs::create_dir(&saved_dir).unwrap();
+        let saved = PathEntry {
+            raw: saved_dir.display().to_string(),
+            dir: saved_dir,
+            origin: PathOrigin::User,
+        };
+        let cut_dir = tmp.path().join("cut");
+        let cut = PathEntry {
+            raw: cut_dir.display().to_string(),
+            dir: cut_dir,
+            origin: PathOrigin::User,
+        };
+        let registrations = [platform::AppPath {
+            key: "HKCU\\test\\tool.exe".into(),
+            target: tmp.path().join("gone.exe"),
+        }];
+        let persisted = [saved, cut.clone()];
+        let sev = Severities::default();
+        let (issues, apps) = path_findings(
+            &[process],
+            &persisted,
+            std::slice::from_ref(&cut),
+            &registrations,
+            true,
+            &sev,
+        );
+        assert_eq!(issues.len(), 2);
+        assert_eq!(issues[0].problem, EntryProblem::NotInSession);
+        assert_eq!(issues[0].entry.origin, PathOrigin::User);
+        assert_eq!(issues[1].problem, EntryProblem::Truncated);
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].app_path.key, registrations[0].key);
+
+        let (issues, apps) = path_findings(&[], &[], &[], &[], true, &sev);
+        assert!(issues.is_empty() && apps.is_empty());
+    }
+
+    #[test]
+    fn saved_path_and_app_path_errors_require_registry_mode() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("missing");
+        let entry = PathEntry {
+            raw: dir.display().to_string(),
+            dir: dir.clone(),
+            origin: pathenv::PathOrigin::User,
+        };
+        let registrations = [platform::AppPath {
+            key: "HKCU\\test\\tool.exe".into(),
+            target: dir,
+        }];
+        let (issues, apps) = path_findings(
+            &[],
+            std::slice::from_ref(&entry),
+            &[],
+            &registrations,
+            false,
+            &Severities::default(),
+        );
+        assert!(issues.is_empty() && apps.is_empty());
+        let (issues, apps) = path_findings(
+            &[],
+            &[entry],
+            &[],
+            &registrations,
+            true,
+            &Severities::default(),
+        );
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].problem, EntryProblem::Missing);
+        assert_eq!(apps.len(), 1);
     }
 
     #[test]
