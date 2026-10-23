@@ -2,7 +2,7 @@
 
 use std::io::{self, Read};
 use std::path::Path;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use regex::{Regex, RegexSet};
@@ -40,27 +40,60 @@ const MAX_OUTPUT: usize = 4000;
 /// Maximum retained child output; excess bytes are drained to avoid blocking the child.
 pub const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
 
-/// Retain a bounded prefix while continuing to drain stdout/stderr until EOF.
-pub fn capture_output(mut reader: impl Read) -> (Vec<u8>, bool) {
-    let mut output = Vec::new();
-    let mut truncated = false;
-    let mut chunk = [0u8; 8192];
-    loop {
-        match reader.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(n) => {
-                let kept = n.min(MAX_CAPTURE_BYTES - output.len());
-                output.extend_from_slice(&chunk[..kept]);
-                truncated |= kept < n;
-            }
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(_) => {
-                truncated = true;
-                break;
+#[derive(Default)]
+struct Captured {
+    output: Vec<u8>,
+    truncated: bool,
+    closed: bool,
+}
+
+pub struct Capture {
+    state: Arc<Mutex<Captured>>,
+    done: mpsc::Receiver<()>,
+}
+
+impl Capture {
+    /// Stop waiting for EOF after the drain deadline, retaining every byte seen
+    /// so far. An open descendant pipe is incomplete, not an empty result.
+    pub fn finish(self, timeout: Duration) -> (Vec<u8>, bool) {
+        let incomplete = self.done.recv_timeout(timeout).is_err();
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.closed = true;
+        (
+            std::mem::take(&mut state.output),
+            state.truncated || incomplete,
+        )
+    }
+}
+
+/// Drain in the background while publishing a bounded prefix incrementally.
+pub fn capture_output(mut reader: impl Read + Send + 'static) -> Capture {
+    let state = Arc::new(Mutex::new(Captured::default()));
+    let shared = Arc::clone(&state);
+    let (tx, done) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut chunk = [0u8; 8192];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
+                    if !state.closed {
+                        let kept = n.min(MAX_CAPTURE_BYTES - state.output.len());
+                        state.output.extend_from_slice(&chunk[..kept]);
+                        state.truncated |= kept < n;
+                    }
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(_) => {
+                    shared.lock().unwrap_or_else(|e| e.into_inner()).truncated = true;
+                    break;
+                }
             }
         }
-    }
-    (output, truncated)
+        let _ = tx.send(());
+    });
+    Capture { state, done }
 }
 
 /// Exit statuses raised by the Windows loader before the program runs.
@@ -494,14 +527,66 @@ mod tests {
 
     #[test]
     fn capture_keeps_a_bounded_prefix_and_drains_the_rest() {
-        let mut input = io::Cursor::new(vec![b'x'; MAX_CAPTURE_BYTES * 3]);
-        let (output, truncated) = capture_output(&mut input);
+        struct Counted {
+            input: io::Cursor<Vec<u8>>,
+            consumed: Arc<std::sync::atomic::AtomicUsize>,
+        }
+        impl Read for Counted {
+            fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+                let n = self.input.read(bytes)?;
+                self.consumed
+                    .fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+                Ok(n)
+            }
+        }
+        let consumed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let input = Counted {
+            input: io::Cursor::new(vec![b'x'; MAX_CAPTURE_BYTES * 3]),
+            consumed: Arc::clone(&consumed),
+        };
+        let (output, truncated) = capture_output(input).finish(Duration::from_secs(2));
         assert_eq!(output, vec![b'x'; MAX_CAPTURE_BYTES]);
         assert!(truncated);
-        assert_eq!(input.position(), (MAX_CAPTURE_BYTES * 3) as u64);
-        let (output, truncated) = capture_output(&b"small"[..]);
+        assert_eq!(
+            consumed.load(std::sync::atomic::Ordering::Relaxed),
+            MAX_CAPTURE_BYTES * 3
+        );
+        let (output, truncated) = capture_output(&b"small"[..]).finish(Duration::from_secs(2));
         assert_eq!(output, b"small");
         assert!(!truncated);
+    }
+
+    #[test]
+    fn capture_drain_deadline_keeps_partial_output_on_every_platform() {
+        struct GatedReader {
+            first: bool,
+            ready: mpsc::Sender<()>,
+            release: mpsc::Receiver<()>,
+        }
+        impl Read for GatedReader {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                if self.first {
+                    self.first = false;
+                    buffer[..6].copy_from_slice(b"prefix");
+                    return Ok(6);
+                }
+                self.ready.send(()).unwrap();
+                self.release.recv().unwrap();
+                Ok(0)
+            }
+        }
+        let (ready, published) = mpsc::channel();
+        let (release, blocked) = mpsc::channel();
+        let capture = capture_output(GatedReader {
+            first: true,
+            ready,
+            release: blocked,
+        });
+        published.recv_timeout(Duration::from_secs(2)).unwrap();
+        let (output, truncated) = capture.finish(Duration::from_millis(10));
+        release.send(()).unwrap();
+        assert_eq!(output, b"prefix");
+        assert!(truncated);
     }
 
     #[test]

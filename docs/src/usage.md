@@ -63,6 +63,8 @@ to suppress a code's findings.
 On Unix, a probe terminated by a signal fails with `CLI205`. JSON attempts include
 `signal` and retain the shell-compatible `exit` value (`128 + signal`). A probe
 killed by its timeout remains a timeout finding.
+If a descendant keeps the output pipe open, clisok retains the prefix already
+captured and marks the attempt's `output_truncated` field as true.
 
 Relative PATH entries are reported as `CLI010` warnings. On Unix they are resolved
 against the directory where you invoked clisok, including in the probe's PATH.

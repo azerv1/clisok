@@ -12,7 +12,7 @@ use std::io;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::{Mutex, mpsc};
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -73,7 +73,7 @@ fn child_path(raw: &OsStr, cwd: &Path) -> io::Result<OsString> {
 }
 
 pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Output> {
-    let (mut reader, writer) = io::pipe()?;
+    let (reader, writer) = io::pipe()?;
     let mut cmd = Command::new(program);
     cmd.args(args)
         .current_dir(work_dir()?)
@@ -108,10 +108,7 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
     let pgid = child.id() as i32; // after setsid the child leads its own group
     track(pgid, true);
 
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let _ = tx.send(capture_output(&mut reader));
-    });
+    let capture = capture_output(reader);
 
     let deadline = Instant::now() + timeout;
     let status = loop {
@@ -129,9 +126,7 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
     kill_group(pgid);
     track(pgid, false);
 
-    let (output, truncated) = rx
-        .recv_timeout(Duration::from_secs(2))
-        .unwrap_or_else(|_| (Vec::new(), true));
+    let (output, truncated) = capture.finish(Duration::from_secs(2));
     // A signal death has no exit code; report it the way shells do (128 + signal).
     let exit = status.and_then(|s| s.code().or_else(|| s.signal().map(|sig| 128 + sig)));
     Ok(Output {
@@ -240,6 +235,34 @@ mod tests {
         .unwrap();
         assert!(out.timed_out);
         assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+    }
+
+    #[test]
+    fn retains_partial_output_when_a_detached_descendant_holds_the_pipe() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("detached-pid");
+        let result = run(
+            Path::new("/bin/sh"),
+            &[
+                "-c",
+                "printf captured-prefix; /usr/bin/setsid /bin/sh -c 'echo $$ > \"$1\"; /bin/sleep 5' sh \"$1\" & while [ ! -s \"$1\" ]; do /bin/sleep 0.01; done",
+                "sh",
+                marker.to_str().unwrap(),
+            ],
+            Duration::from_secs(2),
+        );
+        // Always clean up our deliberately escaped fixture before asserting output.
+        let pid: i32 = std::fs::read_to_string(&marker)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert!(pid > 1);
+        kill_group(pid);
+        let out = result.unwrap();
+        assert!(!out.timed_out);
+        assert!(out.truncated);
+        assert_eq!(out.output, b"captured-prefix");
     }
 
     #[test]

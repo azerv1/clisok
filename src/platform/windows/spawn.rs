@@ -12,9 +12,9 @@ use std::io;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock, mpsc};
+use std::ptr;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
-use std::{ptr, thread};
 
 use crate::exec::{HEADLESS_ENV, HEADLESS_ENV_REMOVE, capture_output};
 use crate::platform::work_dir;
@@ -292,11 +292,7 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
         OwnedHandle::from_raw_handle(pi.hProcess)
     };
 
-    let (tx, rx) = mpsc::channel();
-    let mut reader = File::from(rd);
-    thread::spawn(move || {
-        let _ = tx.send(capture_output(&mut reader));
-    });
+    let capture = capture_output(File::from(rd));
 
     let ms = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX - 1);
     // SAFETY: valid process and job handles.
@@ -316,9 +312,7 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
     };
     // Closing the job kills leftover grandchildren so the pipe reaches EOF.
     drop(job);
-    let (output, truncated) = rx
-        .recv_timeout(Duration::from_secs(2))
-        .unwrap_or_else(|_| (Vec::new(), true));
+    let (output, truncated) = capture.finish(Duration::from_secs(2));
     Ok(Output {
         exit,
         signal: None,
