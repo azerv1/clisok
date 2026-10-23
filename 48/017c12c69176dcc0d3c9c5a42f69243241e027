@@ -1,0 +1,29 @@
+docs/src/usage.md
+  s_952c14d9527d3b::t_7082e99d7161e9 66-67
+src/platform/unix/spawn.rs
+  s_952c14d9527d3b::t_7082e99d7161e9 15,76,111,129
+  s_952c14d9527d3b::t_4aaf71a2cdee26 240-259
+  s_952c14d9527d3b::t_8ac4d8914168b6 260-267
+src/exec.rs
+  s_952c14d9527d3b::t_7082e99d7161e9 5,43-91,94-96,530-547,550-554,559-572
+  s_952c14d9527d3b::t_63e5c734d57283 573-591
+src/platform/windows/spawn.rs
+  s_952c14d9527d3b::t_7082e99d7161e9 15
+  s_952c14d9527d3b::t_089f0e4b4bdd4d 16,295,315
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "48017c12c69176dcc0d3c9c5a42f69243241e027",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
