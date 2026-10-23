@@ -1,0 +1,27 @@
+tests/release/test_artifacts.py
+  s_952c14d9527d3b::t_53e69b3e34f2e1 54-83
+.github/workflows/reproducible.yml
+  s_952c14d9527d3b::t_f9eff3d44309c0 19-20
+tools/github_setup.py
+  s_952c14d9527d3b::t_f9eff3d44309c0 44-45
+tools/release_check.py
+  s_952c14d9527d3b::t_f9eff3d44309c0 78
+tools/reproducible.py
+  s_952c14d9527d3b::t_f9eff3d44309c0 11-12,48-49,52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ceba763ac979d49bfc92671db1647a0144e96e95",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
