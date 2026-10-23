@@ -1,5 +1,6 @@
 //! Persisted environment PATH and App Paths registrations.
 
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -7,7 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
-use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_SET_VALUE};
+use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_SET_VALUE, RegType};
 use winreg::types::FromRegValue;
 use winreg::{RegKey, RegValue};
 
@@ -23,19 +24,137 @@ const APP_PATHS: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths";
 /// Windows dialogs 2047.
 const CUT_LENGTHS: &[usize] = &[1023, 1024, 2047, 2048, 4095, 4096, 8191, 8192];
 
+#[derive(Clone)]
+struct EnvValue {
+    text: String,
+    expandable: bool,
+}
+
+impl EnvValue {
+    fn from_raw(value: &RegValue) -> Option<Self> {
+        matches!(value.vtype, RegType::REG_SZ | RegType::REG_EXPAND_SZ).then_some(())?;
+        Some(Self {
+            text: String::from_reg_value(value).ok()?,
+            expandable: value.vtype == RegType::REG_EXPAND_SZ,
+        })
+    }
+}
+
+type Environment = HashMap<String, EnvValue>;
+
+fn read_environment(key: &RegKey, values: &mut Environment) {
+    for (name, raw) in key.enum_values().flatten() {
+        if let Some(value) = EnvValue::from_raw(&raw) {
+            values.insert(name.to_uppercase(), value);
+        }
+    }
+}
+
+/// Saved machine values, then user overrides. Only Windows/profile variables
+/// come from this process; a stale process JAVA_HOME must not override the registry.
+fn saved_environment() -> Environment {
+    let mut values = Environment::new();
+    for (hive, name) in [
+        (HKEY_LOCAL_MACHINE, SYSTEM_ENV),
+        (HKEY_CURRENT_USER, USER_ENV),
+    ] {
+        if let Ok(key) = RegKey::predef(hive).open_subkey(name) {
+            read_environment(&key, &mut values);
+        }
+    }
+    for name in [
+        "SystemRoot",
+        "SystemDrive",
+        "USERPROFILE",
+        "LOCALAPPDATA",
+        "APPDATA",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "USERNAME",
+        "USERDOMAIN",
+        "ProgramData",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+    ] {
+        if let Ok(text) = std::env::var(name) {
+            values.insert(
+                name.to_uppercase(),
+                EnvValue {
+                    text,
+                    expandable: false,
+                },
+            );
+        }
+    }
+    values
+}
+
+fn expand_saved(raw: &str, expandable: bool, env: &Environment) -> String {
+    if !expandable {
+        return raw.into();
+    }
+    expand_environment(raw, env, &mut HashSet::new(), &mut HashMap::new())
+}
+
+/// Resolve expandable registry variables, preserving literals and unknown/cyclic
+/// references. Bound recursion and output to Windows' environment-string limit.
+fn expand_environment(
+    raw: &str,
+    env: &Environment,
+    visiting: &mut HashSet<String>,
+    cache: &mut HashMap<String, String>,
+) -> String {
+    const LIMIT: usize = 32_767;
+    if visiting.len() >= 32 || raw.len() > LIMIT {
+        return raw.into();
+    }
+    let mut out = String::new();
+    let mut at = 0;
+    for captures in super::VAR_RE.captures_iter(raw) {
+        let matched = captures.get(0).unwrap();
+        let name = captures[1].to_uppercase();
+        let value = if let Some(value) = cache.get(&name) {
+            value.clone()
+        } else if let Some(value) = env.get(&name).filter(|_| !visiting.contains(&name)) {
+            visiting.insert(name.clone());
+            let text = if value.expandable {
+                expand_environment(&value.text, env, visiting, cache)
+            } else {
+                value.text.clone()
+            };
+            visiting.remove(&name);
+            cache.insert(name, text.clone());
+            text
+        } else {
+            matched.as_str().into()
+        };
+        if out.len() + matched.start() - at + value.len() > LIMIT {
+            return raw.into();
+        }
+        out.push_str(&raw[at..matched.start()]);
+        out.push_str(&value);
+        at = matched.end();
+    }
+    if out.len() + raw.len() - at > LIMIT {
+        return raw.into();
+    }
+    out.push_str(&raw[at..]);
+    out
+}
+
 /// The raw saved PATH values: system first, then user.
-fn saved_values() -> Vec<(String, PathOrigin)> {
+fn saved_values() -> Vec<(EnvValue, PathOrigin)> {
     [
         (HKEY_LOCAL_MACHINE, SYSTEM_ENV, PathOrigin::System),
         (HKEY_CURRENT_USER, USER_ENV, PathOrigin::User),
     ]
     .into_iter()
     .filter_map(|(hive, key, origin)| {
-        let raw: String = RegKey::predef(hive)
+        let raw = RegKey::predef(hive)
             .open_subkey(key)
-            .and_then(|k| k.get_value("Path"))
+            .and_then(|k| k.get_raw_value("Path"))
             .ok()?;
-        Some((raw, origin))
+        Some((EnvValue::from_raw(&raw)?, origin))
     })
     .collect()
 }
@@ -62,15 +181,17 @@ pub fn fix_user_path(
 pub fn preview_user_path(
     fixable: &[EntryProblem],
 ) -> Result<Option<(String, Vec<EntryEdit>)>, String> {
-    let raw: String = RegKey::predef(HKEY_CURRENT_USER)
+    let old = RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey(USER_ENV)
-        .and_then(|k| k.get_value("Path"))
+        .and_then(|k| k.get_raw_value("Path"))
         .map_err(|e| format!("can't read the user PATH: {e}"))?;
+    let raw = String::from_reg_value(&old).map_err(|e| format!("can't read the user PATH: {e}"))?;
+    let env = saved_environment();
     let (_, edits) = pathenv::fix_entries(
         &saved_system_entries(),
         &raw,
         PathOrigin::User,
-        expand_vars,
+        |s| expand_saved(s, old.vtype == RegType::REG_EXPAND_SZ, &env),
         fixable,
     );
     Ok((!edits.is_empty()).then_some((raw, edits)))
@@ -78,10 +199,13 @@ pub fn preview_user_path(
 
 /// The saved system PATH's entries, which come before the user's.
 fn saved_system_entries() -> Vec<PathEntry> {
+    let env = saved_environment();
     saved_values()
         .into_iter()
         .filter(|(_, origin)| *origin == PathOrigin::System)
-        .flat_map(|(r, origin)| pathenv::parse_path(&expand_vars(&r), origin))
+        .flat_map(|(r, origin)| {
+            pathenv::parse_path(&expand_saved(&r.text, r.expandable, &env), origin)
+        })
         .collect()
 }
 
@@ -93,12 +217,28 @@ fn fix_path_value(
     fixable: &[EntryProblem],
     backups: &Path,
 ) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
+    fix_path_value_with_environment(key, earlier, fixable, backups, &saved_environment())
+}
+
+fn fix_path_value_with_environment(
+    key: &RegKey,
+    earlier: &[PathEntry],
+    fixable: &[EntryProblem],
+    backups: &Path,
+    env: &Environment,
+) -> Result<Option<(Vec<EntryEdit>, PathBuf)>, String> {
     let fail = |what: &str, e: std::io::Error| format!("{what} the user PATH: {e}");
     let old = key
         .get_raw_value("Path")
         .map_err(|e| fail("can't read", e))?;
     let raw = String::from_reg_value(&old).map_err(|e| fail("can't read", e))?;
-    let (new, edits) = pathenv::fix_entries(earlier, &raw, PathOrigin::User, expand_vars, fixable);
+    let (new, edits) = pathenv::fix_entries(
+        earlier,
+        &raw,
+        PathOrigin::User,
+        |s| expand_saved(s, old.vtype == RegType::REG_EXPAND_SZ, env),
+        fixable,
+    );
     if edits.is_empty() {
         return Ok(None);
     }
@@ -206,25 +346,35 @@ fn broadcast_env_change() {
 
 /// The PATH new processes would get: system entries, then user entries.
 pub fn persisted_path() -> Vec<PathEntry> {
+    let env = saved_environment();
     saved_values()
         .iter()
-        .flat_map(|(raw, origin)| pathenv::parse_path(&expand_vars(raw), *origin))
+        .flat_map(|(raw, origin)| {
+            pathenv::parse_path(&expand_saved(&raw.text, raw.expandable, &env), *origin)
+        })
         .collect()
 }
 
 /// The last entry of each saved PATH that looks cut off. Whatever came after
 /// the cut is gone, and nothing else on PATH shows it.
 pub fn truncated_saved_paths() -> Vec<PathEntry> {
+    let env = saved_environment();
     saved_values()
         .iter()
-        .filter_map(|(raw, origin)| cut_entry(raw, *origin))
+        .filter_map(|(raw, origin)| {
+            cut_entry(
+                &raw.text,
+                *origin,
+                &expand_saved(&raw.text, raw.expandable, &env),
+            )
+        })
         .collect()
 }
 
 /// The last entry of `raw` when the value looks truncated: its length is a
 /// known limit, or it stops mid-name.
-fn cut_entry(raw: &str, origin: PathOrigin) -> Option<PathEntry> {
-    let last = pathenv::parse_path(&expand_vars(raw), origin)
+fn cut_entry(raw: &str, origin: PathOrigin, expanded: &str) -> Option<PathEntry> {
+    let last = pathenv::parse_path(expanded, origin)
         .into_iter()
         .rev()
         .find(|e| !e.raw.trim().is_empty())?;
@@ -291,8 +441,118 @@ pub fn broken_app_paths() -> Vec<AppPath> {
 mod tests {
     use super::*;
 
+    fn registry_string(text: &str, vtype: RegType) -> RegValue<'static> {
+        RegValue {
+            bytes: text
+                .encode_utf16()
+                .chain([0])
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<_>>()
+                .into(),
+            vtype,
+        }
+    }
+
+    #[test]
+    fn saved_environment_uses_user_overrides_and_ignores_process_java_home() {
+        let name = format!(r"Software\clisok-test-saved-env-{}", std::process::id());
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (machine, _) = hkcu.create_subkey(format!(r"{name}\machine")).unwrap();
+        let (user, _) = hkcu.create_subkey(format!(r"{name}\user")).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let java = temp.path().join("registry-java");
+        let stale = temp.path().join("stale-process-java");
+        fs::create_dir_all(java.join("bin")).unwrap();
+        fs::create_dir_all(stale.join("bin")).unwrap();
+        machine
+            .set_value("JAVA_HOME", &stale.display().to_string())
+            .unwrap();
+        user.set_value("java_home", &java.display().to_string())
+            .unwrap();
+        let mut env = Environment::new();
+        read_environment(&machine, &mut env);
+        read_environment(&user, &mut env);
+        let (path, _) = hkcu.create_subkey(format!(r"{name}\path")).unwrap();
+        path.set_raw_value(
+            "Path",
+            &registry_string(r"%JAVA_HOME%\bin", RegType::REG_EXPAND_SZ),
+        )
+        .unwrap();
+        let earlier =
+            pathenv::parse_path(&stale.join("bin").display().to_string(), PathOrigin::System);
+        let backups = tempfile::tempdir().unwrap();
+        let result = fix_path_value_with_environment(
+            &path,
+            &earlier,
+            &[EntryProblem::Duplicate],
+            backups.path(),
+            &env,
+        );
+        let expanded = expand_saved(r"%JaVa_HoMe%\bin", true, &env);
+        hkcu.delete_subkey_all(&name).unwrap();
+        assert_eq!(PathBuf::from(expanded), java.join("bin"));
+        assert!(
+            result.unwrap().is_none(),
+            "the registry Java is not the earlier stale Java"
+        );
+        assert_eq!(fs::read_dir(backups.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn expansion_respects_nested_value_types_unknown_names_and_cycles() {
+        let value = |text: &str, expandable| EnvValue {
+            text: text.into(),
+            expandable,
+        };
+        let mut env = Environment::from([
+            ("BASE".into(), value(r"C:\registry", false)),
+            ("JAVA_HOME".into(), value(r"%BASE%\java", true)),
+            ("LITERAL".into(), value("%BASE%", false)),
+            ("A".into(), value("%B%", true)),
+            ("B".into(), value("%A%", true)),
+        ]);
+        assert_eq!(expand_saved("%java_home%", true, &env), r"C:\registry\java");
+        assert_eq!(expand_saved("%JAVA_HOME%", false, &env), "%JAVA_HOME%");
+        assert_eq!(expand_saved("%LITERAL%", true, &env), "%BASE%");
+        assert_eq!(expand_saved("%MISSING%", true, &env), "%MISSING%");
+        assert!(expand_saved("%A%", true, &env).contains('%'));
+        for i in 0..24 {
+            env.insert(
+                format!("V{i}"),
+                value(&format!("%V{}%%V{}%", i + 1, i + 1), true),
+            );
+        }
+        env.insert("V24".into(), value("directory", false));
+        assert!(expand_saved("%V0%", true, &env).len() <= 32_767);
+    }
+
     fn cut(raw: &str) -> Option<PathBuf> {
-        cut_entry(raw, PathOrigin::System).map(|e| e.dir)
+        cut_entry(raw, PathOrigin::System, raw).map(|e| e.dir)
+    }
+
+    #[test]
+    fn plain_string_path_does_not_expand_variables_or_remove_a_working_entry() {
+        let name = format!(r"Software\clisok-test-literal-path-{}", std::process::id());
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (key, _) = hkcu.create_subkey(&name).unwrap();
+        let system_root = std::env::var("SystemRoot").unwrap();
+        let raw = format!("%SystemRoot%;{system_root}");
+        key.set_value("Path", &raw).unwrap();
+        let backups = tempfile::tempdir().unwrap();
+        let result = fix_path_value(&key, &[], &[EntryProblem::Duplicate], backups.path());
+        let after: String = key.get_value("Path").unwrap();
+        hkcu.delete_subkey_all(&name).unwrap();
+        assert!(result.unwrap().is_none());
+        assert_eq!(after, raw);
+        assert_eq!(fs::read_dir(backups.path()).unwrap().count(), 0);
+        let entries = pathenv::parse_path(
+            &expand_saved(&raw, false, &saved_environment()),
+            PathOrigin::User,
+        );
+        assert_eq!(
+            pathenv::check_entries(&entries)[0].1,
+            EntryProblem::UnexpandedVar
+        );
     }
 
     /// Runs against a throwaway key, never the real user PATH.

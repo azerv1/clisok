@@ -69,6 +69,11 @@ against the directory where you invoked clisok, including in the probe's PATH.
 Empty Unix PATH components, including a trailing `:`, search that invocation
 directory and are reported as `CLI001`. `list` includes the commands they expose.
 
+Windows saved PATH checks expand only `REG_EXPAND_SZ` values, using saved machine
+environment variables followed by user overrides and the process's Windows/profile
+variables. A `REG_SZ` value keeps `%VAR%` literally and reports `CLI004`. Repairs
+use the same expansion and preserve the original value type.
+
 ## `clisok list`
 
 Lists every command on PATH and the copies it shadows. Nothing is run. Commands found only in the OS's own folders are left out unless `--system` is given. OS copies are marked `[OS]`.
