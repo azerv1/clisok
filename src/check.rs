@@ -385,16 +385,18 @@ fn path_findings(
     }
     let mut app_paths = Vec::new();
     if registry {
-        // Report persisted problems the process PATH doesn't already show.
-        let known: HashSet<(String, String)> = path_problems
+        // Saved findings carry actionable fixes. Suppress matching process
+        // findings instead of losing the saved finding in a fresh terminal.
+        let saved = entry_issues(persisted, severities);
+        let known: HashSet<(String, String)> = saved
             .iter()
             .map(|p| (path_key(&p.entry.dir), p.problem.to_string()))
             .collect();
-        path_problems.extend(
-            entry_issues(persisted, severities)
-                .into_iter()
-                .filter(|p| !known.contains(&(path_key(&p.entry.dir), p.problem.to_string()))),
-        );
+        path_problems.retain(|p| {
+            p.entry.origin != pathenv::PathOrigin::Process
+                || !known.contains(&(path_key(&p.entry.dir), p.problem.to_string()))
+        });
+        path_problems.extend(saved);
         app_paths = registrations
             .iter()
             .cloned()
@@ -811,6 +813,20 @@ mod tests {
 
         let (issues, apps) = path_findings(&[], &[], &[], &[], true, &sev);
         assert!(issues.is_empty() && apps.is_empty());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn matching_process_finding_keeps_the_fixable_saved_duplicate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let raw = tmp.path().display().to_string();
+        let process = pathenv::parse_path(&format!("{raw};{raw}"), pathenv::PathOrigin::Process);
+        let saved = pathenv::parse_path(&format!("{raw};{raw}"), pathenv::PathOrigin::User);
+        let (issues, _) = path_findings(&process, &saved, &[], &[], true, &Severities::default());
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].code, Code::Cli007);
+        assert_eq!(issues[0].entry.origin, pathenv::PathOrigin::User);
+        assert_eq!(fixable_problems(&issues, false), [EntryProblem::Duplicate]);
     }
 
     #[test]
