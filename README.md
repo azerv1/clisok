@@ -63,6 +63,25 @@ uv run pytest
 Tests use temporary PATH fixtures and disposable HKCU keys. Keep them isolated
 from the real user PATH and registry settings. Use Conventional Commits.
 
+For the first timed local CI run, use Docker and `act` from the repository root:
+
+```sh
+act push -W .github/workflows/ci.yml --matrix os:ubuntu-24.04 --matrix toolchain:1.98.1 -P ubuntu-24.04=ghcr.io/catthehacker/ubuntu:act-24.04 --action-offline-mode --concurrent-jobs 2
+```
+
+This runs quality checks, current-toolchain Linux tests, dependency audits and
+the `ci-ok` gate. The full Windows/Linux and current/MSRV matrix remains required
+on GitHub. Rust build outputs and uv downloads are cached; keep act's cache server
+enabled for repeat runs. Release tags use fresh builds without these caches.
+Offline mode reuses already downloaded actions and images
+while still acquiring missing ones. See the [act usage guide](https://nektosact.com/usage/index.html).
+
+The acceptance limit is 20 minutes total on this machine, including setup and
+downloads; timing has not been measured yet. Workflow job timeouts apply on GitHub;
+`act` [ignores them](https://nektosact.com/not_supported.html), so stop the local run
+at 20 minutes and record the unfinished step if it overruns. Fuzzing, mutation,
+Miri and reproducibility workflows are separate scheduled or manual runs.
+
 ## Releases
 
 Before the first release, set the Git remote and run
