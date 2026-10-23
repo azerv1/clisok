@@ -203,7 +203,9 @@ pub fn inspect(path: &Path, index: &PathIndex, _path_dirs: &[PathBuf], insp: &mu
             .file_name()
             .is_some_and(|n| n.to_string_lossy().starts_with("python"));
         if is_python {
-            if let Some(module) = python::entry_module(&script.text) {
+            if let Some(module) = shebang::launcher_program(&script.text)
+                .and_then(|_| python::entry_module(&script.text))
+            {
                 python::check_entry_point(&interpreter, &module, &mut insp.reasons);
                 insp.kind = Kind::PyLauncher {
                     python: interpreter,

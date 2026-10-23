@@ -12,6 +12,10 @@ Windows batch wrappers are probed only for a recognised npm launcher template or
 a single `.exe`/`.com` call forwarding `%*` without fixed arguments. Redirections,
 extra commands and interpreter arguments keep a batch file in static checks.
 
+Unix shell launchers must end by forwarding `"$@"`. Redirections and fixed
+arguments to shell or scripting interpreters keep them in static checks. A file
+under `node_modules` is treated as a Node entry point only with a Node shebang.
+
 ```
 [BROKEN] CLI002 (user) "C:\gone" — directory does not exist
          help: remove the entry if the program is gone; reconnect the drive or share if not (user PATH)

@@ -83,9 +83,130 @@ static ASSIGN: LazyLock<Regex> = LazyLock::new(|| {
 static SETUP: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(export\s+[A-Za-z_]\w*|unset\s+[A-Za-z_]\w*|set(\s+[-+][A-Za-z]+)+)$").unwrap()
 });
-/// Command substitutions that only work out where the script lives.
-static SAFE_SUBST: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\$\((dirname|readlink|realpath)\s").unwrap());
+/// Only these complete substitutions locate the launcher without running code.
+fn without_location_substitutions(line: &str) -> String {
+    [
+        r#"$(dirname "$0")"#,
+        r#"$(dirname -- "$0")"#,
+        r#"$(readlink -f "$0")"#,
+        r#"$(realpath "$0")"#,
+    ]
+    .iter()
+    .fold(line.to_string(), |s, pattern| {
+        s.replace(pattern, "/launcher")
+    })
+}
+
+/// Generated launchers name an interpreter without inline code or other options.
+pub fn launcher_program(text: &str) -> Option<&str> {
+    let mut words = text.strip_prefix("#!")?.lines().next()?.split_whitespace();
+    let interpreter = words.next()?.rsplit('/').next()?;
+    let program = if interpreter == "env" {
+        let name = words.next()?;
+        if name == "-S" { words.next()? } else { name }
+    } else {
+        interpreter
+    };
+    words.next().is_none().then_some(program)
+}
+
+/// Read just the command word, after substitutions have been constrained.
+fn command_word(line: &str) -> Option<(String, &str)> {
+    let mut word = String::new();
+    let (mut quote, mut escaped) = (None, false);
+    for (i, c) in line.char_indices() {
+        if escaped {
+            word.push(c);
+            escaped = false;
+        } else if c == '\\' && quote != Some('\'') {
+            escaped = true;
+        } else if c == '$' && quote.is_none() {
+            // Unquoted expansion could turn one program word into an
+            // interpreter plus code arguments after shell word splitting.
+            return None;
+        } else if quote == Some(c) {
+            quote = None;
+        } else if matches!(c, '\'' | '"') && quote.is_none() {
+            quote = Some(c);
+        } else if c.is_whitespace() && quote.is_none() {
+            return Some((word, line[i..].trim_start()));
+        } else {
+            word.push(c);
+        }
+    }
+    (quote.is_none() && !escaped && !word.is_empty()).then_some((word, ""))
+}
+
+fn forwards_arguments(line: &str) -> bool {
+    let line = without_location_substitutions(line);
+    let Some(prefix) = line.strip_suffix(r#""$@""#) else {
+        return false;
+    };
+    // The argument expansion must be a separate, final word.
+    if !prefix.ends_with(char::is_whitespace) {
+        return false;
+    }
+    let Some((mut program, mut args)) = command_word(prefix.trim()) else {
+        return false;
+    };
+    if program == "exec" {
+        let Some(command) = command_word(args) else {
+            return false;
+        };
+        (program, args) = command;
+    }
+    let name = program.rsplit('/').next().unwrap_or_default();
+    if name.is_empty()
+        || name.starts_with('-')
+        || name.contains(['$', '*', '?', '[', ']', '{', '}'])
+    {
+        return false;
+    }
+    let interpreter = matches!(
+        name,
+        "sh" | "bash"
+            | "dash"
+            | "zsh"
+            | "ksh"
+            | "fish"
+            | "csh"
+            | "tcsh"
+            | "node"
+            | "nodejs"
+            | "bun"
+            | "deno"
+            | "ruby"
+            | "perl"
+            | "php"
+            | "py"
+            | "julia"
+            | "R"
+            | "Rscript"
+            | "tclsh"
+            | "wish"
+            | "pwsh"
+            | "powershell"
+            | "awk"
+            | "gawk"
+            | "mawk"
+            | "sed"
+            | "exec"
+            | "eval"
+            | "source"
+            | "."
+            | "env"
+            | "command"
+            | "builtin"
+            | "busybox"
+            | "nohup"
+            | "nice"
+            | "timeout"
+            | "xargs"
+    ) || name.starts_with("python")
+        || name.starts_with("pypy")
+        || name.starts_with("lua");
+    !interpreter || args.is_empty()
+}
 
 /// True for scripts that only start another program with the caller's
 /// arguments, which makes a test run safe: environment setup, then one
@@ -93,8 +214,12 @@ static SAFE_SUBST: LazyLock<Regex> =
 pub fn is_launcher(path: &Path, text: &str) -> bool {
     // npm/pnpm/bun install a package's own entry script, symlinked from bin.
     let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    if real.components().any(|c| c.as_os_str() == "node_modules") {
+    let program = launcher_program(text);
+    if program == Some("node") && real.components().any(|c| c.as_os_str() == "node_modules") {
         return true;
+    }
+    if !matches!(program, Some("sh" | "bash" | "dash" | "zsh" | "ksh")) {
+        return false;
     }
     let lines: Vec<&str> = text
         .lines()
@@ -110,14 +235,14 @@ pub fn is_launcher(path: &Path, text: &str) -> bool {
             .iter()
             .all(|l| one_command(l) && (SETUP.is_match(l) || ASSIGN.is_match(l)))
         && one_command(last)
-        && (last.contains("\"$@\"") || last.contains("$*"))
+        && forwards_arguments(last)
 }
 
 /// A single command: no `;`, pipes, `&&`/`&`, backticks, or command
 /// substitution other than locating the script itself.
 fn one_command(line: &str) -> bool {
-    !line.contains([';', '|', '&', '`'])
-        && line.matches("$(").count() == SAFE_SUBST.find_iter(line).count()
+    !line.contains([';', '|', '&', '`', '<', '>'])
+        && !without_location_substitutions(line).contains("$(")
 }
 
 #[cfg(test)]
@@ -198,6 +323,41 @@ mod tests {
         assert!(is_launcher(
             p,
             "#!/bin/sh\nexec \"$(dirname \"$0\")/../lib/tool\" \"$@\"\n"
+        ));
+    }
+
+    #[test]
+    fn redirects_and_interpreter_code_are_not_launchers() {
+        for line in [
+            "printf '%s' \"$@\" > marker",
+            "python3 cleanup.py \"$@\"",
+            "python3 -c 'open(\"marker\", \"w\").close()' \"$@\"",
+            "sh -c 'touch marker' \"$@\"",
+            "exec env python3 cleanup.py \"$@\"",
+            "exec -a alias sh -c 'touch marker' \"$@\"",
+            "exec exec sh -c 'touch marker' \"$@\"",
+            "exec $PROGRAM/tool -c 'touch marker' \"$@\"",
+            "exec \"$PROGRAM\" cleanup.py \"$@\"",
+            "exec /opt/tool \"$@\" ignored",
+        ] {
+            assert!(
+                !is_launcher(Path::new("/tmp/tool"), &format!("#!/bin/sh\n{line}\n")),
+                "{line}"
+            );
+        }
+        let path = Path::new("/tmp/node_modules/pkg/bin/tool");
+        assert!(!is_launcher(path, "#!/bin/sh\ntouch marker\n"));
+        assert!(is_launcher(
+            path,
+            "#!/usr/bin/env node\nconsole.log('tool')\n"
+        ));
+        assert!(!is_launcher(
+            path,
+            "#!/usr/bin/env -S node -e code\nconsole.log('tool')\n"
+        ));
+        assert!(!is_launcher(
+            Path::new("/tmp/tool"),
+            "#!/usr/bin/env -S sh -c 'touch marker'\nexec /opt/tool \"$@\"\n"
         ));
     }
 

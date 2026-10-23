@@ -140,9 +140,32 @@ fn python_import_script_is_never_run() {
         "python-dollar-args",
         "#!/usr/bin/python3\n__import__('pathlib').Path(__import__('os').environ['CLISOK_TEST_MARKER']).write_text('\"$@\"')\n",
     );
+    fixture.script(
+        "python-shebang-code",
+        "#!/usr/bin/env -S /usr/bin/python3 -c \"__import__('pathlib').Path(__import__('os').environ['CLISOK_TEST_MARKER']).touch()\"\nimport sys\nfrom pathlib import Path\nsys.exit(Path())\n",
+    );
     let report = fixture.check(&[]);
     assert_tool(&report, "python-actions", "script", "skip", 0);
     assert_tool(&report, "python-dollar-args", "script", "skip", 0);
+    assert_tool(&report, "python-shebang-code", "script", "skip", 0);
+    fixture.assert_not_run();
+}
+
+#[cfg(unix)]
+#[test]
+fn shell_redirections_and_inline_code_are_never_run() {
+    let fixture = Fixture::new();
+    fixture.script(
+        "redirected-shim",
+        "#!/bin/sh\nprintf '%s' \"$@\" > \"$CLISOK_TEST_MARKER\"\n",
+    );
+    fixture.script(
+        "inline-shim",
+        "#!/bin/sh\nsh -c 'touch \"$CLISOK_TEST_MARKER\"' \"$@\"\n",
+    );
+    let report = fixture.check(&[]);
+    assert_tool(&report, "redirected-shim", "script", "skip", 0);
+    assert_tool(&report, "inline-shim", "script", "skip", 0);
     fixture.assert_not_run();
 }
 
