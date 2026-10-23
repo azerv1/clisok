@@ -22,6 +22,12 @@ static TOKEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""([^"]*)"|([^\s"]
 static DP0: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)%~dp0|%dp0%").unwrap());
 static SCOOP_PATH: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?m)^\s*path\s*=\s*"?([^"\r\n]+?)"?\s*$"#).unwrap());
+static FORWARD: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)^@?(?:"[^"\r\n]+\.(?:exe|com)"|[^\s"]+\.(?:exe|com))\s+%\*$"#).unwrap()
+});
+static NPM_FORWARD: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)^endlocal & goto #_undefined_# 2>nul \|\| title %comspec% & "%_prog%"\s+"%dp0%\\node_modules\\[^"%&|<>^\r\n]+" %\*$"#).unwrap()
+});
 
 fn is_noise(line: &str) -> bool {
     let l = line.trim().trim_start_matches('@').to_ascii_lowercase();
@@ -34,23 +40,57 @@ fn is_noise(line: &str) -> bool {
         || l == "endlocal"
 }
 
-/// True for scripts that only forward their arguments to another program,
-/// which makes a test run safe. Anything else might perform actions.
+fn launcher_lines(text: &str) -> Option<Vec<&str>> {
+    let lines: Vec<&str> = text.lines().map(str::trim).collect();
+    // Do not discard a comment carrying command separators or redirections.
+    if lines
+        .iter()
+        .any(|l| l.contains('\r') || (is_noise(l) && l.contains(['&', '|', '<', '>', '^'])))
+    {
+        return None;
+    }
+    Some(lines.into_iter().filter(|l| !is_noise(l)).collect())
+}
+
+fn is_npm_shim(lines: &[&str]) -> bool {
+    const SETUP: &[&str] = &[
+        "GOTO start",
+        ":find_dp0",
+        "SET dp0=%~dp0",
+        "EXIT /b",
+        ":start",
+        "CALL :find_dp0",
+        r#"IF EXIST "%dp0%\node.exe" ("#,
+        r#"SET "_prog=%dp0%\node.exe""#,
+        ") ELSE (",
+        r#"SET "_prog=node""#,
+        "SET PATHEXT=%PATHEXT:;.JS;=;%",
+        ")",
+    ];
+    let Some((last, setup)) = lines.split_last() else {
+        return false;
+    };
+    setup.len() == SETUP.len()
+        && setup
+            .iter()
+            .zip(SETUP)
+            .all(|(a, b)| a.eq_ignore_ascii_case(b))
+        && NPM_FORWARD.is_match(last)
+}
+
+/// Recognised npm boilerplate, or one executable forwarding only the caller's
+/// arguments. Fixed interpreter arguments could execute scripts or inline code.
 pub fn is_shim(text: &str) -> bool {
-    let lines: Vec<&str> = text.lines().filter(|l| !is_noise(l)).collect();
-    if text.contains("node_modules") && text.contains("%*") {
-        return true; // npm / pnpm / bun generated shim
+    let Some(lines) = launcher_lines(text) else {
+        return false;
+    };
+    if is_npm_shim(&lines) {
+        return true;
     }
     let [line] = lines.as_slice() else {
         return false;
     };
-    if !line.contains("%*") {
-        return false;
-    }
-    let first = TOKEN
-        .captures(line.trim().trim_start_matches('@'))
-        .map(|c| c.get(1).or(c.get(2)).unwrap().as_str().to_ascii_lowercase());
-    first.is_some_and(|t| t.ends_with(".exe") || t.ends_with(".com"))
+    !line.contains(['&', '|', '<', '>', '^']) && FORWARD.is_match(line)
 }
 
 /// The program a single-line pass-through launcher forwards to.
@@ -145,7 +185,7 @@ pub fn check(script: &Path, text: &str, index: &PathIndex) -> Vec<Reason> {
         .collect();
 
     // npm-style shims fall back to `node` from PATH when there is no local node.exe.
-    if text.contains("node_modules")
+    if launcher_lines(text).is_some_and(|lines| is_npm_shim(&lines))
         && !dir.join("node.exe").exists()
         && index.lookup("node").is_empty()
     {
@@ -198,6 +238,22 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_
         assert!(!is_shim(
             "@echo off\r\nrobocopy C:\\a D:\\b /mir\r\ndel x.log\r\n"
         ));
+    }
+
+    #[test]
+    fn actions_and_inline_interpreters_are_not_shims() {
+        for script in [
+            "rem node_modules %*\r\necho ran > marker.txt\r\n",
+            "\"C:\\tool.exe\" %* & echo ran > marker.txt",
+            "\"C:\\tool.exe\" %* > marker.txt",
+            "python.exe \"%~dp0backup.py\" %*",
+            "python.exe -c \"open('marker', 'w').close()\" %*",
+            "cmd.exe /c echo ran %*",
+            "\"C:\\tool.exe\" %* ignored",
+        ] {
+            assert!(!is_shim(script), "{script}");
+        }
+        assert!(!is_shim(&format!("{NPM_SHIM}\necho ran > marker.txt\n")));
     }
 
     #[test]

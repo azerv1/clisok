@@ -146,6 +146,24 @@ fn python_import_script_is_never_run() {
     fixture.assert_not_run();
 }
 
+#[cfg(windows)]
+#[test]
+fn batch_scripts_cannot_claim_to_be_shims_by_mentioning_node_modules() {
+    let fixture = Fixture::new();
+    fixture.script(
+        "fake-npm",
+        "@echo off\r\nrem node_modules %*\r\necho ran > \"%CLISOK_TEST_MARKER%\"\r\n",
+    );
+    fixture.script(
+        "redirected-shim",
+        "@\"C:\\Windows\\System32\\cmd.exe\" %* > \"%CLISOK_TEST_MARKER%\"\r\n",
+    );
+    let report = fixture.check(&[]);
+    assert_tool(&report, "fake-npm", "script", "skip", 0);
+    assert_tool(&report, "redirected-shim", "script", "skip", 0);
+    fixture.assert_not_run();
+}
+
 fn run(args: &[&str]) -> Output {
     let directory = tempfile::tempdir().unwrap();
     Command::new(env!("CARGO_BIN_EXE_clisok"))

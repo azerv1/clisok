@@ -8,6 +8,10 @@ Python scripts are run only when they match a generated pip/distlib or uv consol
 entry-point template. Other Python bodies are inspected without being run,
 including unrecognised bodies embedded in Windows Python launchers.
 
+Windows batch wrappers are probed only for a recognised npm launcher template or
+a single `.exe`/`.com` call forwarding `%*` without fixed arguments. Redirections,
+extra commands and interpreter arguments keep a batch file in static checks.
+
 ```
 [BROKEN] CLI002 (user) "C:\gone" — directory does not exist
          help: remove the entry if the program is gone; reconnect the drive or share if not (user PATH)
