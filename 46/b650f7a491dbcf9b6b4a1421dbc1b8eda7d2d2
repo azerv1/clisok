@@ -1,0 +1,39 @@
+tests/cli.rs
+  s_952c14d9527d3b::t_ec15fdf883c4ef 117,119
+  s_952c14d9527d3b::t_0ca29e6a935112 109-116,124-126
+  s_952c14d9527d3b::t_1385a6872915be 118,120-123
+  s_db5280e2a28a79::t_72a56e0796d35c 108
+src/platform/windows/spawn.rs
+  s_952c14d9527d3b::t_1385a6872915be 234-237
+  s_952c14d9527d3b::t_7df9ab286bf797 706
+  s_952c14d9527d3b::t_0ca29e6a935112 212-213,216-224,233
+  s_952c14d9527d3b::t_da3f1de8fe4ff9 238
+docs/src/usage.md
+  s_952c14d9527d3b::t_0ca29e6a935112 29-30
+src/platform/windows/mod.rs
+  s_952c14d9527d3b::t_0ca29e6a935112 117-119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "46b650f7a491dbcf9b6b4a1421dbc1b8eda7d2d2",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_db5280e2a28a79": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148de-35f5-7943-8ec6-e12634bbacee",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
