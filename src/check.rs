@@ -10,10 +10,9 @@ use std::time::Duration;
 use regex::Regex;
 
 use crate::codes::{Code, Severities, Severity};
-use crate::config::{Config, ConfigArgs};
 use crate::discover::{self, PathCommand, Tool};
 use crate::exec::{self, Outcome, ToolErrorKind};
-use crate::fix::{self, Applied, Fix};
+use crate::fix::{self, Applied};
 use crate::inspect::{self, Kind, Reason, python};
 use crate::output::{self, OutputFormat};
 use crate::pathenv::{self, EntryProblem, PathEntry, PathIndex};
@@ -83,8 +82,6 @@ pub struct CheckArgs {
     /// Seconds before a test run is killed [default: 30]
     #[arg(long, value_name = "SECS")]
     timeout: Option<u64>,
-    #[command(flatten)]
-    config: ConfigArgs,
 }
 
 const DEFAULT_TIMEOUT: u64 = 30;
@@ -186,29 +183,6 @@ fn note_finding(
             }
         }
     }
-}
-
-/// A tool at one of the config's `extra` places: static checks only.
-fn prepare_extra(tool: Tool, ctx: &Ctx) -> Prepared {
-    let mut p = prepare(tool, ctx);
-    p.res.origin = Origin::Extra;
-    p.skip_why = Some("not run: extra place, static checks only");
-    p
-}
-
-/// Tools at the config's `extra` places that PATH doesn't already cover.
-fn extra_tools(patterns: &[String], on_path: &[Tool]) -> Result<Vec<Tool>, String> {
-    let known: HashSet<String> = on_path.iter().map(|t| path_key(&t.path)).collect();
-    Ok(discover::extra_files(patterns)?
-        .into_iter()
-        .filter(|f| !known.contains(&path_key(f)))
-        .map(|path| Tool {
-            name: discover::file_command(&path),
-            path,
-            shadowed: Vec::new(),
-            hidden_by: None,
-        })
-        .collect())
 }
 
 /// Preserve the skip reason while explaining an inconclusive module lookup.
@@ -331,19 +305,17 @@ fn cost_rank(p: &Prepared) -> u8 {
 }
 
 #[cfg(windows)]
-fn check_registry(args: &CheckArgs, config: &Config) -> bool {
-    args.registry || config.registry.unwrap_or(false)
+fn check_registry(args: &CheckArgs) -> bool {
+    args.registry
 }
 #[cfg(unix)]
-fn check_registry(_: &CheckArgs, _: &Config) -> bool {
+fn check_registry(_: &CheckArgs) -> bool {
     false
 }
 
-/// Severities from the config, with `--ignore` on top.
-fn severities(args: &CheckArgs, config: &Config) -> Severities {
-    let mut map = config.severity.clone();
-    map.extend(args.ignore.iter().map(|&c| (c, Severity::Off)));
-    Severities(map)
+/// Suppress findings selected by `--ignore`.
+fn severities(args: &CheckArgs) -> Severities {
+    Severities(args.ignore.iter().map(|&c| (c, Severity::Off)).collect())
 }
 
 /// For each command, the copy that runs. OS copies only with --system, and
@@ -441,20 +413,6 @@ fn path_findings(
             .filter_map(|entry| EntryIssue::new(entry, EntryProblem::Truncated, severities)),
     );
     (path_problems, app_paths)
-}
-
-/// `[fix] fixable` and `unfixable`: a fix for a code left out stays advice.
-fn limit_fixes(config: &Config, path_problems: &mut [EntryIssue], app_paths: &mut [AppPathIssue]) {
-    let allowed = |c: Code| {
-        config.fixable.as_ref().is_none_or(|f| f.contains(&c))
-            && !config.unfixable.as_ref().is_some_and(|u| u.contains(&c))
-    };
-    for p in path_problems.iter_mut().filter(|p| !allowed(p.code)) {
-        p.fix.iter_mut().for_each(Fix::make_advice);
-    }
-    for a in app_paths.iter_mut().filter(|a| !allowed(a.code)) {
-        a.fix.make_advice();
-    }
 }
 
 /// Pretty JSON and a final newline.
@@ -560,26 +518,7 @@ fn apply_fixes(
 }
 
 pub fn check(args: &CheckArgs) -> ExitCode {
-    let config = match args.config.load() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("clisok: {e}");
-            return ExitCode::from(2);
-        }
-    };
-    let format = args
-        .output_format
-        .or(config.output_format)
-        .unwrap_or(OutputFormat::Full);
-    if format == OutputFormat::Full {
-        config.report_files();
-    }
-    let system = args.system || config.system.unwrap_or(false);
-    let skip = if args.skip.is_empty() {
-        config.skip.clone().unwrap_or_default()
-    } else {
-        args.skip.clone()
-    };
+    let format = args.output_format.unwrap_or(OutputFormat::Full);
 
     platform::init();
     // Ctrl+C: stop every running tool and give the cursor back before exiting.
@@ -591,7 +530,6 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     });
     let jobs = args
         .jobs
-        .or(config.jobs)
         .unwrap_or_else(|| pool::default_jobs(JOBS_PER_CORE, MAX_JOBS))
         .max(1);
 
@@ -601,8 +539,8 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         return ExitCode::from(2);
     }
 
-    let severities = severities(args, &config);
-    let registry = check_registry(args, &config);
+    let severities = severities(args);
+    let registry = check_registry(args);
     let findings = || {
         let persisted = platform::persisted_path();
         let cut = platform::truncated_saved_paths();
@@ -611,19 +549,17 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         } else {
             Vec::new()
         };
-        let (mut path_problems, mut app_paths) = path_findings(
+        path_findings(
             &entries,
             &persisted,
             &cut,
             &registrations,
             registry,
             &severities,
-        );
-        limit_fixes(&config, &mut path_problems, &mut app_paths);
-        (path_problems, app_paths)
+        )
     };
     let (mut path_problems, mut app_paths) = findings();
-    let unsafe_fixes = args.unsafe_fixes || config.unsafe_fixes.unwrap_or(false);
+    let unsafe_fixes = args.unsafe_fixes;
     if args.diff {
         return print_diff(&path_problems, &app_paths, unsafe_fixes);
     }
@@ -640,25 +576,20 @@ pub fn check(args: &CheckArgs) -> ExitCode {
 
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
     let index = PathIndex::build(&dirs);
-    let tools = tools_to_check(&discover::inventory(&entries, &index, system), system);
-    let extra = match extra_tools(config.extra.as_deref().unwrap_or_default(), &tools) {
-        Ok(e) => e,
-        Err(e) => {
-            eprintln!("clisok: {e}");
-            return ExitCode::from(2);
-        }
-    };
-    eprintln!("clisok: checking {} tools...", tools.len() + extra.len());
+    let tools = tools_to_check(
+        &discover::inventory(&entries, &index, args.system),
+        args.system,
+    );
+    eprintln!("clisok: checking {} tools...", tools.len());
 
     let ctx = Ctx {
         index: &index,
         dirs: &dirs,
-        skip: skip.iter().map(|s| s.to_lowercase()).collect(),
-        timeout: Duration::from_secs(args.timeout.or(config.timeout).unwrap_or(DEFAULT_TIMEOUT)),
+        skip: args.skip.iter().map(|s| s.to_lowercase()).collect(),
+        timeout: Duration::from_secs(args.timeout.unwrap_or(DEFAULT_TIMEOUT)),
         severities,
     };
-    let mut prepared = pool::run_in_order(tools, jobs, |t| prepare(t, &ctx));
-    prepared.extend(pool::run_in_order(extra, jobs, |t| prepare_extra(t, &ctx)));
+    let prepared = pool::run_in_order(tools, jobs, |t| prepare(t, &ctx));
     let mut queue: Vec<(usize, Prepared)> = prepared.into_iter().enumerate().collect();
     queue.sort_by_key(|(_, p)| cost_rank(p)); // stable: discovery order within a rank
 
@@ -712,7 +643,6 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     let report = Report {
         schema: SCHEMA_VERSION,
         command: "check",
-        config: config.files,
         fixed,
         path_problems,
         app_paths,
@@ -818,7 +748,6 @@ mod tests {
         let report = Report {
             schema: SCHEMA_VERSION,
             command: "check",
-            config: vec![],
             fixed: vec![],
             path_problems: vec![],
             app_paths: vec![],
@@ -950,7 +879,6 @@ mod tests {
         for why in [
             "not run: system program (static checks only)",
             "not run: --skip",
-            "not run: extra place, static checks only",
         ] {
             let res = ToolResult {
                 name: "fixture".into(),
@@ -1103,66 +1031,6 @@ mod tests {
     }
 
     #[test]
-    fn extra_places_are_checked_but_never_run() {
-        let tmp = tempfile::tempdir().unwrap();
-        #[cfg(windows)]
-        let (file, expected) = {
-            let file = tmp.path().join("tool.cmd");
-            fs::write(&file, "@\"C:\\definitely\\missing\\real.exe\" %*\r\n").unwrap();
-            (file, Code::Cli101)
-        };
-        #[cfg(unix)]
-        let (file, expected) = {
-            use std::os::unix::fs::PermissionsExt;
-            let file = tmp.path().join("tool");
-            fs::write(&file, "#!/definitely/missing/python\n").unwrap();
-            fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
-            (file, Code::Cli103)
-        };
-        let places = [tmp.path().display().to_string()];
-        let mut tools = extra_tools(&places, &[]).unwrap();
-        assert_eq!(tools.len(), 1);
-
-        let dirs: Vec<PathBuf> = vec![];
-        let index = PathIndex::build(&dirs);
-        let ctx = Ctx {
-            index: &index,
-            dirs: &dirs,
-            skip: HashSet::new(),
-            timeout: Duration::from_secs(1),
-            severities: Severities::default(),
-        };
-        let res = run(prepare_extra(tools.remove(0), &ctx), &ctx);
-        assert_eq!((res.origin, res.verdict), (Origin::Extra, Verdict::Broken));
-        assert!(res.attempts.is_empty());
-        assert_eq!(res.reasons[0].code, expected);
-
-        let report = Report {
-            schema: SCHEMA_VERSION,
-            command: "check",
-            config: vec![],
-            fixed: vec![],
-            path_problems: vec![],
-            app_paths: vec![],
-            tools: vec![res],
-        };
-        assert!(
-            report
-                .to_text(false, false)
-                .contains("Extra\n[BROKEN] tool  ")
-        );
-
-        // A program PATH already covers is not checked twice.
-        let on_path = Tool {
-            name: "tool".into(),
-            path: file,
-            shadowed: vec![],
-            hidden_by: None,
-        };
-        assert!(extra_tools(&places, &[on_path]).unwrap().is_empty());
-    }
-
-    #[test]
     fn entry_codes_follow_their_severity() {
         let entry = pathenv::PathEntry {
             raw: "dup".into(),
@@ -1172,7 +1040,6 @@ mod tests {
         let report = |sev: &Severities| Report {
             schema: SCHEMA_VERSION,
             command: "check",
-            config: vec![],
             fixed: vec![],
             path_problems: EntryIssue::new(entry.clone(), EntryProblem::Duplicate, sev)
                 .into_iter()
@@ -1217,7 +1084,6 @@ mod tests {
         let mut report = Report {
             schema: SCHEMA_VERSION,
             command: "check",
-            config: vec![],
             fixed: vec![],
             path_problems: issues
                 .into_iter()
@@ -1271,7 +1137,6 @@ mod tests {
         let report = Report {
             schema: SCHEMA_VERSION,
             command: "check",
-            config: vec![],
             fixed: vec![],
             path_problems: issues
                 .into_iter()
@@ -1291,50 +1156,5 @@ mod tests {
             serde_json::json!({"code": "CLI001", "name": "empty entry", "count": 2, "fixable": true})
         );
         assert_eq!(json[1]["fixable"], false);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn unfixable_codes_keep_their_advice_but_are_never_applied() {
-        let user = |raw: &str| pathenv::PathEntry {
-            raw: raw.into(),
-            dir: PathBuf::from(raw),
-            origin: pathenv::PathOrigin::User,
-        };
-        let sev = Severities::default();
-        let issues = || -> Vec<EntryIssue> {
-            [
-                (user(""), EntryProblem::Empty),
-                (user("dup"), EntryProblem::Duplicate),
-            ]
-            .into_iter()
-            .filter_map(|(e, p)| EntryIssue::new(e, p, &sev))
-            .collect()
-        };
-        let applies = |p: &[EntryIssue]| -> Vec<bool> {
-            p.iter()
-                .map(|i| i.fix.as_ref().unwrap().applies(true))
-                .collect()
-        };
-
-        let mut p = issues();
-        let config = Config {
-            unfixable: Some(vec![Code::Cli007]),
-            ..Config::default()
-        };
-        limit_fixes(&config, &mut p, &mut []);
-        assert_eq!(applies(&p), [true, false]);
-        assert_eq!(
-            p[1].fix.as_ref().unwrap().message,
-            "remove it from the user PATH"
-        );
-
-        let mut p = issues();
-        let config = Config {
-            fixable: Some(vec![Code::Cli007]),
-            ..Config::default()
-        };
-        limit_fixes(&config, &mut p, &mut []);
-        assert_eq!(applies(&p), [false, true]);
     }
 }

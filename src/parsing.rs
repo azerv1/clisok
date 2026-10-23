@@ -4,42 +4,6 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-/// Expand configuration variables using a caller-supplied lookup, without executing code.
-pub fn expand(s: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Result<String, String> {
-    let mut out = String::new();
-    let mut rest = s;
-    while let Some(i) = rest.find('$') {
-        out.push_str(&rest[..i]);
-        rest = &rest[i + 1..];
-        if let Some(r) = rest.strip_prefix('$') {
-            out.push('$');
-            rest = r;
-            continue;
-        }
-        let Some(body) = rest.strip_prefix('{') else {
-            return Err(format!("'$' must start ${{VAR}}, or be written $$: {s}"));
-        };
-        let Some(end) = body.find('}') else {
-            return Err(format!("unclosed ${{: {s}"));
-        };
-        let (name, default) = match body[..end].split_once(":-") {
-            Some((n, d)) => (n, Some(d)),
-            None => (&body[..end], None),
-        };
-        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return Err(format!("bad variable name '{name}': {s}"));
-        }
-        match (lookup(name).filter(|v| !v.is_empty()), default) {
-            (Some(v), _) => out.push_str(&v),
-            (None, Some(d)) => out.push_str(d),
-            (None, None) => return Err(format!("variable {name} is not set: {s}")),
-        }
-        rest = &body[end + 1..];
-    }
-    out.push_str(rest);
-    Ok(out)
-}
-
 static ENTRY_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^from ([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*) import ([A-Za-z_][A-Za-z0-9_]*)$")
         .unwrap()
@@ -122,13 +86,6 @@ pub fn entry_module(main_py: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn expansion_preserves_literal_dollars_and_does_not_evaluate_commands() {
-        assert_eq!(expand("$${HOME}", &|_| None).unwrap(), "${HOME}");
-        assert!(expand("$(touch unexpected)", &|_| None).is_err());
-        assert_eq!(expand("${MISSING:-value}", &|_| None).unwrap(), "value");
-    }
 
     #[test]
     fn entry_point_requires_a_complete_body_and_returns_a_top_level_name() {

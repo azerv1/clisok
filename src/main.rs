@@ -3,7 +3,6 @@
 
 mod check;
 mod codes;
-mod config;
 mod discover;
 #[cfg(test)]
 mod docs;
@@ -64,6 +63,18 @@ mod tests {
     #[test]
     fn cli_definition_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn config_flags_are_rejected() {
+        for subcommand in ["check", "list"] {
+            for flag in ["--config", "--no-config"] {
+                let error = Cli::try_parse_from(["clisok", subcommand, flag])
+                    .err()
+                    .expect("configuration flags must not be accepted");
+                assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+            }
+        }
     }
 
     #[test]

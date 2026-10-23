@@ -25,7 +25,7 @@ def measure(binary: Path) -> list[dict[str, object]]:
                 samples = []
                 for _ in range(3):
                     start = time.perf_counter()
-                    command = [str(binary), "check", "--no-config", "--output-format", "json"]
+                    command = [str(binary), "check", "--output-format", "json"]
                     if jobs:
                         command += ["--jobs", str(jobs)]
                     result = subprocess.run(

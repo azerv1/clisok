@@ -41,8 +41,6 @@ impl Verdict {
 #[serde(rename_all = "lowercase")]
 pub enum Origin {
     Path,
-    /// The config's `extra` places; static checks only.
-    Extra,
 }
 
 #[derive(Debug, Serialize)]
@@ -208,7 +206,7 @@ pub fn statistics_text(stats: &[Statistic]) -> String {
 
 /// Version of the JSON output's shape. Bumped when a field is removed or
 /// changes meaning; new fields don't bump it.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Serialize)]
 pub struct Report {
@@ -216,8 +214,6 @@ pub struct Report {
     pub schema: u32,
     /// The subcommand that produced the report.
     pub command: &'static str,
-    /// The config files read, in order.
-    pub config: Vec<PathBuf>,
     /// What `--fix` changed; the findings below are from after the change.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fixed: Vec<Applied>,
@@ -360,25 +356,12 @@ impl Report {
             .filter(|t| verbose || !matches!(t.verdict, Verdict::Pass | Verdict::Skip))
             .collect();
         tools.sort_by(|a, b| {
-            (a.origin == Origin::Extra, a.verdict, &a.name.to_lowercase()).cmp(&(
-                b.origin == Origin::Extra,
-                b.verdict,
-                &b.name.to_lowercase(),
-            ))
+            (a.verdict, &a.name.to_lowercase()).cmp(&(b.verdict, &b.name.to_lowercase()))
         });
-        let mut section = None;
+        if !tools.is_empty() {
+            s.push_str("Tools\n");
+        }
         for t in tools {
-            if section != Some(t.origin) {
-                if section.is_some() {
-                    s.push('\n');
-                }
-                s.push_str(if t.origin == Origin::Path {
-                    "Tools\n"
-                } else {
-                    "Extra\n"
-                });
-                section = Some(t.origin);
-            }
             let _ = writeln!(s, "{} {}  {}", t.verdict.tag(), t.name, t.path.display());
             for r in &t.reasons {
                 let _ = writeln!(s, "         {r}");
@@ -475,17 +458,7 @@ pub struct ListReport {
     pub schema: u32,
     /// The subcommand that produced the report.
     pub command: &'static str,
-    /// The config files read, in order.
-    pub config: Vec<PathBuf>,
     pub commands: Vec<PathCommand>,
-    /// Programs at the config's `extra` places that aren't on PATH.
-    pub extra: Vec<ExtraFile>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ExtraFile {
-    pub name: String,
-    pub path: PathBuf,
 }
 
 fn os_tag(os: bool) -> &'static str {
@@ -507,9 +480,6 @@ impl ListReport {
                 let _ = writeln!(s, "    shadows {}{}", sh.path.display(), os_tag(sh.os));
             }
         }
-        for e in &self.extra {
-            let _ = writeln!(s, "{}  {}  [EXTRA]", e.name, e.path.display());
-        }
         let shadowing = self
             .commands
             .iter()
@@ -522,15 +492,10 @@ impl ListReport {
             .count();
         let _ = writeln!(
             s,
-            "\nSummary: {} commands; {} shadow other copies; {} run an OS copy instead of yours{}.",
+            "\nSummary: {} commands; {} shadow other copies; {} run an OS copy instead of yours.",
             self.commands.len(),
             shadowing,
             hidden,
-            if self.extra.is_empty() {
-                String::new()
-            } else {
-                format!("; {} extra programs", self.extra.len())
-            },
         );
         s
     }

@@ -12,13 +12,6 @@ libfuzzer-sys = "=0.4.13"
 clisok = { path = ".." }
 
 [[bin]]
-name = "config_expansion"
-path = "fuzz_targets/config_expansion.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
 name = "python_entry"
 path = "fuzz_targets/python_entry.rs"
 test = false

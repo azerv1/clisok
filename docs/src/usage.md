@@ -53,35 +53,25 @@ Tools
 - **`--registry`** — Windows only: also check the saved PATH and App Paths registrations.
 - **`-j`, `--jobs N`** — tools checked in parallel; default one per CPU core.
 - **`--timeout SECS`** — seconds before a test run is killed; default 30.
-- **`--config FILE`**, **`--no-config`** — read settings from one file, or from none. See [Configuration](configuration.md).
 
-Exit status: 0 when nothing fails, 1 when something does, 2 when clisok itself can't run (empty PATH, bad config).
+Exit status: 0 when nothing fails, 1 when something does, 2 when clisok itself can't run (for example, an empty PATH).
 
-### Config trust boundary
-
-Automatically discovered project configs cannot enable unsafe fixes, saved PATH
-and App Paths checks, or extra search locations. clisok warns and ignores
-`fix.unsafe-fixes`, `check.registry` and `check.extra` in those files. Set them in
-your user config or select a file explicitly with `--config`.
-
-Project `skip` and `unfixable` lists add restrictions to your user config;
-`fixable` lists intersect. Other defaults and per-code severities still apply.
-Full output names the config files read on stderr. See
-[Configuration](configuration.md) for discovery boundaries and merge rules.
+Options are supplied on the command line. clisok does not read user or project
+configuration files. Use `--skip` to prevent a tool from running and `--ignore`
+to suppress a code's findings.
 
 ## `clisok list`
 
-Lists every command on PATH and the copies it shadows. Nothing is run. Commands found only in the OS's own folders are left out unless `--system` is given. OS copies are marked `[OS]`, and programs from the config's `extra` places are marked `[EXTRA]`.
+Lists every command on PATH and the copies it shadows. Nothing is run. Commands found only in the OS's own folders are left out unless `--system` is given. OS copies are marked `[OS]`.
 
 - **`--output-format full|json`** — print the list as text (default) or JSON.
 - **`--system`** — include commands found only in the OS's own folders.
-- **`--config FILE`**, **`--no-config`** — as for `check`.
 
 ## `clisok rule`
 
 ### `clisok rule list`
 
-Lists every built-in rule in code order, with columns for Code, Default, Fix and Title. The catalog is the same on every platform and does not depend on configuration. Fix availability is `safe`, `unsafe`, `advice` or `—` when there is no fix.
+Lists every built-in rule in code order, with columns for Code, Default, Fix and Title. The catalog is the same on every platform. Fix availability is `safe`, `unsafe`, `advice` or `—` when there is no fix.
 
 - **`--output-format text|json`** — print the table (default) or the same JSON array as `clisok rule show --all --output-format json`, including full explanations.
 
@@ -96,4 +86,4 @@ Explains a code: what it means, its default severity, what `--fix` can do about 
 
 ## JSON
 
-Both commands print a `schema` version and the `command` that produced the report. The version goes up only when a field is removed or changes meaning; new fields don't change it. Each finding carries its `code` and its effective `severity`. A finding may also carry a `fix`: its `applicability` and a `message`. Right now every fix is `display-only` advice, printed as a `help:` line under the finding.
+Both commands print a `schema` version and the `command` that produced the report. The current version is 2: the config-file list was removed from both reports, and the off-PATH `extra` list was removed from `list`. The version goes up only when a field is removed or changes meaning; new fields don't change it. Each finding carries its `code` and its effective `severity`. A finding may also carry a `fix`: its `applicability` and a `message`. Applicability is `safe`, `unsafe` or `display-only`; display-only fixes are advice, printed as a `help:` line under the finding.

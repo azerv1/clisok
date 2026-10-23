@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [config_expansion, python_entry]
+        target: [python_entry]
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     permissions:

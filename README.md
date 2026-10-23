@@ -18,7 +18,6 @@ Every problem has a stable code like `CLI002`.
 
 **Docs:** [azerv1.github.io/clisok](https://azerv1.github.io/clisok/) —
 [usage](https://azerv1.github.io/clisok/usage.html),
-[`.clisok.toml` configuration](https://azerv1.github.io/clisok/configuration.html),
 [fixes](https://azerv1.github.io/clisok/fixes.html),
 [error codes](https://azerv1.github.io/clisok/codes.html),
 [GitHub Action](https://azerv1.github.io/clisok/github-action.html).
@@ -97,7 +96,7 @@ Windows/Linux archives. The GitHub Action verifies the archive checksum and
 requested version before execution.
 
 Nightly checks run coverage (90% lines), Miri on the pure library, and one-hour
-fuzz campaigns for configuration expansion and Python entry-module parsing.
+fuzz campaigns for Python entry-module parsing.
 Weekly checks run parser mutation tests (80%), benchmarks, and two clean Linux
 builds for reproducibility. These checks do not delay releases; missing results
 are reported as missing. Miri and fuzzing do not cover the native backends.

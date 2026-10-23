@@ -1,5 +1,5 @@
 //! Docs pages generated from the source, so they can't drift: the codes page
-//! from `codes::CODES`, the config key table from `config::KEYS`. A test
+//! from `codes::CODES`. A test
 //! fails when a committed page is out of date; `UPDATE_DOCS=1 cargo test`
 //! rewrites it.
 
@@ -8,7 +8,6 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::codes::CODES;
-use crate::config;
 use crate::fix::{self, Applicability};
 
 const NOTICE: &str =
@@ -28,8 +27,8 @@ fn codes_page() -> String {
     let _ = writeln!(s, "# Error codes\n\n{NOTICE}\n");
     s.push_str(
         "Every finding has a code. A code keeps its meaning forever and is never reused, \
-         so scripts, ignore lists and config files can rely on it. The first digit names the group.\n\n\
-         Change what a code does with `--ignore CODE` or a [`[severity]`](configuration.md) entry. \
+         so scripts and ignore lists can rely on it. The first digit names the group.\n\n\
+         Suppress a code's findings with `--ignore CODE`. \
          The Fix column says what [`--fix`](fixes.md) can do about it. \
          `clisok rule CODE` prints a code's entry in the terminal.\n\n\
          | Code | Default | Fix | Meaning |\n|---|---|---|---|\n",
@@ -73,14 +72,6 @@ fn fix_short(code: crate::codes::Code) -> &'static str {
     }
 }
 
-fn config_keys_page() -> String {
-    let mut s = format!("{NOTICE}\n\n| Key | Value | Meaning |\n|---|---|---|\n");
-    for (key, value, meaning) in config::KEYS {
-        let _ = writeln!(s, "| `{key}` | {value} | {meaning} |");
-    }
-    s
-}
-
 fn check_page(rel: &str, want: String) {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("docs")
@@ -103,5 +94,4 @@ fn check_page(rel: &str, want: String) {
 #[test]
 fn docs_are_current() {
     check_page("codes.md", codes_page());
-    check_page("config-keys.md", config_keys_page());
 }

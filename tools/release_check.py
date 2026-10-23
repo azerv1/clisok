@@ -83,7 +83,7 @@ def smoke(binary: Path, version: str) -> None:
         if result.returncode or not json.loads(result.stdout):
             raise ValueError("artifact rule listing failed")
         for subcommand in ("list", "check"):
-            result = execute(binary, [subcommand, "--no-config", "--output-format", "json"], env, root)
+            result = execute(binary, [subcommand, "--output-format", "json"], env, root)
             if result.returncode not in {0, 1}:
                 raise ValueError(f"artifact {subcommand} failed")
             report = json.loads(result.stdout)
@@ -93,7 +93,7 @@ def smoke(binary: Path, version: str) -> None:
                 fixtures = [t for t in report.get("tools", []) if Path(t["path"]).name == script.name]
                 if len(fixtures) != 1 or fixtures[0]["kind"]["type"] != "script" or fixtures[0]["attempts"]:
                     raise ValueError("artifact did not statically skip the non-launcher fixture")
-        result = execute(binary, ["check", "--no-config", "--diff"], env, root)
+        result = execute(binary, ["check", "--diff"], env, root)
         if result.returncode not in {0, 1} or marker.exists():
             raise ValueError("artifact ran a non-launcher or preview changed files")
         if shutil.which("clisok", path=env["PATH"]):

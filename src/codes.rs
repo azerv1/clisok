@@ -8,10 +8,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// What a finding does to the run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     /// Fails the run.
@@ -161,14 +161,7 @@ impl Serialize for Code {
     }
 }
 
-impl<'de> Deserialize<'de> for Code {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        s.parse().map_err(serde::de::Error::custom)
-    }
-}
-
-/// Severity overrides by code, from `--ignore` and the config file.
+/// Severity overrides by code, from `--ignore`.
 #[derive(Debug, Clone, Default)]
 pub struct Severities(pub HashMap<Code, Severity>);
 

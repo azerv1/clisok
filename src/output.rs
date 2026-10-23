@@ -5,7 +5,6 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::codes::{CODES, Code, Severity};
@@ -13,8 +12,7 @@ use crate::fix::Fix;
 use crate::pathenv::PathEntry;
 use crate::report::{Report, Verdict};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum OutputFormat {
     /// Grouped report with fixes and a summary
     Full,
@@ -291,7 +289,6 @@ mod tests {
         Report {
             schema: SCHEMA_VERSION,
             command: "check",
-            config: vec![],
             fixed: vec![],
             path_problems: EntryIssue::new(entry, EntryProblem::Duplicate, &sev)
                 .into_iter()

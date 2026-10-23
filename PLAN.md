@@ -34,7 +34,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **Error codes** (done) — every finding has a permanent code: CLI0xx PATH entries, CLI1xx tool checks, CLI2xx the test run, CLI3xx registry. A code is never renumbered or reused. `--ignore CODE` drops a code; the list lives in `src/codes.rs`.
 
-- **`.clisok.toml`** (done) — a user file, then the nearest project file up to `.git`; flags beat both. It sets `[check]` flag defaults, `[severity]` per code (`error`/`warn`/`off`), and `extra` places off PATH that get static checks only. `skip` and `extra` take `${VAR}` and `${VAR:-default}`. Expected-tool rules are out of scope: that is pathlint's job.
+- **Settings** — command-line flags only; TOML configuration support was removed. Expected-tool rules are out of scope: that is pathlint's job.
 
 - **Docs** (done) — an mdBook site in `docs/`, deployed to GitHub Pages. The codes page and the config key table are generated from the source; a test fails when they are stale.
 
@@ -51,7 +51,7 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
   Try `--offline` first where the manager supports it. Skip ambiguous or unreconstructable installations. Never invoke OS package managers, winget, or Chocolatey, request elevation, or repair system packages.
 
-- **Fixes** (done, modeled on Ruff) — a fix's applicability is safe (`--fix`, `[*]`, `fix:`), unsafe (`--fix --unsafe-fixes`, `fix (unsafe):`) or advice (`help:`, never applied). `[fix] fixable`/`unfixable`/`unsafe-fixes` in `.clisok.toml` narrow or widen it. Rules live in `src/fix.rs`; `fix::safety` feeds the codes page. Windows only, HKCU only, backups under `%LOCALAPPDATA%\clisok\backups\`:
+- **Fixes** (done, modeled on Ruff) — a fix's applicability is safe (`--fix`, `[*]`, `fix:`), unsafe (`--fix --unsafe-fixes`, `fix (unsafe):`) or advice (`help:`, never applied). `--ignore CODE` suppresses the finding and its fix. Rules live in `src/fix.rs`; `fix::safety` feeds the codes page. Windows only, HKCU only, backups under `%LOCALAPPDATA%\clisok\backups\`:
   - **Safe** — remove empty entries and later copies of a folder (within HKCU or of a machine PATH entry) from `HKCU\Environment\Path`.
   - **Unsafe** — clean quotes and surrounding whitespace off those entries (a cleaned entry can start to work and change resolution); delete HKCU App Paths keys whose target is missing (exported to `.reg` first).
   - **Advice only** — missing directories, non-directories and unexpanded variables (an unplugged drive or a manager bin directory not created yet may come back), and everything outside HKCU.

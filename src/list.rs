@@ -1,14 +1,11 @@
 //! `clisok list`: every command on PATH and the copies it shadows. Nothing is run.
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use crate::config::ConfigArgs;
 use crate::discover::{self, PathCommand};
 use crate::pathenv::{self, PathIndex};
-use crate::platform::path_key;
-use crate::report::{ExtraFile, ListReport, SCHEMA_VERSION, print_stdout};
+use crate::report::{ListReport, SCHEMA_VERSION, print_stdout};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum ListFormat {
@@ -31,8 +28,6 @@ pub struct ListArgs {
     /// How to print the list
     #[arg(long, value_enum, value_name = "FORMAT", default_value_t = ListFormat::Full)]
     output_format: ListFormat,
-    #[command(flatten)]
-    config: ConfigArgs,
 }
 
 /// Alphabetical, ignoring case; names that differ only in case (Unix) keep a fixed order.
@@ -42,51 +37,18 @@ fn sort_by_name(commands: &mut [PathCommand]) {
 }
 
 pub fn list(args: &ListArgs) -> ExitCode {
-    let config = match args.config.load() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("clisok: {e}");
-            return ExitCode::from(2);
-        }
-    };
-    if args.output_format == ListFormat::Full {
-        config.report_files();
-    }
-    let system = args.system || config.system.unwrap_or(false);
     let entries = pathenv::process_path();
     if entries.is_empty() {
         eprintln!("clisok: PATH is empty");
         return ExitCode::from(2);
     }
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
-    let mut commands = discover::inventory(&entries, &PathIndex::build(&dirs), system);
+    let mut commands = discover::inventory(&entries, &PathIndex::build(&dirs), args.system);
     sort_by_name(&mut commands);
-    let on_path: HashSet<String> = commands
-        .iter()
-        .flat_map(|c| &c.copies)
-        .map(|c| path_key(&c.path))
-        .collect();
-    let extra = match discover::extra_files(config.extra.as_deref().unwrap_or_default()) {
-        Ok(files) => files
-            .into_iter()
-            .filter(|f| !on_path.contains(&path_key(f)))
-            .map(|path| ExtraFile {
-                name: discover::file_command(&path),
-                path,
-            })
-            .collect(),
-        Err(e) => {
-            eprintln!("clisok: {e}");
-            return ExitCode::from(2);
-        }
-    };
-
     let report = ListReport {
         schema: SCHEMA_VERSION,
         command: "list",
-        config: config.files,
         commands,
-        extra,
     };
     if args.output_format == ListFormat::Json {
         match serde_json::to_string_pretty(&report) {
@@ -137,12 +99,10 @@ mod tests {
         let report = ListReport {
             schema: SCHEMA_VERSION,
             command: "list",
-            config: vec![],
             commands: vec![
                 command("curl", &[("/os/curl", true), ("/home/me/bin/curl", false)]),
                 command("git", &[("/home/me/bin/git", false)]),
             ],
-            extra: vec![],
         };
         let text = report.to_text();
         let os_path = PathBuf::from("/os/curl").display().to_string();

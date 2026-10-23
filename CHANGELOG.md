@@ -1,3 +1,10 @@
+## Unreleased
+
+### Breaking changes
+
+- Remove TOML configuration files and the `--config` and `--no-config` flags. Options are supplied on the command line. Config-only severity overrides, fix allowlists and off-PATH extra locations are removed.
+- JSON report schema is now 2: remove `config` from both reports and `extra` from `list`.
+
 ## 0.3.0 (2026-10-07)
 
 ### BREAKING CHANGE

@@ -30,7 +30,7 @@ Only saved settings that belong to you, and only on Windows:
 
 Saved-PATH and App Paths findings only appear with `--registry`. clisok never touches the system PATH or HKLM, never asks for admin rights, and never fixes anything on Unix. There a shell profile sets PATH, and it can't be edited safely.
 
-Only findings in the report are fixed, so a code turned off with `--ignore` or `[severity]` is never fixed. After fixing, the report shows the findings that are left and a `Fixed N problems` line; `--show-fixes` lists each fix. The exit status follows what is left, unless `--exit-non-zero-on-fix` is given. A fix that fails is reported on stderr, and its finding stays in the report.
+Only findings in the report are fixed, so a code turned off with `--ignore` is never fixed. After fixing, the report shows the findings that are left and a `Fixed N problems` line; `--show-fixes` lists each fix. The exit status follows what is left, unless `--exit-non-zero-on-fix` is given. A fix that fails is reported on stderr, and its finding stays in the report.
 
 ## Previewing
 
@@ -57,16 +57,3 @@ Before each change, clisok saves the old value in `%LOCALAPPDATA%\clisok\backups
 
 - `user-Path-<time>.txt` holds the old user PATH. To restore it, paste it back in *Edit environment variables for your account*.
 - `app-path-<name>-<time>.reg` holds a deleted App Paths key. To restore it, run `reg import <file>`.
-
-## Choosing which fixes apply
-
-In [`.clisok.toml`](configuration.md):
-
-```toml
-[fix]
-fixable = ["CLI001", "CLI007"]   # only these codes' fixes are applied
-unfixable = ["CLI301"]           # these codes' fixes are never applied
-unsafe-fixes = true              # --fix also applies unsafe fixes
-```
-
-A fix that is left out still shows, as a `help:` line.

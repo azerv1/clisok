@@ -65,9 +65,6 @@ impl Fixture {
             "--timeout",
             "2",
         ]);
-        if !args.contains(&"--config") {
-            command.arg("--no-config");
-        }
         let out = command
             .args(args)
             .env("PATH", &self.commands)
@@ -93,7 +90,7 @@ impl Fixture {
         assert!(!self.marker.exists(), "fixture performed an action");
     }
 
-    fn configured(&self, subcommand: &str, args: &[&str]) -> Output {
+    fn isolated(&self, subcommand: &str, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_clisok"))
             .arg(subcommand)
             .args(args)
@@ -102,111 +99,68 @@ impl Fixture {
             .env("XDG_CONFIG_HOME", self.root.path().join("user"))
             .env("HOME", self.root.path())
             .env("USERPROFILE", self.root.path())
-            .current_dir(self.root.path())
+            .current_dir(&self.commands)
             .output()
             .unwrap()
     }
 }
 
 #[test]
-fn discovered_project_cannot_enable_trusted_options() {
+fn toml_support_is_removed_from_check_and_list() {
     let fixture = Fixture::new();
     fixture.native("native-probe");
-    let project = fixture.root.path().join(".clisok.toml");
-    fs::write(
-        &project,
-        "[check]\nregistry = true\nextra = ['${CLISOK_MISSING_PROJECT_VAR}']\n[fix]\nunsafe-fixes = true\n",
-    ).unwrap();
-    let out = fixture.configured("list", &["--output-format", "json"]);
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(report["config"], serde_json::json!([project]));
-    assert_eq!(report["extra"], serde_json::json!([]));
-    let warnings = String::from_utf8_lossy(&out.stderr);
-    for key in ["fix.unsafe-fixes", "check.registry", "check.extra"] {
-        assert!(warnings.contains(key), "{warnings}");
-    }
-
-    let out = fixture.configured("list", &["--no-config", "--output-format", "json"]);
-    assert!(out.status.success());
-    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(report["config"], serde_json::json!([]));
-    assert!(out.stderr.is_empty());
-}
-
-#[test]
-fn user_and_explicit_configs_keep_trusted_options() {
-    let fixture = Fixture::new();
-    fixture.native("native-probe");
-    let user_dir = fixture.root.path().join("user").join("clisok");
-    fs::create_dir_all(&user_dir).unwrap();
-    let config = user_dir.join("config.toml");
-    let extra = fixture
-        .root
-        .path()
-        .join(if cfg!(windows) { "extra.exe" } else { "extra" });
-    fs::copy(env!("CARGO_BIN_EXE_clisok"), &extra).unwrap();
-    fs::write(
-        &config,
-        format!(
-            "[check]\nextra = ['{}']\nregistry = true\n[fix]\nunsafe-fixes = true\n",
-            extra.display()
-        ),
-    )
-    .unwrap();
-    fs::write(
-        fixture.root.path().join(".clisok.toml"),
-        "[check]\nextra = []\n",
-    )
-    .unwrap();
-
-    let out = fixture.configured("list", &["--output-format", "json"]);
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(report["extra"][0]["path"], serde_json::json!(extra));
-    assert!(String::from_utf8_lossy(&out.stderr).contains("check.extra"));
-
-    let out = fixture.configured(
-        "list",
-        &[
-            "--config",
-            config.to_str().unwrap(),
-            "--output-format",
-            "json",
-        ],
-    );
-    assert!(out.status.success());
-    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(report["config"], serde_json::json!([config]));
-    assert_eq!(report["extra"][0]["path"], serde_json::json!(extra));
-    assert!(out.stderr.is_empty());
-}
-
-#[test]
-fn full_output_names_config_files_on_stderr() {
-    let fixture = Fixture::new();
-    fixture.native("native-probe");
-    let config = fixture.root.path().join(".clisok.toml");
-    fs::write(&config, "[check]\nskip = ['native-probe']\n").unwrap();
-    for subcommand in ["list", "check"] {
-        let out = fixture.configured(subcommand, &[]);
+    let user = fixture.root.path().join("user").join("clisok");
+    fs::create_dir_all(&user).unwrap();
+    fs::write(user.join("config.toml"), "not valid TOML [").unwrap();
+    fs::write(fixture.root.path().join(".clisok.toml"), "not valid TOML [").unwrap();
+    for subcommand in ["check", "list"] {
+        let out = fixture.isolated(subcommand, &["--output-format", "json"]);
         assert!(
             out.status.success(),
             "{}",
             String::from_utf8_lossy(&out.stderr)
         );
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(stderr.contains(config.to_str().unwrap()), "{stderr}");
-        assert!(!String::from_utf8_lossy(&out.stdout).contains(config.to_str().unwrap()));
+        let report: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(report["schema"], 2);
+        assert!(report.get("config").is_none());
+        assert!(report.get("extra").is_none());
+        if subcommand == "check" {
+            assert_tool(&report, "native-probe", "exe", "pass", 0);
+        } else {
+            assert_eq!(report["commands"][0]["name"], "native-probe");
+        }
+        for flag in ["--config", "--no-config"] {
+            let out = fixture.isolated(subcommand, &[flag]);
+            assert_eq!(out.status.code(), Some(2));
+            assert!(String::from_utf8_lossy(&out.stderr).contains("unexpected argument"));
+        }
     }
+}
+
+#[test]
+fn command_line_skip_and_ignore_remain_effective() {
+    let fixture = Fixture::new();
+    fixture.native("native-probe");
+    let missing = fixture.root.path().join("missing");
+    let path = std::env::join_paths([&fixture.commands, &missing]).unwrap();
+    let env = [("PATH", path.as_os_str())];
+    let report = fixture.check_with_env(&["--skip", "native-probe"], &env);
+    assert!(
+        report["path_problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["code"] == "CLI002")
+    );
+    let report = fixture.check_with_env(&["--skip", "native-probe", "--ignore", "CLI002"], &env);
+    assert_tool(&report, "native-probe", "exe", "skip", 0);
+    assert!(
+        !report["path_problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["code"] == "CLI002")
+    );
 }
 
 fn assert_tool<'a>(
@@ -313,7 +267,7 @@ fn batch_scripts_cannot_claim_to_be_shims_by_mentioning_node_modules() {
 
 #[cfg(unix)]
 #[test]
-fn skipped_and_extra_python_launchers_do_not_load_sitecustomize() {
+fn skipped_python_launchers_do_not_load_sitecustomize() {
     let fixture = Fixture::new();
     let lib = fixture.root.path().join("python-path");
     fs::create_dir(&lib).unwrap();
@@ -327,7 +281,7 @@ fn skipped_and_extra_python_launchers_do_not_load_sitecustomize() {
     )
     .unwrap();
     let launcher = "#!/usr/bin/python3\nimport sys\nfrom clisok_probe_fixture import main\nif __name__ == '__main__':\n    sys.exit(main())\n";
-    let path = fixture.script("module-probe", launcher);
+    fixture.script("module-probe", launcher);
     let env = [("PYTHONPATH", lib.as_os_str())];
     let report = fixture.check_with_env(&["--skip", "module-probe"], &env);
     let tool = assert_tool(&report, "module-probe", "py-launcher", "skip", 0);
@@ -339,22 +293,6 @@ fn skipped_and_extra_python_launchers_do_not_load_sitecustomize() {
     );
     fixture.assert_not_run();
 
-    let extra = fixture.root.path().join("extra-tool");
-    fs::rename(&path, &extra).unwrap();
-    let config = fixture.root.path().join("config.toml");
-    fs::write(
-        &config,
-        format!(
-            "[check]\nextra = [{}]\n",
-            serde_json::to_string(&extra).unwrap()
-        ),
-    )
-    .unwrap();
-    let report = fixture.check_with_env(&["--config", config.to_str().unwrap()], &env);
-    assert_tool(&report, "extra-tool", "py-launcher", "skip", 0);
-    fixture.assert_not_run();
-
-    fs::rename(&extra, &path).unwrap();
     let report = fixture.check_with_env(&[], &env);
     let tool = assert_tool(&report, "module-probe", "py-launcher", "pass", 2);
     assert!(
@@ -423,7 +361,7 @@ fn rules_and_path_listing_emit_valid_json() {
     let rules = run(&["rule", "list", "--output-format", "json"]);
     assert!(rules.status.success());
     let _: serde_json::Value = serde_json::from_slice(&rules.stdout).unwrap();
-    let listing = run(&["list", "--no-config", "--output-format", "json"]);
+    let listing = run(&["list", "--output-format", "json"]);
     assert!(listing.status.success());
     let report: serde_json::Value = serde_json::from_slice(&listing.stdout).unwrap();
     assert_eq!(report["command"], "list");
@@ -435,7 +373,7 @@ fn preview_never_writes_in_the_fixture() {
     let sentinel = directory.path().join("sentinel.txt");
     std::fs::write(&sentinel, "unchanged").unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_clisok"))
-        .args(["check", "--no-config", "--diff"])
+        .args(["check", "--diff"])
         .env("PATH", directory.path())
         .current_dir(directory.path())
         .output()
