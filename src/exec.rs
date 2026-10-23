@@ -86,6 +86,8 @@ static BROKEN: LazyLock<RegexSet> = LazyLock::new(|| {
         r"(?i)\b(cannot|can't|could not|couldn't|unable to|failed to) (load|locate)\b",
         r"(?i)\b(cannot|can't|could not|couldn't|unable to|failed to) find (the )?(module|library|package|dll|interpreter)\b",
         r"(?i)\b(module|library|package|dll|interpreter)\b[^\n]{0,80}\bnot found\b",
+        r#"(?i)\bversion [`'"][^`'"\r\n]+[`'"] not found\b"#,
+        r"(?i)\bsymbol lookup error:",
     ])
     .unwrap()
 });
@@ -476,6 +478,18 @@ mod tests {
         a.signal = None;
         assert_eq!(judge(&a), Judgement::Pass);
         assert!(ran_own_code(&a));
+    }
+
+    #[test]
+    fn linux_loader_diagnostics_are_broken() {
+        for text in [
+            "tool: /lib/libc.so.6: version `GLIBC_2.38' not found (required by tool)",
+            "tool: /opt/libstdc++.so.6: version `GLIBCXX_3.4.32' not found (required by tool)",
+            "tool: symbol lookup error: /opt/libfoo.so: undefined symbol: foo",
+        ] {
+            assert!(is_broken(judge(&run(1, text))), "{text}");
+        }
+        assert!(!is_broken(judge(&run(1, "version option not found"))));
     }
 
     #[test]
