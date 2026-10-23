@@ -1,0 +1,26 @@
+src/platform/windows/script.rs
+  s_952c14d9527d3b::t_2aa90a87168290 46-49,74-77
+  s_952c14d9527d3b::t_ac67fa90dd613c 25-30,43-45,50,52-70,73,78-84,86-88,90-93,188
+  s_952c14d9527d3b::t_ad2b82cc5a0876 244-258
+  s_952c14d9527d3b::t_8421cbf8d68200 243
+tests/cli.rs
+  s_952c14d9527d3b::t_ad2b82cc5a0876 149-166
+docs/src/usage.md
+  s_952c14d9527d3b::t_325ef072ae6657 11-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "46596ac622221930a18b3393f65a9ec30c7a804e",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
