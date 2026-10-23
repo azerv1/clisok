@@ -13,7 +13,7 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::ptr;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use crate::exec::{HEADLESS_ENV, HEADLESS_ENV_REMOVE, capture_output};
@@ -34,13 +34,70 @@ use windows_sys::Win32::System::Pipes::CreatePipe;
 use windows_sys::Win32::System::StationsAndDesktops::CreateDesktopW;
 use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
-    GetExitCodeProcess, PROCESS_INFORMATION, ResumeThread, STARTF_USESHOWWINDOW,
-    STARTF_USESTDHANDLES, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
+    DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetExitCodeProcess,
+    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
+    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROCESS_INFORMATION, ResumeThread, STARTF_USESHOWWINDOW,
+    STARTF_USESTDHANDLES, STARTUPINFOEXW, TerminateProcess, UpdateProcThreadAttribute,
+    WaitForSingleObject,
 };
 
-/// Inheritable handles must not leak into a concurrently spawned child, so
-/// they only exist while this lock is held.
-static SPAWN_LOCK: Mutex<()> = Mutex::new(());
+/// The initialized attribute list owns aligned storage and a stable handle
+/// array. Both must outlive CreateProcessW, which reads their pointers.
+struct HandleList {
+    storage: Vec<usize>,
+    handles: Box<[HANDLE; 2]>,
+}
+
+impl HandleList {
+    fn new(handles: [HANDLE; 2]) -> io::Result<Self> {
+        let mut bytes = 0;
+        // SAFETY: the first call asks for the required buffer size only.
+        unsafe { InitializeProcThreadAttributeList(ptr::null_mut(), 1, 0, &mut bytes) };
+        if bytes == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut storage = vec![0usize; bytes.div_ceil(size_of::<usize>())];
+        // SAFETY: suitably aligned, writable storage of at least `bytes`.
+        if unsafe {
+            InitializeProcThreadAttributeList(storage.as_mut_ptr().cast(), 1, 0, &mut bytes)
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let mut list = Self {
+            storage,
+            handles: Box::new(handles),
+        };
+        // SAFETY: list is initialized; the boxed array remains stable until
+        // the attribute list is deleted, including across moves of `list`.
+        if unsafe {
+            UpdateProcThreadAttribute(
+                list.as_mut_ptr(),
+                0,
+                PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                list.handles.as_ptr().cast(),
+                size_of::<[HANDLE; 2]>(),
+                ptr::null_mut(),
+                ptr::null(),
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(list)
+    }
+
+    fn as_mut_ptr(&mut self) -> LPPROC_THREAD_ATTRIBUTE_LIST {
+        self.storage.as_mut_ptr().cast()
+    }
+}
+
+impl Drop for HandleList {
+    fn drop(&mut self) {
+        // SAFETY: initialized list and its backing buffers are still live.
+        unsafe { DeleteProcThreadAttributeList(self.as_mut_ptr()) };
+    }
+}
 
 pub struct Output {
     pub exit: Option<i32>,
@@ -296,22 +353,25 @@ fn run_with_calls(
 
     let mut pi: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
     {
-        let _guard = SPAWN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let nul = OpenOptions::new().read(true).write(true).open("NUL")?;
         make_inheritable(nul.as_raw_handle())?;
         make_inheritable(wr.as_raw_handle())?;
 
         let mut desktop_w = desktop().map(<[u16]>::to_vec);
-        let mut si: STARTUPINFOW = unsafe { std::mem::zeroed() };
-        si.cb = size_of::<STARTUPINFOW>() as u32;
-        si.lpDesktop = desktop_w
+        let mut inherited = HandleList::new([nul.as_raw_handle(), wr.as_raw_handle()])?;
+        let mut si = STARTUPINFOEXW {
+            lpAttributeList: inherited.as_mut_ptr(),
+            ..Default::default()
+        };
+        si.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
+        si.StartupInfo.lpDesktop = desktop_w
             .as_mut()
             .map_or(ptr::null_mut(), |d| d.as_mut_ptr());
-        si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-        si.wShowWindow = 0; // SW_HIDE
-        si.hStdInput = nul.as_raw_handle();
-        si.hStdOutput = wr.as_raw_handle();
-        si.hStdError = wr.as_raw_handle();
+        si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+        si.StartupInfo.wShowWindow = 0; // SW_HIDE
+        si.StartupInfo.hStdInput = nul.as_raw_handle();
+        si.StartupInfo.hStdOutput = wr.as_raw_handle();
+        si.StartupInfo.hStdError = wr.as_raw_handle();
 
         // SAFETY: every pointer refers to a live, NUL-terminated buffer above.
         let ok = unsafe {
@@ -321,17 +381,20 @@ fn run_with_calls(
                 ptr::null(),
                 ptr::null(),
                 1,
-                CREATE_SUSPENDED | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
+                CREATE_SUSPENDED
+                    | CREATE_NO_WINDOW
+                    | CREATE_UNICODE_ENVIRONMENT
+                    | EXTENDED_STARTUPINFO_PRESENT,
                 env.as_ptr().cast::<c_void>(),
                 cwd_w.as_ptr(),
-                &si,
+                &si.StartupInfo,
                 &mut pi,
             )
         };
         if ok == 0 {
             return Err(io::Error::last_os_error());
         }
-        // Our copies of the child's ends close here, inside the lock.
+        // The child owns its inherited copies now.
         drop(nul);
         drop(wr);
     }
@@ -402,6 +465,65 @@ fn run_with_calls(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inherited_handle_child() {
+        let Some(spec) =
+            std::env::args().find_map(|a| a.strip_prefix("clisok-handle=").map(str::to_owned))
+        else {
+            return;
+        };
+        let (handle, name) = spec.split_once('/').unwrap();
+        let handle = handle.parse::<usize>().unwrap() as HANDLE;
+        let mut buffer = vec![0u16; 32768];
+        // SAFETY: the value is tested by the OS; an invalid handle fails. The
+        // output buffer is live and sized in UTF-16 code units.
+        let length = unsafe {
+            windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW(
+                handle,
+                buffer.as_mut_ptr(),
+                buffer.len() as u32,
+                0,
+            )
+        } as usize;
+        let inherited = length > 0
+            && length < buffer.len()
+            && String::from_utf16_lossy(&buffer[..length]).ends_with(name);
+        assert!(
+            !inherited,
+            "an unrelated inheritable file handle reached the child"
+        );
+    }
+
+    #[test]
+    fn children_inherit_only_their_standard_handles() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        make_inheritable(file.as_file().as_raw_handle()).unwrap();
+        let spec = format!(
+            "clisok-handle={}/{}",
+            file.as_file().as_raw_handle() as usize,
+            file.path().file_name().unwrap().to_str().unwrap()
+        );
+        let out = run(
+            &std::env::current_exe().unwrap(),
+            &[
+                "--exact",
+                "platform::windows::spawn::tests::inherited_handle_child",
+                "--nocapture",
+                "--skip",
+                &spec,
+            ],
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert_eq!(
+            out.exit,
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&out.output)
+        );
+        assert!(String::from_utf8_lossy(&out.output).contains("1 passed"));
+    }
 
     #[test]
     fn assignment_failure_does_not_resume_the_child() {
