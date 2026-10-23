@@ -1,0 +1,37 @@
+src/platform/windows/spawn.rs
+  s_952c14d9527d3b::t_c585addf7de302 19,221
+docs/src/usage.md
+  s_952c14d9527d3b::t_c585addf7de302 24-27
+src/platform/unix/spawn.rs
+  s_952c14d9527d3b::t_967b4ba8cf9b83 139-146
+  s_952c14d9527d3b::t_c585addf7de302 12,14,19,62,138
+  s_952c14d9527d3b::t_b00521790c1606 136-137,147-148
+  s_952c14d9527d3b::t_e07100df17c09f 135
+src/platform/windows/mod.rs
+  s_952c14d9527d3b::t_c585addf7de302 26
+src/check.rs
+  s_952c14d9527d3b::t_c585addf7de302 581
+src/platform/unix/mod.rs
+  s_952c14d9527d3b::t_c585addf7de302 20
+Cargo.toml
+  s_952c14d9527d3b::t_c585addf7de302 25
+src/platform/mod.rs
+  s_952c14d9527d3b::t_967b4ba8cf9b83 1-21,76-79
+  s_952c14d9527d3b::t_c585addf7de302 22-75,80-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d4a93f91cc3e5c94bf9553a6ab4175cf6d00548d",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
