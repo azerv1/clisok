@@ -17,6 +17,7 @@ Suppress a code's findings with `--ignore CODE`. The Fix column says what [`--fi
 | [CLI007](#cli007) | warning | safe | duplicate entry |
 | [CLI008](#cli008) | warning | advice | saved in PATH but missing from this terminal |
 | [CLI009](#cli009) | error | advice | saved PATH cut off by a length limit |
+| [CLI010](#cli010) | warning | advice | relative entry |
 | [CLI101](#cli101) | error | advice | target does not exist |
 | [CLI102](#cli102) | error | advice | library not found |
 | [CLI103](#cli103) | error | advice | interpreter does not exist |
@@ -103,6 +104,14 @@ The folder is in the saved (registry) PATH but not in this process's PATH, usual
 **Default:** error; fails the run
 
 The saved PATH ends at a known length limit (setx: 1024 characters; some installers: 1023, 4095 or 8191) or stops mid-name. Every entry after the cut was lost and can't be recovered from the value itself. Restore PATH from a backup, or reinstall the programs whose folders are missing.
+
+**Fix:** Advice only, shown as a `help:` line.
+
+### CLI010 — relative entry {#cli010}
+
+**Default:** warning; doesn't fail the run
+
+This PATH entry is relative to the current directory, so changing folders can change which program runs. Replace it with an absolute path. On Unix clisok resolves it against the invocation directory for inspection and probing; the report keeps its original spelling.
 
 **Fix:** Advice only, shown as a `help:` line.
 

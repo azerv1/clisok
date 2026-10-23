@@ -64,6 +64,9 @@ On Unix, a probe terminated by a signal fails with `CLI205`. JSON attempts inclu
 `signal` and retain the shell-compatible `exit` value (`128 + signal`). A probe
 killed by its timeout remains a timeout finding.
 
+Relative PATH entries are reported as `CLI010` warnings. On Unix they are resolved
+against the directory where you invoked clisok, including in the probe's PATH.
+
 ## `clisok list`
 
 Lists every command on PATH and the copies it shadows. Nothing is run. Commands found only in the OS's own folders are left out unless `--system` is given. OS copies are marked `[OS]`.

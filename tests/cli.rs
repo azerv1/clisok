@@ -163,6 +163,23 @@ fn command_line_skip_and_ignore_remain_effective() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn relative_path_entries_launch_against_the_invocation_directory() {
+    let fixture = Fixture::new();
+    fixture.native("native-probe");
+    let report = fixture.check_with_env(&[], &[("PATH", OsStr::new("commands"))]);
+    assert_tool(&report, "native-probe", "exe", "pass", 0);
+    let issue = report["path_problems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["code"] == "CLI010")
+        .unwrap();
+    assert_eq!(issue["entry"]["raw"], "commands");
+    assert_eq!(issue["severity"], "warn");
+}
+
 fn assert_tool<'a>(
     report: &'a Value,
     name: &str,

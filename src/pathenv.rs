@@ -54,6 +54,7 @@ pub enum EntryProblem {
     /// The last entry of a saved PATH that a length limit cut off; the
     /// entries after it are gone.
     Truncated,
+    Relative,
 }
 
 impl EntryProblem {
@@ -68,6 +69,7 @@ impl EntryProblem {
             EntryProblem::Duplicate => Code::Cli007,
             EntryProblem::NotInSession => Code::Cli008,
             EntryProblem::Truncated => Code::Cli009,
+            EntryProblem::Relative => Code::Cli010,
         }
     }
 }
@@ -86,6 +88,7 @@ impl fmt::Display for EntryProblem {
             EntryProblem::Truncated => {
                 "saved PATH looks cut off here by a length limit; entries that came after it were lost"
             }
+            EntryProblem::Relative => "relative entry depends on the current directory",
         })
     }
 }
@@ -98,10 +101,19 @@ pub fn parse_path(raw: &str, origin: PathOrigin) -> Vec<PathEntry> {
     }
     parts
         .into_iter()
-        .map(|p| PathEntry {
-            raw: p.to_string(),
-            dir: PathBuf::from(p.trim().trim_matches('"')),
-            origin,
+        .map(|p| {
+            let dir = PathBuf::from(p.trim().trim_matches('"'));
+            #[cfg(unix)]
+            let dir = if origin == PathOrigin::Process {
+                std::path::absolute(&dir).unwrap_or(dir)
+            } else {
+                dir
+            };
+            PathEntry {
+                raw: p.to_string(),
+                dir,
+                origin,
+            }
         })
         .collect()
 }
@@ -138,6 +150,7 @@ fn entry_problems(entries: &[PathEntry]) -> Vec<Option<EntryProblem>> {
             match fs::metadata(&e.dir) {
                 Err(_) => Some(EntryProblem::Missing),
                 Ok(m) if !m.is_dir() => Some(EntryProblem::NotDir),
+                Ok(_) if PathBuf::from(&e.raw).is_relative() => Some(EntryProblem::Relative),
                 Ok(_) => None,
             }
         };

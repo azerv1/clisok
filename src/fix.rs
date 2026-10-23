@@ -118,6 +118,7 @@ pub fn for_entry(problem: EntryProblem, entry: &PathEntry) -> Option<Fix> {
         EntryProblem::Duplicate => "remove this later copy",
         EntryProblem::NotInSession => return Some(Fix::display_only("open a new terminal")),
         EntryProblem::Truncated => "shorten PATH, then re-add the entries that came after this one",
+        EntryProblem::Relative => "replace it with an absolute path",
     };
     Some(Fix::display_only(format!(
         "{what} ({})",
@@ -286,6 +287,7 @@ mod tests {
             EntryProblem::Duplicate,
             EntryProblem::NotInSession,
             EntryProblem::Truncated,
+            EntryProblem::Relative,
         ];
         for p in problems {
             let got = for_entry(p, &entry(PathOrigin::User)).map(|f| f.applicability);

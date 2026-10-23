@@ -71,6 +71,8 @@ codes! {
         "The folder is in the saved (registry) PATH but not in this process's PATH, usually because the terminal started before PATH changed. Open a new terminal; also restart programs that start terminals, such as VS Code.";
     Cli009 = 9, Error, "saved PATH cut off by a length limit",
         "The saved PATH ends at a known length limit (setx: 1024 characters; some installers: 1023, 4095 or 8191) or stops mid-name. Every entry after the cut was lost and can't be recovered from the value itself. Restore PATH from a backup, or reinstall the programs whose folders are missing.";
+    Cli010 = 10, Warn, "relative entry",
+        "This PATH entry is relative to the current directory, so changing folders can change which program runs. Replace it with an absolute path. On Unix clisok resolves it against the invocation directory for inspection and probing; the report keeps its original spelling.";
     Cli101 = 101, Error, "target does not exist",
         "A symlink, shim, launcher or alias points at a file that isn't there, so typing the command fails. Reinstall the tool with the program that installed it, or remove the leftover.";
     Cli102 = 102, Error, "library not found",

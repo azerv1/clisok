@@ -7,6 +7,7 @@
 //! group is killed, so nothing a tool started outlives the run.
 
 use std::collections::HashSet;
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::Path;
@@ -56,6 +57,19 @@ fn track(pgid: i32, running: bool) {
     }
 }
 
+fn child_path(raw: &OsStr, cwd: &Path) -> io::Result<OsString> {
+    let kept = std::env::split_paths(raw)
+        .map(|dir| {
+            if dir.is_absolute() {
+                dir
+            } else {
+                cwd.join(dir)
+            }
+        })
+        .filter(|dir| !super::never_scan(dir));
+    std::env::join_paths(kept).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))
+}
+
 pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Output> {
     let (mut reader, writer) = io::pipe()?;
     let mut cmd = Command::new(program);
@@ -73,10 +87,7 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
     // `true` succeeds and does nothing, so "open in browser" goes nowhere.
     cmd.env("BROWSER", "true");
     if let Some(path) = std::env::var_os("PATH") {
-        let kept = std::env::split_paths(&path).filter(|d| !super::never_scan(d));
-        if let Ok(joined) = std::env::join_paths(kept) {
-            cmd.env("PATH", joined);
-        }
+        cmd.env("PATH", child_path(&path, &std::env::current_dir()?)?);
     }
     // SAFETY: setsid is async-signal-safe and touches nothing in the parent.
     unsafe {
@@ -133,6 +144,30 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn child_path_absolutizes_relative_and_empty_components_before_filtering() {
+        assert_eq!(
+            child_path(
+                OsStr::new("bin::/usr/bin:../tools"),
+                Path::new("/work/project")
+            )
+            .unwrap(),
+            "/work/project/bin:/work/project/:/usr/bin:/work/project/../tools"
+        );
+        assert_eq!(
+            child_path(
+                OsStr::new("../../mnt/c/tools:/usr/bin"),
+                Path::new("/work/project")
+            )
+            .unwrap(),
+            "/work/project/../../mnt/c/tools:/usr/bin"
+        );
+        assert_eq!(
+            child_path(OsStr::new("/mnt/c/tools:/usr/bin"), Path::new("/work")).unwrap(),
+            "/usr/bin"
+        );
+    }
 
     #[test]
     fn work_directory_is_private_and_random() {
