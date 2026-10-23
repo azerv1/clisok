@@ -51,6 +51,36 @@ def test_action_sha_accepts_an_explicit_release(
     helper.main()
 
 
+def test_reproducibility_builds_the_shipped_musl_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    helper = load_tool("reproducible")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Cargo.toml").write_text("fixture", encoding="utf-8")
+    commands: list[tuple[str, ...]] = []
+
+    def run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
+        if args[:2] == ("git", "ls-files"):
+            return "Cargo.toml"
+        if args[:2] == ("git", "show"):
+            return "1"
+        commands.append(args)
+        assert cwd is not None and env is not None
+        target = "x86_64-unknown-linux-musl"
+        assert args == ("cargo", "build", "--release", "--locked", "--target", target)
+        binary = cwd / "target" / target / "release" / "clisok"
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(b"same build")
+        return ""
+
+    monkeypatch.setattr(helper, "run", run)
+    helper.main()
+    assert len(commands) == 2
+    record = json.loads((tmp_path / "evidence/repro.json").read_text(encoding="utf-8"))
+    assert record["target"] == "x86_64-unknown-linux-musl"
+    assert record["result"] == "success"
+
+
 def test_release_publishes_only_after_ci_and_smoke_tests() -> None:
     release = workflow("release.yml")["jobs"]
     assert set(release["smoke"]["needs"]) == {"plan", "build"}

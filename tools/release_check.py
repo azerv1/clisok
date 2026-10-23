@@ -75,7 +75,7 @@ def smoke(binary: Path, version: str) -> None:
         prefix = "@echo off\n" if os.name == "nt" else "#!/bin/sh\n"
         script.write_text(prefix + f'echo unsafe > "{marker}"\n', encoding="utf-8")
         script.chmod(0o755)
-        env = {**os.environ, "PATH": str(commands), "CLISOK_NO_PROGRESS": "1"}
+        env = {**os.environ, "PATH": str(commands)}
         result = execute(binary, ["--version"], env, root)
         if result.returncode or result.stdout.strip() != f"clisok {version}":
             raise ValueError("artifact version mismatch")

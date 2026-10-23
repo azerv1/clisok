@@ -41,7 +41,8 @@ def main() -> None:
         "secret_scanning": {"status": "enabled"},
         "secret_scanning_push_protection": {"status": "enabled"},
     }})
-    print("Configured ci-ok, protected release tags and secret scanning; no reviewer required.")
+    api("-X", "PUT", f"repos/{repo}/private-vulnerability-reporting")
+    print("Configured ci-ok, protected release tags, secret scanning and private vulnerability reporting.")
 
 
 if __name__ == "__main__":
