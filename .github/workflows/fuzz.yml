@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       seconds:
-        description: "Seconds per target (1–900); CPU time is measured."
+        description: "Campaign seconds (1–300); the whole job has a five-minute limit."
         default: "120"
         type: string
 permissions: {}
@@ -16,7 +16,7 @@ jobs:
       matrix:
         target: [python_entry]
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
@@ -46,7 +46,7 @@ jobs:
         run: |
           [[ "$SECONDS_IN" =~ ^[0-9]{1,5}$ ]] || { echo "::error::invalid seconds"; exit 1; }
           seconds=$((10#$SECONDS_IN))
-          [ "$seconds" -ge 1 ] && [ "$seconds" -le 900 ] || exit 1
+          [ "$seconds" -ge 1 ] && [ "$seconds" -le 300 ] || exit 1
           mkdir -p evidence
           echo "CORES=$(nproc)" >> "$GITHUB_ENV"
           /usr/bin/time -f '%U %S %e' -o evidence/fuzz-time.txt \

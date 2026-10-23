@@ -231,6 +231,12 @@ def test_background_checks_are_scheduled_and_never_release_dependencies() -> Non
     assert set(assurance["report"]["needs"]) == {"coverage"}
 
 
+def test_fuzz_job_has_a_five_minute_total_budget() -> None:
+    job = workflow("fuzz.yml")["jobs"]["fuzz"]
+    assert int(job["timeout-minutes"]) <= 5
+    assert int(workflow("fuzz.yml")["on"]["workflow_dispatch"]["inputs"]["seconds"]["default"]) < 300
+
+
 def test_bump_hook_normalizes_only_known_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
