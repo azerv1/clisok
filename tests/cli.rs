@@ -1,5 +1,6 @@
 //! CLI checks use a disposable PATH and never repair the real environment.
 
+use std::ffi::OsStr;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
@@ -50,20 +51,28 @@ impl Fixture {
     }
 
     fn check(&self, args: &[&str]) -> Value {
-        let out = Command::new(env!("CARGO_BIN_EXE_clisok"))
-            .args([
-                "check",
-                "--no-config",
-                "--output-format",
-                "json",
-                "--jobs",
-                "1",
-                "--timeout",
-                "2",
-            ])
+        self.check_with_env(args, &[])
+    }
+
+    fn check_with_env(&self, args: &[&str], env: &[(&str, &OsStr)]) -> Value {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_clisok"));
+        command.args([
+            "check",
+            "--output-format",
+            "json",
+            "--jobs",
+            "1",
+            "--timeout",
+            "2",
+        ]);
+        if !args.contains(&"--config") {
+            command.arg("--no-config");
+        }
+        let out = command
             .args(args)
             .env("PATH", &self.commands)
             .env("CLISOK_TEST_MARKER", &self.marker)
+            .envs(env.iter().copied())
             .current_dir(self.root.path())
             .output()
             .unwrap();
@@ -184,6 +193,88 @@ fn batch_scripts_cannot_claim_to_be_shims_by_mentioning_node_modules() {
     let report = fixture.check(&[]);
     assert_tool(&report, "fake-npm", "script", "skip", 0);
     assert_tool(&report, "redirected-shim", "script", "skip", 0);
+    fixture.assert_not_run();
+}
+
+#[cfg(unix)]
+#[test]
+fn skipped_and_extra_python_launchers_do_not_load_sitecustomize() {
+    let fixture = Fixture::new();
+    let lib = fixture.root.path().join("python-path");
+    fs::create_dir(&lib).unwrap();
+    fs::write(
+        lib.join("sitecustomize.py"),
+        "import os\nfrom pathlib import Path\nPath(os.environ['CLISOK_TEST_MARKER']).write_text('Python started')\n",
+    ).unwrap();
+    fs::write(
+        lib.join("clisok_probe_fixture.py"),
+        "def main():\n    print('fixture 1.0')\n    return 0\n",
+    )
+    .unwrap();
+    let launcher = "#!/usr/bin/python3\nimport sys\nfrom clisok_probe_fixture import main\nif __name__ == '__main__':\n    sys.exit(main())\n";
+    let path = fixture.script("module-probe", launcher);
+    let env = [("PYTHONPATH", lib.as_os_str())];
+    let report = fixture.check_with_env(&["--skip", "module-probe"], &env);
+    let tool = assert_tool(&report, "module-probe", "py-launcher", "skip", 0);
+    assert!(
+        tool["note"]
+            .as_str()
+            .unwrap()
+            .contains("not probed (not run)")
+    );
+    fixture.assert_not_run();
+
+    let extra = fixture.root.path().join("extra-tool");
+    fs::rename(&path, &extra).unwrap();
+    let config = fixture.root.path().join("config.toml");
+    fs::write(
+        &config,
+        format!(
+            "[check]\nextra = [{}]\n",
+            serde_json::to_string(&extra).unwrap()
+        ),
+    )
+    .unwrap();
+    let report = fixture.check_with_env(&["--config", config.to_str().unwrap()], &env);
+    assert_tool(&report, "extra-tool", "py-launcher", "skip", 0);
+    fixture.assert_not_run();
+
+    fs::rename(&extra, &path).unwrap();
+    let report = fixture.check_with_env(&[], &env);
+    let tool = assert_tool(&report, "module-probe", "py-launcher", "pass", 2);
+    assert!(
+        tool["attempts"][0]["arg"]
+            .as_str()
+            .unwrap()
+            .starts_with("-c ")
+    );
+    assert!(
+        fixture.marker.exists(),
+        "eligible launcher did not start Python"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_python_copy_hidden_by_an_os_copy_does_not_load_sitecustomize() {
+    let fixture = Fixture::new();
+    let lib = fixture.root.path().join("python-path");
+    fs::create_dir(&lib).unwrap();
+    fs::write(
+        lib.join("sitecustomize.py"),
+        "import os\nfrom pathlib import Path\nPath(os.environ['CLISOK_TEST_MARKER']).touch()\n",
+    )
+    .unwrap();
+    fixture.script(
+        "python3",
+        "#!/usr/bin/python3\nimport sys\nfrom clisok_probe_fixture import main\nsys.exit(main())\n",
+    );
+    let path = std::env::join_paths([std::path::Path::new("/usr/bin"), &fixture.commands]).unwrap();
+    let report = fixture.check_with_env(
+        &[],
+        &[("PATH", path.as_os_str()), ("PYTHONPATH", lib.as_os_str())],
+    );
+    assert_tool(&report, "python3", "py-launcher", "warn", 0);
     fixture.assert_not_run();
 }
 

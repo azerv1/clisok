@@ -16,6 +16,11 @@ Unix shell launchers must end by forwarding `"$@"`. Redirections and fixed
 arguments to shell or scripting interpreters keep them in static checks. A file
 under `node_modules` is treated as a Node entry point only with a Node shebang.
 
+Static Python checks inspect files without starting the interpreter. If a module
+cannot be found on disk, clisok probes the interpreter only when the launcher is
+eligible to run, using `--timeout`. That probe is included in JSON `attempts`,
+including for passing tools. Skipped tools note that the module was not probed.
+
 ```
 [BROKEN] CLI002 (user) "C:\gone" — directory does not exist
          help: remove the entry if the program is gone; reconnect the drive or share if not (user PATH)

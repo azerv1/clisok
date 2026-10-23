@@ -64,35 +64,54 @@ fn found_statically(sp: &Path, module: &str) -> bool {
     })
 }
 
-type ProbeCache = HashMap<(PathBuf, String), Option<bool>>;
+type ProbeCache = HashMap<(PathBuf, String), bool>;
 
 static PROBE_CACHE: LazyLock<Mutex<ProbeCache>> = LazyLock::new(Default::default);
 
-/// Some(false) when the module is definitely missing; None when we can't tell.
+/// On-disk evidence only. Absence is unknown: editable installs and user sites
+/// cannot be ruled out without starting Python.
 pub fn module_found(python: &Path, module: &str) -> Option<bool> {
-    if site_packages(python)
+    site_packages(python)
         .iter()
         .any(|sp| found_statically(sp, module))
-    {
-        return Some(true);
-    }
+        .then_some(true)
+}
+
+/// Runtime-only lookup. Cache definitive answers, but never cache timeouts or
+/// other inconclusive results. An actual spawn is returned for the report.
+pub fn probe_module(
+    python: &Path,
+    module: &str,
+    timeout: Duration,
+) -> (Option<bool>, Option<exec::Attempt>) {
     let key = (python.to_path_buf(), module.to_string());
-    if let Some(hit) = PROBE_CACHE.lock().unwrap().get(&key) {
-        return *hit;
+    if let Some(hit) = PROBE_CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&key)
+    {
+        return (Some(*hit), None);
     }
     // Editable installs and user site-packages: let the interpreter decide.
     // find_spec on a top-level name locates the package without running it.
     let probe =
         "import importlib.util,sys;sys.exit(0 if importlib.util.find_spec(sys.argv[1]) else 3)";
-    let result = exec::run_capture(python, &["-c", probe, module], Duration::from_secs(30))
-        .ok()
+    let attempt = exec::run_capture(python, &["-c", probe, module], timeout).ok();
+    let result = attempt
+        .as_ref()
+        .filter(|a| !a.timed_out)
         .and_then(|a| match a.exit {
             Some(0) => Some(true),
             Some(3) => Some(false),
             _ => None,
         });
-    PROBE_CACHE.lock().unwrap().insert(key, result);
-    result
+    if let Some(found) = result {
+        PROBE_CACHE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key, found);
+    }
+    (result, attempt)
 }
 
 #[cfg(test)]
@@ -133,5 +152,59 @@ mod tests {
                 .iter()
                 .any(|p| found_statically(p, "somepkg"))
         );
+    }
+
+    #[test]
+    fn static_entry_point_inspection_never_starts_the_interpreter() {
+        let root = tempfile::tempdir().unwrap();
+        let marker = root.path().join("interpreter-ran.txt");
+        #[cfg(windows)]
+        let python = root.path().join("python.cmd");
+        #[cfg(unix)]
+        let python = root.path().join("python3");
+        #[cfg(windows)]
+        let text = format!(
+            "@echo off\r\necho ran > \"{}\"\r\nexit /b 0\r\n",
+            marker.display()
+        );
+        #[cfg(unix)]
+        let text = format!("#!/bin/sh\nprintf ran > '{}'\n", marker.display());
+        fs::write(&python, text).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&python, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let mut reasons = Vec::new();
+        check_entry_point(&python, "clisok_missing_fixture_module", &mut reasons);
+        assert!(
+            !marker.exists(),
+            "static inspection executed the interpreter"
+        );
+        assert!(
+            reasons.is_empty(),
+            "absence on disk does not prove a module missing"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_module_probe_uses_its_timeout_and_does_not_cache_timeouts() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let python = root.path().join("python3");
+        fs::write(&python, "#!/bin/sh\nexec /bin/sleep 5\n").unwrap();
+        fs::set_permissions(&python, fs::Permissions::from_mode(0o755)).unwrap();
+        for _ in 0..2 {
+            let (found, attempt) = probe_module(&python, "fixture", Duration::from_millis(50));
+            assert_eq!(found, None);
+            let attempt = attempt.expect("timeout must not suppress the next probe");
+            assert!(attempt.timed_out);
+            assert!(
+                attempt.ms < 2000,
+                "configured timeout was not used: {}ms",
+                attempt.ms
+            );
+        }
     }
 }

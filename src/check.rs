@@ -14,7 +14,7 @@ use crate::config::{Config, ConfigArgs};
 use crate::discover::{self, PathCommand, Tool};
 use crate::exec::{self, Outcome, ToolErrorKind};
 use crate::fix::{self, Applied, Fix};
-use crate::inspect::{self, Kind};
+use crate::inspect::{self, Kind, Reason, python};
 use crate::output::{self, OutputFormat};
 use crate::pathenv::{self, EntryProblem, PathEntry, PathIndex};
 use crate::platform::{self, path_key};
@@ -211,26 +211,67 @@ fn extra_tools(patterns: &[String], on_path: &[Tool]) -> Result<Vec<Tool>, Strin
         .collect())
 }
 
+/// Preserve the skip reason while explaining an inconclusive module lookup.
+fn skipped_note(kind: &Kind, why: &str) -> String {
+    if let Kind::PyLauncher { python, module } = kind
+        && python::module_found(python, module).is_none()
+    {
+        format!("{why}; module not found on disk; not probed (not run)")
+    } else {
+        why.to_string()
+    }
+}
+
 /// Do the test run (unless skipped) and settle the verdict.
 fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
     let mut res = p.res;
     // Typing the name never reaches this copy, so by default it can't fail
     // the run; its static findings are still listed.
     if let Some(os_copy) = &res.hidden_by {
-        let note = format!(
-            "hidden behind {}, which runs instead",
-            platform::display_case(os_copy).display()
+        let note = skipped_note(
+            &res.kind,
+            &format!(
+                "hidden behind {}, which runs instead",
+                platform::display_case(os_copy).display()
+            ),
         );
         res.verdict = note_finding(&mut res, Code::Cli107, note, Verdict::Warn, &ctx.severities);
         return res;
     }
+    let mut keep_attempts = false;
     let outcome = match p.skip_why {
-        Some(why) => Outcome::Skip(why.to_string()),
+        Some(why) => Outcome::Skip(skipped_note(&res.kind, why)),
         None => {
-            let (outcome, attempts) = exec::run_probe(&res.path, ctx.timeout);
-            res.ms = attempts.iter().map(|a| a.ms).sum();
-            res.attempts = attempts.into_iter().map(exec::trim_output).collect();
-            outcome
+            let mut module_error = None;
+            if let Kind::PyLauncher { python, module } = &res.kind
+                && python::module_found(python, module).is_none()
+            {
+                let (found, attempt) = python::probe_module(python, module, ctx.timeout);
+                if let Some(attempt) = attempt {
+                    if attempt.timed_out {
+                        module_error = Some(Outcome::ToolError(
+                            ToolErrorKind::TimedOut,
+                            format!("module probe timed out after {}s", ctx.timeout.as_secs()),
+                        ));
+                    }
+                    res.ms += attempt.ms;
+                    res.attempts.push(exec::trim_output(attempt));
+                    keep_attempts = true;
+                }
+                if found == Some(false) {
+                    module_error = Some(Outcome::Broken(Reason::MissingModule {
+                        module: module.clone(),
+                        python: python.clone(),
+                    }));
+                }
+            }
+            module_error.unwrap_or_else(|| {
+                let (outcome, attempts) = exec::run_probe(&res.path, ctx.timeout);
+                res.ms += attempts.iter().map(|a| a.ms).sum::<u64>();
+                res.attempts
+                    .extend(attempts.into_iter().map(exec::trim_output));
+                outcome
+            })
         }
     };
 
@@ -272,7 +313,7 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
         if res.attempts.iter().any(|a| a.output_truncated) {
             res.note =
                 Some("test output was truncated; retained output is included in the report".into());
-        } else {
+        } else if !keep_attempts {
             res.attempts.clear();
         }
     }
@@ -870,6 +911,72 @@ mod tests {
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].problem, EntryProblem::Missing);
         assert_eq!(apps.len(), 1);
+    }
+
+    #[test]
+    fn system_and_other_skip_reasons_do_not_probe_python() {
+        let root = tempfile::tempdir().unwrap();
+        let marker = root.path().join("unexpected-python.txt");
+        #[cfg(windows)]
+        let python = root.path().join("python.cmd");
+        #[cfg(unix)]
+        let python = root.path().join("python3");
+        #[cfg(windows)]
+        let text = format!(
+            "@echo off\r\necho ran > \"{}\"\r\nexit /b 0\r\n",
+            marker.display()
+        );
+        #[cfg(unix)]
+        let text = format!("#!/bin/sh\nprintf ran > '{}'\n", marker.display());
+        fs::write(&python, text).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&python, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let dirs = Vec::new();
+        let index = PathIndex::build(&dirs);
+        let ctx = Ctx {
+            index: &index,
+            dirs: &dirs,
+            skip: HashSet::new(),
+            timeout: Duration::from_secs(1),
+            severities: Severities::default(),
+        };
+        for why in [
+            "not run: system program (static checks only)",
+            "not run: --skip",
+            "not run: extra place, static checks only",
+        ] {
+            let res = ToolResult {
+                name: "fixture".into(),
+                path: root.path().join("launcher"),
+                origin: Origin::Path,
+                kind: Kind::PyLauncher {
+                    python: python.clone(),
+                    module: "fixture".into(),
+                },
+                verdict: Verdict::Pass,
+                reasons: vec![],
+                note: None,
+                code: None,
+                shadowed: vec![],
+                hidden_by: None,
+                attempts: vec![],
+                ms: 0,
+            };
+            let result = run(
+                Prepared {
+                    res,
+                    skip_why: Some(why),
+                },
+                &ctx,
+            );
+            assert_eq!(result.verdict, Verdict::Skip);
+            assert!(result.attempts.is_empty());
+            assert!(result.note.unwrap().contains("not probed (not run)"));
+            assert!(!marker.exists(), "{why} started Python");
+        }
     }
 
     #[test]
