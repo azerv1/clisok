@@ -180,6 +180,28 @@ fn relative_path_entries_launch_against_the_invocation_directory() {
     assert_eq!(issue["severity"], "warn");
 }
 
+#[cfg(unix)]
+#[test]
+fn empty_path_components_inventory_the_invocation_directory() {
+    let fixture = Fixture::new();
+    fixture.native("currentonly");
+    for path in ["", ":", "/definitely/missing:"] {
+        let out = Command::new(env!("CARGO_BIN_EXE_clisok"))
+            .args(["list", "--output-format", "json"])
+            .env("PATH", path)
+            .current_dir(&fixture.commands)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let report: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(report["commands"][0]["name"], "currentonly");
+    }
+}
+
 fn assert_tool<'a>(
     report: &'a Value,
     name: &str,

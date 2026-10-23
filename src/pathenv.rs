@@ -95,8 +95,8 @@ impl fmt::Display for EntryProblem {
 
 pub fn parse_path(raw: &str, origin: PathOrigin) -> Vec<PathEntry> {
     let mut parts: Vec<&str> = raw.split(platform::PATH_SEPARATOR).collect();
-    // A single trailing separator is common and harmless.
-    if parts.last() == Some(&"") {
+    // Windows tolerates one trailing separator; Unix searches the current directory.
+    if cfg!(windows) && parts.last() == Some(&"") {
         parts.pop();
     }
     parts
@@ -105,7 +105,12 @@ pub fn parse_path(raw: &str, origin: PathOrigin) -> Vec<PathEntry> {
             let dir = PathBuf::from(p.trim().trim_matches('"'));
             #[cfg(unix)]
             let dir = if origin == PathOrigin::Process {
-                std::path::absolute(&dir).unwrap_or(dir)
+                let path = if dir.as_os_str().is_empty() {
+                    std::path::Path::new(".")
+                } else {
+                    &dir
+                };
+                std::path::absolute(path).unwrap_or(dir)
             } else {
                 dir
             };
@@ -119,8 +124,9 @@ pub fn parse_path(raw: &str, origin: PathOrigin) -> Vec<PathEntry> {
 }
 
 pub fn process_path() -> Vec<PathEntry> {
-    let raw = std::env::var("PATH").unwrap_or_default();
-    parse_path(&raw, PathOrigin::Process)
+    std::env::var("PATH")
+        .map(|raw| parse_path(&raw, PathOrigin::Process))
+        .unwrap_or_default()
 }
 
 pub fn check_entries(entries: &[PathEntry]) -> Vec<(PathEntry, EntryProblem)> {
@@ -276,6 +282,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn windows_keeps_internal_empty_entries_but_tolerates_one_trailing_separator() {
+        for (raw, count) in [
+            ("", 0),
+            (";", 1),
+            (";;", 2),
+            (";C:\\Windows", 2),
+            ("C:\\Windows;", 1),
+            ("C:\\Windows;;C:\\Tools", 3),
+        ] {
+            assert_eq!(parse_path(raw, PathOrigin::Process).len(), count, "{raw:?}");
+        }
+    }
+
+    #[test]
     fn parses_and_flags_entries() {
         let tmp = tempfile::tempdir().unwrap();
         let good = tmp.path().display().to_string();
@@ -402,6 +422,28 @@ mod unix_tests {
     fn exe(path: &std::path::Path) {
         fs::write(path, "#!/bin/sh\n").unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
+    fn preserves_every_empty_unix_component_including_the_trailing_one() {
+        for (raw, count) in [
+            ("", 1),
+            (":", 2),
+            ("::", 3),
+            (":/bin", 2),
+            ("/bin:", 2),
+            ("/bin::/usr/bin", 3),
+        ] {
+            let entries = parse_path(raw, PathOrigin::Process);
+            assert_eq!(entries.len(), count, "{raw:?}");
+            for entry in entries.iter().filter(|e| e.raw.is_empty()) {
+                assert_eq!(entry.dir, std::env::current_dir().unwrap());
+                assert_eq!(
+                    entry_problems(std::slice::from_ref(entry)),
+                    [Some(EntryProblem::Empty)]
+                );
+            }
+        }
     }
 
     #[test]

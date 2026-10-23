@@ -66,6 +66,8 @@ killed by its timeout remains a timeout finding.
 
 Relative PATH entries are reported as `CLI010` warnings. On Unix they are resolved
 against the directory where you invoked clisok, including in the probe's PATH.
+Empty Unix PATH components, including a trailing `:`, search that invocation
+directory and are reported as `CLI001`. `list` includes the commands they expose.
 
 ## `clisok list`
 
