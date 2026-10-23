@@ -440,10 +440,7 @@ fn delete_key(key: &str, backups: &Path) -> Result<PathBuf, String> {
     let name = sub.rsplit('\\').next().unwrap_or(sub);
     let (backup, file) = backup_file(backups, &format!("app-path-{name}"), "reg")?;
     drop(file); // reg export replaces our exclusively reserved file, never another backup.
-    let exported = std::process::Command::new("reg")
-        .args(["export", key])
-        .arg(&backup)
-        .arg("/y")
+    let exported = export_command(key, &backup)?
         .output()
         .map_err(|e| format!("can't run reg export: {e}"))?;
     if !exported.status.success() {
@@ -458,6 +455,18 @@ fn delete_key(key: &str, backups: &Path) -> Result<PathBuf, String> {
     Ok(backup)
 }
 
+fn export_command(key: &str, backup: &Path) -> Result<std::process::Command, String> {
+    let root = std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .ok_or_else(|| {
+            "SystemRoot is not an absolute path, so reg export cannot run".to_string()
+        })?;
+    let mut command = std::process::Command::new(root.join("System32").join("reg.exe"));
+    command.args(["export", key]).arg(backup).arg("/y");
+    Ok(command)
+}
+
 /// `%LOCALAPPDATA%\clisok\backups`, where old values are saved before a fix.
 fn backup_dir() -> Result<PathBuf, String> {
     std::env::var_os("LOCALAPPDATA")
@@ -468,6 +477,16 @@ fn backup_dir() -> Result<PathBuf, String> {
 /// A new file name in `dir` (created if needed) for a backup.
 fn backup_file(dir: &Path, name: &str, ext: &str) -> Result<(PathBuf, File), String> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
+    let name: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || "._-".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
     fs::create_dir_all(dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -764,7 +783,10 @@ mod tests {
     /// Runs against a throwaway key, never a real App Paths registration.
     #[test]
     fn deleting_a_key_exports_it_first() {
-        let name = format!(r"Software\clisok-test-key-{}\tool.exe", std::process::id());
+        let name = format!(
+            r"Software\clisok-test-key-{}\tool:odd/name.exe",
+            std::process::id()
+        );
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let (key, _) = hkcu.create_subkey(&name).unwrap();
         key.set_value("", &r"C:\definitely\missing\tool.exe")
@@ -789,6 +811,41 @@ mod tests {
         );
         assert!(text.contains(r"definitely\\missing\\tool.exe"), "{text}");
         assert!(delete_key(r"HKLM\SOFTWARE\x", backups.path()).is_err());
+    }
+
+    #[test]
+    fn registry_export_uses_an_absolute_system_executable() {
+        let command = export_command(r"HKCU\Software\fixture", Path::new("backup.reg")).unwrap();
+        let program = Path::new(command.get_program());
+        assert!(program.is_absolute(), "{}", program.display());
+        assert_eq!(
+            program,
+            PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+                .join("System32")
+                .join("reg.exe")
+        );
+    }
+
+    #[test]
+    fn backup_key_names_cannot_create_subdirectories_or_alternate_streams() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, file) = backup_file(
+            dir.path(),
+            "app-path-odd/name:stream\\invalid*?\"<>|é",
+            "reg",
+        )
+        .unwrap();
+        drop(file);
+        assert_eq!(path.parent(), Some(dir.path()));
+        assert!(
+            path.file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+        );
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[test]
