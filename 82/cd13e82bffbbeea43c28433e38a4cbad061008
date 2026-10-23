@@ -1,0 +1,30 @@
+src/platform/unix/elf.rs
+  s_952c14d9527d3b::t_36a7f25945e09d 317,350-355,357-364,366-381,383-396,398-419,421-439
+  s_952c14d9527d3b::t_e6541d87775f9b 318-338,340-341,347-349
+  s_952c14d9527d3b::t_9da9df0daced0e 4,10,27,31-33,76-80,82-84,162-167,169,172,174,176,180,183-188,200-202,204,207,211,214-216,219,221-237,239-260,265-274,282,312,339,342-344,346
+  s_952c14d9527d3b::t_ed67d97e45d951 81
+  s_952c14d9527d3b::t_e1c793a18f03a2 168
+  s_952c14d9527d3b::t_0bd449ac5d219b 203
+  s_952c14d9527d3b::t_250ad4d657d50a 345
+  s_952c14d9527d3b::t_103c1cc537eb8f 356
+  s_952c14d9527d3b::t_195e805170175d 365
+  s_952c14d9527d3b::t_a6d7c198d38ad8 382
+  s_952c14d9527d3b::t_30190f2c7a9d19 397
+  s_952c14d9527d3b::t_249afd526251e2 420
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "82cd13e82bffbbeea43c28433e38a4cbad061008",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
