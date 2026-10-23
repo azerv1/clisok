@@ -1,0 +1,49 @@
+src/check.rs
+  s_952c14d9527d3b::t_a7bb715bbd763d 225-227
+docs/src/usage.md
+  s_952c14d9527d3b::t_a7bb715bbd763d 63-66
+src/exec.rs
+  s_952c14d9527d3b::t_724537b89b0de5 444-447,449-451,453,455-462,479-480
+  s_952c14d9527d3b::t_a7bb715bbd763d 167-169,181,196,210-212,326,400,428,463-478
+  s_952c14d9527d3b::t_00ac3d4c1a06cb 448,452,454
+src/codes.rs
+  s_952c14d9527d3b::t_a7bb715bbd763d 98-99
+src/platform/unix/spawn.rs
+  s_952c14d9527d3b::t_a7bb715bbd763d 23,126
+src/inspect/mod.rs
+  s_952c14d9527d3b::t_a7bb715bbd763d 78-80,95,137
+src/platform/windows/spawn.rs
+  s_952c14d9527d3b::t_a7bb715bbd763d 45,318
+src/fix.rs
+  s_952c14d9527d3b::t_a7bb715bbd763d 218
+  s_952c14d9527d3b::t_cf1afa30bb2d39 318,323
+  s_952c14d9527d3b::t_bd7af0fd276d25 217
+  s_952c14d9527d3b::t_fea2c02659eb90 219
+  s_952c14d9527d3b::t_e1eab2a3a62c61 152-154
+docs/src/codes.md
+  s_77048c4b51552e::t_74edaa35a73b11 32,209-216
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3f5d8b8cff3f60d97ed37837c5495472d408f77d",
+  "prompts": {},
+  "sessions": {
+    "s_77048c4b51552e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd36474c-a2ea-4dd1-8d82-904f90318286",
+        "model": "unknown"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
