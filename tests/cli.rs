@@ -128,6 +128,24 @@ fn json_fixture_checks_native_tools_and_never_runs_plain_scripts() {
     fixture.assert_not_run();
 }
 
+#[cfg(unix)]
+#[test]
+fn python_import_script_is_never_run() {
+    let fixture = Fixture::new();
+    fixture.script(
+        "python-actions",
+        "#!/usr/bin/python3\nimport os\nfrom pathlib import Path\nPath(os.environ['CLISOK_TEST_MARKER']).write_text('ran')\n",
+    );
+    fixture.script(
+        "python-dollar-args",
+        "#!/usr/bin/python3\n__import__('pathlib').Path(__import__('os').environ['CLISOK_TEST_MARKER']).write_text('\"$@\"')\n",
+    );
+    let report = fixture.check(&[]);
+    assert_tool(&report, "python-actions", "script", "skip", 0);
+    assert_tool(&report, "python-dollar-args", "script", "skip", 0);
+    fixture.assert_not_run();
+}
+
 fn run(args: &[&str]) -> Output {
     let directory = tempfile::tempdir().unwrap();
     Command::new(env!("CARGO_BIN_EXE_clisok"))

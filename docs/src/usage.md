@@ -4,6 +4,10 @@
 
 Checks PATH entries, then every tool on PATH: static checks first, then a test run for the tools that are safe to run: `--version`, falling back to `-V`, `--help` and `-h` for tools that reject it. Installers, GUI programs, app execution aliases, plain scripts and the OS's own programs are never run.
 
+Python scripts are run only when they match a generated pip/distlib or uv console
+entry-point template. Other Python bodies are inspected without being run,
+including unrecognised bodies embedded in Windows Python launchers.
+
 ```
 [BROKEN] CLI002 (user) "C:\gone" — directory does not exist
          help: remove the entry if the program is gone; reconnect the drive or share if not (user PATH)

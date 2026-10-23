@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(entry_module(main), Some("somepkg".into()));
         assert_eq!(
             entry_module("from __future__ import x\nfrom pkg import y\n"),
-            Some("pkg".into())
+            None
         );
         assert_eq!(entry_module("print('hi')\n"), None);
     }

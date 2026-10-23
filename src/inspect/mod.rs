@@ -18,7 +18,7 @@ use crate::platform;
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Kind {
     Exe,
-    /// A Python entry point: a pip/uv launcher exe, or a script with a Python shebang.
+    /// A generated pip/distlib or uv Python console entry point.
     PyLauncher {
         python: PathBuf,
         module: String,

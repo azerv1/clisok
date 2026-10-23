@@ -32,6 +32,8 @@ pub fn parse(data: &[u8], exe_dir: &Path) -> Result<Option<PyTrailer>, &'static 
     }
     .map_err(|_| "launcher text is invalid or exceeds 1 MiB; static inspection skipped")?;
     let main_py = String::from_utf8_lossy(&bytes);
+    let module =
+        entry_module(&main_py).ok_or("unrecognised Python entry point; static inspection only")?;
     let parse_entry = || {
         let shebang = shebang_before(data, at).or_else(|| {
             let first = main_py.lines().next()?;
@@ -39,7 +41,7 @@ pub fn parse(data: &[u8], exe_dir: &Path) -> Result<Option<PyTrailer>, &'static 
         })?;
         Some(PyTrailer {
             python: interpreter(&shebang, exe_dir)?,
-            module: entry_module(&main_py)?,
+            module,
         })
     };
     Ok(parse_entry())
@@ -213,6 +215,14 @@ mod tests {
         exe.extend(stored_zip(b"data.txt", b"hello"));
         assert_eq!(parse(&exe, Path::new("C:\\")), Ok(None));
         assert_eq!(parse(b"MZ plain program", Path::new("C:\\")), Ok(None));
+    }
+
+    #[test]
+    fn embedded_python_actions_are_not_treated_as_native_executables() {
+        let main = format!("{MAIN}\nopen('marker', 'w').close()\n");
+        let mut exe = b"MZ stub\n#!C:\\Python\\python.exe\n".to_vec();
+        exe.extend(stored_zip(MAIN_PY, main.as_bytes()));
+        assert!(parse(&exe, Path::new(r"C:\x")).is_err());
     }
 
     #[test]
