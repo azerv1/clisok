@@ -111,6 +111,28 @@ impl Fixture {
 }
 
 #[test]
+fn static_mode_skips_native_probes_and_keeps_specific_skip_reasons() {
+    let fixture = Fixture::new();
+    fixture.native("native-probe");
+    #[cfg(windows)]
+    let script = "@echo off\r\necho ran > \"%CLISOK_TEST_MARKER%\"\r\n";
+    #[cfg(unix)]
+    let script = "#!/bin/sh\necho ran > \"$CLISOK_TEST_MARKER\"\n";
+    fixture.script("ordinary", script);
+    let report = fixture.check(&["--static"]);
+    let native = assert_tool(&report, "native-probe", "exe", "skip", 0);
+    assert_eq!(native["note"], "not run: --static");
+    let script = assert_tool(&report, "ordinary", "script", "skip", 0);
+    assert!(
+        script["note"]
+            .as_str()
+            .unwrap()
+            .contains("script, not a launcher")
+    );
+    fixture.assert_not_run();
+}
+
+#[test]
 #[cfg(unix)]
 fn root_must_explicitly_allow_probes() {
     // SAFETY: read-only process identity query.
@@ -406,6 +428,16 @@ fn skipped_python_launchers_do_not_load_sitecustomize() {
             .as_str()
             .unwrap()
             .contains("not probed (not run)")
+    );
+    fixture.assert_not_run();
+
+    let report = fixture.check_with_env(&["--static"], &env);
+    let tool = assert_tool(&report, "module-probe", "py-launcher", "skip", 0);
+    assert!(
+        tool["note"]
+            .as_str()
+            .unwrap()
+            .starts_with("not run: --static")
     );
     fixture.assert_not_run();
 

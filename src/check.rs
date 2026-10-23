@@ -57,6 +57,9 @@ pub struct CheckArgs {
     /// Allow probes to run as root or elevated
     #[arg(long)]
     allow_root: bool,
+    /// Inspect files only; do not start probes or interpreters
+    #[arg(long = "static", conflicts_with = "fix")]
+    static_only: bool,
     /// Apply the safe fixes (the `fix:` lines). On Windows that removes empty
     /// and repeated entries from the saved user PATH; implies --registry
     #[arg(long)]
@@ -524,7 +527,7 @@ fn probe_permission(
     args: &CheckArgs,
     privileged: impl FnOnce() -> std::io::Result<bool>,
 ) -> Result<(), String> {
-    if args.diff || args.allow_root {
+    if args.diff || args.static_only || args.allow_root {
         return Ok(());
     }
     match privileged() {
@@ -612,7 +615,13 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         timeout: Duration::from_secs(args.timeout.unwrap_or(DEFAULT_TIMEOUT)),
         severities,
     };
-    let prepared = pool::run_in_order(tools, jobs, |t| prepare(t, &ctx));
+    let prepared = pool::run_in_order(tools, jobs, |t| {
+        let mut prepared = prepare(t, &ctx);
+        if args.static_only {
+            prepared.skip_why = prepared.skip_why.or(Some("not run: --static"));
+        }
+        prepared
+    });
     let mut queue: Vec<(usize, Prepared)> = prepared.into_iter().enumerate().collect();
     queue.sort_by_key(|(_, p)| cost_rank(p)); // stable: discovery order within a rank
 
@@ -718,7 +727,7 @@ mod tests {
         assert!(
             probe_permission(&args(&[]), || Err(std::io::Error::other("query failed"))).is_err()
         );
-        for flags in [&["--allow-root"][..], &["--diff"][..]] {
+        for flags in [&["--allow-root"][..], &["--diff"][..], &["--static"][..]] {
             assert!(
                 probe_permission(&args(flags), || panic!(
                     "override/diff must not query privileges"
