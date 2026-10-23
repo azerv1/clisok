@@ -1,0 +1,26 @@
+src/exec.rs
+  s_952c14d9527d3b::t_3481fb8ac1fcad 952,963,965
+  s_952c14d9527d3b::t_9c8e3f009d780f 341
+docs/src/usage.md
+  s_952c14d9527d3b::t_9c8e3f009d780f 5
+src/codes.rs
+  s_952c14d9527d3b::t_9c8e3f009d780f 99
+docs/src/codes.md
+  s_952c14d9527d3b::t_1ffee122a70999 214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "78a99b493c75a670bf0e85cebf0c447e1cd0988b",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
