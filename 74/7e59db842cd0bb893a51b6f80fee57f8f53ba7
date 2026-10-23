@@ -1,0 +1,25 @@
+.github/workflows/fuzz.yml
+  s_952c14d9527d3b::t_3d6a66de84e4c8 8-9,19,45,49,61
+tests/release/test_artifacts.py
+  s_952c14d9527d3b::t_3d6a66de84e4c8 230-231
+.github/workflows/assurance.yml
+  s_952c14d9527d3b::t_3d6a66de84e4c8 37,47
+src/parsing.rs
+  s_952c14d9527d3b::t_3d6a66de84e4c8 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "747e59db842cd0bb893a51b6f80fee57f8f53ba7",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
