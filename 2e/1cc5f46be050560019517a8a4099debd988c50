@@ -1,0 +1,21 @@
+src/platform/windows/registry.rs
+  s_952c14d9527d3b::t_221ae6efc54fbb 443,458,463-466
+  s_952c14d9527d3b::t_f57f742fc9475e 459-462
+  s_952c14d9527d3b::t_4d4816d38b1cc0 467-469,480-489,786-789,816-850
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2e1cc5f46be050560019517a8a4099debd988c50",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
