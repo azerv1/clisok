@@ -19,7 +19,8 @@ use std::time::Duration;
 use crate::exec::{HEADLESS_ENV, HEADLESS_ENV_REMOVE, capture_output};
 use crate::platform::work_dir;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, GENERIC_ALL, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation, WAIT_TIMEOUT,
+    CloseHandle, GENERIC_ALL, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation, WAIT_FAILED,
+    WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::System::Diagnostics::Debug::{
     SEM_FAILCRITICALERRORS, SEM_NOGPFAULTERRORBOX, SetErrorMode,
@@ -34,7 +35,7 @@ use windows_sys::Win32::System::StationsAndDesktops::CreateDesktopW;
 use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
     GetExitCodeProcess, PROCESS_INFORMATION, ResumeThread, STARTF_USESHOWWINDOW,
-    STARTF_USESTDHANDLES, STARTUPINFOW, WaitForSingleObject,
+    STARTF_USESTDHANDLES, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
 };
 
 /// Inheritable handles must not leak into a concurrently spawned child, so
@@ -221,7 +222,58 @@ fn make_inheritable(h: HANDLE) -> io::Result<()> {
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+struct ProcessCalls {
+    assign: unsafe extern "system" fn(HANDLE, HANDLE) -> i32,
+    resume: unsafe extern "system" fn(HANDLE) -> u32,
+    wait: unsafe extern "system" fn(HANDLE, u32) -> u32,
+    exit_code: unsafe extern "system" fn(HANDLE, *mut u32) -> i32,
+}
+
+const PROCESS_CALLS: ProcessCalls = ProcessCalls {
+    assign: AssignProcessToJobObject,
+    resume: ResumeThread,
+    wait: WaitForSingleObject,
+    exit_code: GetExitCodeProcess,
+};
+
+fn wait_result(status: u32) -> io::Result<bool> {
+    match status {
+        WAIT_OBJECT_0 => Ok(false),
+        WAIT_TIMEOUT => Ok(true),
+        WAIT_FAILED => Err(io::Error::last_os_error()),
+        _ => Err(io::Error::other(format!(
+            "unexpected process wait result: {status}"
+        ))),
+    }
+}
+
+fn terminate_process(process: HANDLE) -> io::Result<()> {
+    // SAFETY: a live process handle owned by the caller.
+    unsafe {
+        if TerminateProcess(process, 1) == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if wait_result(WaitForSingleObject(process, 5000))? {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "terminated process did not exit",
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Output> {
+    run_with_calls(program, args, timeout, &PROCESS_CALLS)
+}
+
+fn run_with_calls(
+    program: &Path,
+    args: &[&str],
+    timeout: Duration,
+    calls: &ProcessCalls,
+) -> io::Result<Output> {
     let (app, line) = command_line(program, args)?;
     let app_w = wide(app.as_os_str());
     let mut line_w = wide(&line);
@@ -285,29 +337,54 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
     }
 
     // SAFETY: handles from a successful CreateProcessW; we own and close them.
-    let process = unsafe {
-        AssignProcessToJobObject(job.0, pi.hProcess);
-        ResumeThread(pi.hThread);
-        CloseHandle(pi.hThread);
-        OwnedHandle::from_raw_handle(pi.hProcess)
+    let (process, thread) = unsafe {
+        (
+            OwnedHandle::from_raw_handle(pi.hProcess),
+            OwnedHandle::from_raw_handle(pi.hThread),
+        )
     };
+    // A child must stay suspended until containment is confirmed. Both
+    // handles close on every error path, after the suspended child is killed.
+    // SAFETY: valid process, thread and job handles owned above.
+    unsafe {
+        if (calls.assign)(job.0, process.as_raw_handle()) == 0 {
+            let error = io::Error::last_os_error();
+            terminate_process(process.as_raw_handle())?;
+            return Err(error);
+        }
+        if (calls.resume)(thread.as_raw_handle()) == u32::MAX {
+            let error = io::Error::last_os_error();
+            terminate_process(process.as_raw_handle())?;
+            return Err(error);
+        }
+    }
+    drop(thread);
 
     let capture = capture_output(File::from(rd));
 
-    let ms = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX - 1);
+    let ms = timeout.as_millis().min(u128::from(u32::MAX - 1)) as u32;
     // SAFETY: valid process and job handles.
-    let timed_out = unsafe { WaitForSingleObject(process.as_raw_handle(), ms) } == WAIT_TIMEOUT;
+    let timed_out = wait_result(unsafe { (calls.wait)(process.as_raw_handle(), ms) })?;
     let exit = if timed_out {
         // SAFETY: valid handles.
         unsafe {
-            TerminateJobObject(job.0, 1);
-            WaitForSingleObject(process.as_raw_handle(), 5000);
+            if TerminateJobObject(job.0, 1) == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if wait_result(WaitForSingleObject(process.as_raw_handle(), 5000))? {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "terminated job did not exit",
+                ));
+            }
         }
         None
     } else {
         let mut code = 0u32;
         // SAFETY: valid process handle and out-pointer.
-        unsafe { GetExitCodeProcess(process.as_raw_handle(), &mut code) };
+        if unsafe { (calls.exit_code)(process.as_raw_handle(), &mut code) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
         Some(code as i32)
     };
     // Closing the job kills leftover grandchildren so the pipe reaches EOF.
@@ -325,6 +402,73 @@ pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Outpu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn assignment_failure_does_not_resume_the_child() {
+        unsafe extern "system" fn deny_assignment(_: HANDLE, _: HANDLE) -> i32 {
+            // SAFETY: sets this thread's Win32 error only.
+            unsafe { windows_sys::Win32::Foundation::SetLastError(5) };
+            0
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("resumed.txt");
+        let cmd = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join(r"System32\cmd.exe");
+        let line = format!("echo resumed > \"{}\"", marker.display());
+        let result = run_with_calls(
+            &cmd,
+            &["/d", "/c", &line],
+            Duration::from_secs(5),
+            &ProcessCalls {
+                assign: deny_assignment,
+                ..PROCESS_CALLS
+            },
+        );
+        assert!(result.is_err(), "assignment failure was ignored");
+        assert!(!marker.exists(), "an uncontained child ran");
+    }
+
+    #[test]
+    fn resume_wait_and_exit_code_failures_are_errors() {
+        unsafe extern "system" fn resume(_: HANDLE) -> u32 {
+            // SAFETY: sets this thread's Win32 error only.
+            unsafe { windows_sys::Win32::Foundation::SetLastError(5) };
+            u32::MAX
+        }
+        unsafe extern "system" fn wait(_: HANDLE, _: u32) -> u32 {
+            // SAFETY: sets this thread's Win32 error only.
+            unsafe { windows_sys::Win32::Foundation::SetLastError(5) };
+            WAIT_FAILED
+        }
+        unsafe extern "system" fn exit_code(_: HANDLE, _: *mut u32) -> i32 {
+            // SAFETY: sets this thread's Win32 error only.
+            unsafe { windows_sys::Win32::Foundation::SetLastError(5) };
+            0
+        }
+        let cmd = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join(r"System32\cmd.exe");
+        for calls in [
+            ProcessCalls {
+                resume,
+                ..PROCESS_CALLS
+            },
+            ProcessCalls {
+                wait,
+                ..PROCESS_CALLS
+            },
+            ProcessCalls {
+                exit_code,
+                ..PROCESS_CALLS
+            },
+        ] {
+            let result = run_with_calls(
+                &cmd,
+                &["/d", "/c", "exit /b 0"],
+                Duration::from_secs(5),
+                &calls,
+            );
+            let error = result.err().expect("Win32 failure was ignored");
+            assert_eq!(error.raw_os_error(), Some(5));
+        }
+    }
 
     fn q(s: &str) -> String {
         let mut out = Vec::new();
