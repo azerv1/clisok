@@ -8,6 +8,8 @@
 
 ### Added
 
+- Interactive progress shows completed checks and percentages by inferred package manager, plus an overall total.
+
 - `check --static` inspects files without starting tools or interpreter probes.
 - Windows repairs target scanned entries, detect concurrent PATH changes and protect command resolution. `--fix` and `--diff` include registry checks automatically.
 

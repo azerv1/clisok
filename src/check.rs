@@ -549,9 +549,9 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     platform::init();
     // Ctrl+C: stop every running tool and give the cursor back before exiting.
     let _ = ctrlc::set_handler(|| {
+        progress::interrupt();
         platform::kill_children();
         platform::cleanup();
-        platform::cursor_visible(true);
         std::process::exit(130);
     });
     let jobs = args
@@ -625,13 +625,20 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     let mut queue: Vec<(usize, Prepared)> = prepared.into_iter().enumerate().collect();
     queue.sort_by_key(|(_, p)| cost_rank(p)); // stable: discovery order within a rank
 
-    let progress = progress::Progress::new(queue.len());
-    let mut done = pool::run_in_order(queue, jobs, |(i, p)| {
+    let queue: Vec<_> = queue
+        .into_iter()
+        .map(|(i, p)| {
+            let group = progress::Group::for_path(&p.res.path);
+            (i, p, group)
+        })
+        .collect();
+    let progress = progress::Progress::new(queue.iter().map(|(_, _, group)| *group));
+    let mut done = pool::run_in_order(queue, jobs, |(i, p, group)| {
         let res = run(p, &ctx);
-        progress.tick(&res.name);
+        progress.tick(group, &res.name);
         (i, res)
     });
-    progress.finish();
+    drop(progress);
     done.sort_by_key(|(i, _)| *i);
     let mut tools: Vec<ToolResult> = done.into_iter().map(|(_, r)| r).collect();
 
@@ -652,8 +659,12 @@ pub fn check(args: &CheckArgs) -> ExitCode {
             timed_out.len(),
             retry.timeout.as_secs()
         );
-        let progress = progress::Progress::new(timed_out.len());
-        let rechecked = pool::run_in_order(timed_out.clone(), jobs, |i| {
+        let retry_queue: Vec<_> = timed_out
+            .iter()
+            .map(|&i| (i, progress::Group::for_path(&tools[i].path)))
+            .collect();
+        let progress = progress::Progress::new(retry_queue.iter().map(|(_, group)| *group));
+        let rechecked = pool::run_in_order(retry_queue, jobs, |(i, group)| {
             let t = &tools[i];
             let tool = Tool {
                 name: t.name.clone(),
@@ -662,16 +673,19 @@ pub fn check(args: &CheckArgs) -> ExitCode {
                 hidden_by: t.hidden_by.clone(),
             };
             let res = run(prepare(tool, &retry), &retry);
-            progress.tick(&res.name);
+            progress.tick(group, &res.name);
             res
         });
-        progress.finish();
+        drop(progress);
         for (i, res) in timed_out.into_iter().zip(rechecked) {
             tools[i] = res;
         }
     }
 
     platform::cleanup();
+    if progress::is_interrupted() {
+        return ExitCode::from(130);
+    }
     let report = Report {
         schema: SCHEMA_VERSION,
         command: "check",

@@ -111,6 +111,19 @@ impl Fixture {
 }
 
 #[test]
+fn redirected_progress_keeps_stderr_plain_and_stdout_json() {
+    let fixture = Fixture::new();
+    fixture.native("native-probe");
+    let out = fixture.isolated("check", &["--static", "--output-format", "json"]);
+    assert!(out.status.success());
+    assert!(!out.stderr.contains(&b'\x1b'));
+    assert!(!out.stderr.contains(&b'\r'));
+    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_tool(&report, "native-probe", "exe", "skip", 0);
+    fixture.assert_not_run();
+}
+
+#[test]
 fn static_mode_skips_native_probes_and_keeps_specific_skip_reasons() {
     let fixture = Fixture::new();
     fixture.native("native-probe");
