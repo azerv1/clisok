@@ -1,5 +1,5 @@
 //! `clisok check`: PATH entries, then every tool on PATH — static checks
-//! first, then a test run (version-first by default) for the ones that are safe to run.
+//! first, then a test run (`--version`, then `--help`) for the ones that are safe to run.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -60,12 +60,6 @@ pub struct CheckArgs {
     /// Inspect files only; do not start probes or interpreters
     #[arg(long = "static", conflicts_with = "fix")]
     static_only: bool,
-    /// Try --version before --help and -h (default)
-    #[arg(long, conflicts_with = "help_first")]
-    version_first: bool,
-    /// Try --help and -h before --version
-    #[arg(long, conflicts_with = "version_first")]
-    help_first: bool,
     /// Apply the safe fixes (the `fix:` lines). On Windows that removes empty
     /// and repeated entries from the saved user PATH; implies --registry
     #[arg(long)]
@@ -98,15 +92,6 @@ pub struct CheckArgs {
 
 const DEFAULT_TIMEOUT: u64 = 30;
 
-impl CheckArgs {
-    fn probe_order(&self) -> exec::ProbeOrder {
-        match (self.version_first, self.help_first) {
-            (false, true) => exec::ProbeOrder::HelpFirst,
-            _ => exec::ProbeOrder::VersionFirst,
-        }
-    }
-}
-
 /// Workers per core. The tools being run are CPU-heavy (interpreter
 /// startup), so more workers than cores only slows every tool down.
 const JOBS_PER_CORE: usize = 1;
@@ -120,7 +105,6 @@ struct Ctx<'a> {
     dirs: &'a [PathBuf],
     skip: HashSet<String>,
     timeout: Duration,
-    probe_order: exec::ProbeOrder,
     severities: Severities,
 }
 
@@ -264,7 +248,7 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
                 }
             }
             module_error.unwrap_or_else(|| {
-                let (outcome, attempts) = exec::run_probe(&res.path, ctx.timeout, ctx.probe_order);
+                let (outcome, attempts) = exec::run_probe(&res.path, ctx.timeout);
                 res.ms += attempts.iter().map(|a| a.ms).sum::<u64>();
                 res.attempts
                     .extend(attempts.into_iter().map(exec::trim_output));
@@ -629,7 +613,6 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         dirs: &dirs,
         skip: args.skip.iter().map(|s| s.to_lowercase()).collect(),
         timeout: Duration::from_secs(args.timeout.unwrap_or(DEFAULT_TIMEOUT)),
-        probe_order: args.probe_order(),
         severities,
     };
     let prepared = pool::run_in_order(tools, jobs, |t| {
@@ -740,31 +723,6 @@ mod tests {
     use crate::discover::FileCopy;
 
     #[test]
-    fn probe_order_flags_select_the_order_and_conflict() {
-        use clap::Parser;
-        for (flags, expected) in [
-            (&[][..], exec::ProbeOrder::VersionFirst),
-            (&["--version-first"][..], exec::ProbeOrder::VersionFirst),
-            (&["--help-first"][..], exec::ProbeOrder::HelpFirst),
-        ] {
-            let cli = crate::Cli::try_parse_from([&["clisok", "check"], flags].concat()).unwrap();
-            let Some(crate::Command::Check(args)) = cli.command else {
-                panic!("expected check")
-            };
-            assert_eq!(args.probe_order(), expected);
-        }
-        for flags in [
-            ["--version-first", "--help-first"],
-            ["--help-first", "--version-first"],
-        ] {
-            let err = crate::Cli::try_parse_from([&["clisok", "check"], &flags[..]].concat())
-                .err()
-                .unwrap();
-            assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
-        }
-    }
-
-    #[test]
     fn privilege_policy_requires_an_explicit_override_and_exempts_diff() {
         use clap::Parser;
         let args = |flags: &[&str]| {
@@ -853,7 +811,6 @@ mod tests {
             dirs: &dirs,
             skip: HashSet::new(),
             timeout: Duration::from_secs(1),
-            probe_order: exec::ProbeOrder::VersionFirst,
             severities: Severities::default(),
         };
 
@@ -1030,7 +987,6 @@ mod tests {
             dirs: &dirs,
             skip: HashSet::new(),
             timeout: Duration::from_secs(1),
-            probe_order: exec::ProbeOrder::VersionFirst,
             severities: Severities::default(),
         };
         for why in [
@@ -1080,7 +1036,6 @@ mod tests {
                 dirs: &dirs,
                 skip: HashSet::new(),
                 timeout: Duration::from_secs(1),
-                probe_order: exec::ProbeOrder::VersionFirst,
                 severities: severities(&[(Code::Cli107, sev)]),
             };
             run(
@@ -1116,7 +1071,6 @@ mod tests {
             dirs: &dirs,
             skip: HashSet::new(),
             timeout: Duration::from_secs(1),
-            probe_order: exec::ProbeOrder::VersionFirst,
             severities: sev,
         };
         let reason = || crate::inspect::Reason::MissingTarget {
@@ -1173,7 +1127,6 @@ mod tests {
             dirs: &dirs,
             skip: HashSet::new(),
             timeout: Duration::from_secs(1),
-            probe_order: exec::ProbeOrder::VersionFirst,
             severities: Severities::default(),
         };
         let tool = Tool {

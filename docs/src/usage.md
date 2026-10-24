@@ -4,11 +4,6 @@
 
 Checks PATH entries, then every tool on PATH: static checks first, then a test run for the tools that are safe to run: `--version`, falling back to `--help` and `-h` for tools that reject it. Installers, GUI programs, app execution aliases, plain scripts and the OS's own programs are never run.
 
-Use `clisok check --help-first` to try `--help`, then `-h`, then `--version`.
-`--version-first` explicitly selects the default order. The flags are mutually
-exclusive, and the selected order also applies to timeout retries. Probing stops
-at the first conclusive result; a timeout does not cause another flag to run.
-
 Interactive checks show progress on stderr for each recognized package-manager
 directory, plus an overall total. Groups use file and symlink paths, and the
 interpreter path already extracted from Python launchers, so copied uv and pipx
@@ -79,8 +74,6 @@ Tools
 - **`--statistics`** — print how many findings each code has, most first, instead of the findings: `19  CLI107  [ ] hidden behind an OS copy`. `[*]` means `--fix` fixes all of them, `[-]` some. With `--output-format json`, a list of `code`, `name`, `count` and `fixable`. The exit status is the same as without it.
 - **`-v`, `--verbose`** — also list passing and skipped tools, and shadowed copies.
 - **`--skip NAME`** — don't run this tool. Repeatable.
-- **`--version-first`** — try `--version`, then `--help`, then `-h`. This is the default and conflicts with `--help-first`.
-- **`--help-first`** — try `--help`, then `-h`, then `--version`. Conflicts with `--version-first`.
 - **`--static`** — inspect files without starting tools or interpreter probes. More specific skip reasons remain visible. This works as root or elevated without `--allow-root` and cannot be combined with `--fix`.
 - **`--allow-root`** — allow probes when running as root or elevated. Without it, a privileged `check` exits 2 before scanning, fixing or probing. `--static`, `--diff`, `list` and `rule` remain available without the override.
 - **`--fix`** — apply the safe fixes, marked `[*]` and shown as `fix:` lines. On Windows this implies `--registry` and removes empty and repeated entries from the saved user PATH. The old value is saved under `%LOCALAPPDATA%\clisok\backups\` first, and the report shows what is left afterwards. Advice (`help:` lines) is never applied.

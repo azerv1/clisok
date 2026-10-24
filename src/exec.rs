@@ -348,40 +348,24 @@ pub enum Outcome {
 
 const CONSOLE_NOTE: &str = "not run: needs an interactive console or a display";
 
-/// The default flags of a test run, in order. `--version` goes first because it
+/// The flags of a test run, in order. `--version` goes first because it
 /// rarely opens a pager or a browser; help is the fallback for tools without it.
 pub const PROBES: &[&str] = &["--version", "--help", "-h"];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProbeOrder {
-    VersionFirst,
-    HelpFirst,
+/// Try each of `PROBES` in turn, stopping at the first conclusive answer.
+pub fn run_probe(path: &Path, timeout: Duration) -> (Outcome, Vec<Attempt>) {
+    probe(|arg| run_capture(path, &[arg], timeout), timeout)
 }
 
-impl ProbeOrder {
-    fn flags(self) -> &'static [&'static str] {
-        match self {
-            Self::VersionFirst => PROBES,
-            Self::HelpFirst => &["--help", "-h", "--version"],
-        }
-    }
-}
-
-/// Try flags in the chosen order, stopping at the first conclusive answer.
-pub fn run_probe(path: &Path, timeout: Duration, order: ProbeOrder) -> (Outcome, Vec<Attempt>) {
-    probe(|arg| run_capture(path, &[arg], timeout), timeout, order)
-}
-
-/// A rejected flag (Usage) moves on too: a later flag can run more of the
-/// tool and still find something missing.
+/// A rejected flag (Usage) moves on too: a later `--help` runs more of the
+/// tool and can still find something missing.
 fn probe(
     mut run: impl FnMut(&str) -> io::Result<Attempt>,
     timeout: Duration,
-    order: ProbeOrder,
 ) -> (Outcome, Vec<Attempt>) {
     let mut attempts: Vec<Attempt> = Vec::new();
     let mut usage = false;
-    for arg in order.flags() {
+    for arg in PROBES {
         let a = match run(arg) {
             Ok(a) => a,
             Err(e) if attempts.is_empty() => {
@@ -565,7 +549,6 @@ mod tests {
                 )
             },
             Duration::from_secs(2),
-            ProbeOrder::VersionFirst,
         );
         let Outcome::Broken(reason) = outcome else {
             panic!("signal crash was not broken")
@@ -948,12 +931,8 @@ operable program or batch file."#
         }
     }
 
-    /// Run `probe` against canned answers in default order.
+    /// Run `probe` against canned answers, one per flag in `PROBES` order.
     fn probe_with(answers: &[(i32, &str)]) -> (Outcome, Vec<String>) {
-        probe_with_order(answers, ProbeOrder::VersionFirst)
-    }
-
-    fn probe_with_order(answers: &[(i32, &str)], order: ProbeOrder) -> (Outcome, Vec<String>) {
         let mut answers = answers.iter();
         let (outcome, attempts) = probe(
             |arg| {
@@ -964,7 +943,6 @@ operable program or batch file."#
                 })
             },
             Duration::from_secs(1),
-            order,
         );
         (outcome, attempts.into_iter().map(|a| a.arg).collect())
     }
@@ -974,24 +952,6 @@ operable program or batch file."#
         let (outcome, args) = probe_with(&[(0, "tool 1.2.3\n")]);
         assert!(matches!(outcome, Outcome::Pass));
         assert_eq!(args, ["--version"]);
-    }
-
-    #[test]
-    fn help_first_stops_on_help_and_falls_back_in_the_selected_order() {
-        let (outcome, args) =
-            probe_with_order(&[(0, "Usage: tool [options]\n")], ProbeOrder::HelpFirst);
-        assert!(matches!(outcome, Outcome::Pass));
-        assert_eq!(args, ["--help"]);
-        let (outcome, args) = probe_with_order(
-            &[(1, ""), (1, ""), (0, "tool 1.2.3\n")],
-            ProbeOrder::HelpFirst,
-        );
-        assert!(matches!(outcome, Outcome::Pass));
-        assert_eq!(args, ["--help", "-h", "--version"]);
-        let (outcome, args) =
-            probe_with_order(&[(1, "No module named 'dep'\n")], ProbeOrder::HelpFirst);
-        assert!(matches!(outcome, Outcome::Broken(_)));
-        assert_eq!(args, ["--help"]);
     }
 
     #[test]
@@ -1031,14 +991,12 @@ operable program or batch file."#
                 })
             },
             Duration::from_secs(1),
-            ProbeOrder::HelpFirst,
         );
         assert!(matches!(
             outcome,
             Outcome::ToolError(ToolErrorKind::TimedOut, _)
         ));
         assert_eq!((calls, attempts.len()), (1, 1));
-        assert_eq!(attempts[0].arg, "--help");
     }
 
     #[test]
@@ -1054,7 +1012,6 @@ operable program or batch file."#
                     })
                 },
                 Duration::from_secs(1),
-                ProbeOrder::VersionFirst,
             )
             .0
         };
@@ -1076,7 +1033,6 @@ operable program or batch file."#
         let (outcome, attempts) = probe(
             |_| Err(io::Error::other("bad image")),
             Duration::from_secs(1),
-            ProbeOrder::VersionFirst,
         );
         assert!(matches!(
             outcome,
