@@ -1,0 +1,73 @@
+CHANGELOG.md
+  s_952c14d9527d3b::t_229c4460af5bc5 11-12
+src/check.rs
+  s_952c14d9527d3b::t_cc90a85a16148c 628-636,638,641,662-667,676
+  s_952c14d9527d3b::t_63d58cdcd5210b 552,686-688
+  s_c4bc06634c72ab::t_39ddd37bdbf679 679
+tests/cli.rs
+  s_952c14d9527d3b::t_229c4460af5bc5 114-125
+  s_db5280e2a28a79::t_57a79ea6aeb668 113
+src/progress.rs
+  s_952c14d9527d3b::t_cc90a85a16148c 1,3,5,33-43,45-56,58-68,70-86,88-90,92-96,98-100,102-108,110-117,119,122-180,182-198,200-202,205-208,210-221,223-236,240-245,247-249,253,258-260,262-264,266-271,276-281,288-290,294-295,304-307,309-311,313-317,320-330,333-337,342-344,353,357-375,377-383,385-390,396-403,405-437,465-496
+  s_952c14d9527d3b::t_63d58cdcd5210b 7,13-32,237-239,291-293,312
+  s_952c14d9527d3b::t_229c4460af5bc5 199,438-456
+  s_952c14d9527d3b::t_02033e92d49055 351,354-356,457-463
+  s_952c14d9527d3b::t_2b4a4ac6f3a58e 44
+  s_952c14d9527d3b::t_38b9373049d832 57
+  s_952c14d9527d3b::t_3c15440d9c97b5 69
+  s_952c14d9527d3b::t_cfe6f79949e292 87
+  s_952c14d9527d3b::t_d732fd3e492102 91
+  s_952c14d9527d3b::t_a8d21d4c8def40 97
+  s_952c14d9527d3b::t_8ee2312d16efd5 101
+  s_952c14d9527d3b::t_fabab1ad7a7621 109
+  s_952c14d9527d3b::t_8927bd4aa7969d 118
+  s_952c14d9527d3b::t_97c4d8d3a4bcfa 120-121
+  s_952c14d9527d3b::t_8c8bf4e52d233f 181
+  s_952c14d9527d3b::t_fad097d6047953 209
+  s_952c14d9527d3b::t_87ce459e15f529 222
+  s_952c14d9527d3b::t_c6ee3631c6cd45 246
+  s_952c14d9527d3b::t_1bb3fad13cdd3a 265
+  s_952c14d9527d3b::t_56a68783d6555a 296
+  s_952c14d9527d3b::t_a05bb94019761e 308
+  s_952c14d9527d3b::t_ea1df536d1cb7a 318-319
+  s_952c14d9527d3b::t_e1793f2f4712c6 331-332
+  s_952c14d9527d3b::t_492298d9e14c6b 345-350
+  s_952c14d9527d3b::t_53ded06928ca1a 352
+  s_952c14d9527d3b::t_0e37e6a1858889 376
+  s_952c14d9527d3b::t_87ca12af913a7b 384
+  s_952c14d9527d3b::t_ce65b3c7f73d30 404
+docs/src/usage.md
+  s_952c14d9527d3b::t_229c4460af5bc5 7-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0546c79184026ead4a3adaf533a0aa1991b5677f",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_c4bc06634c72ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "74d627b5-0263-4355-b751-d0aedcd9c332",
+        "model": "unknown"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_db5280e2a28a79": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148de-35f5-7943-8ec6-e12634bbacee",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
