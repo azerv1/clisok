@@ -155,4 +155,9 @@ Explains a code: what it means, its default severity, what `--fix` can do about 
 
 ## JSON
 
+Each checked tool's `ms` is its total probe time, including both the first pass
+and any timeout retry. Its verdict, findings and `attempts` describe the final
+pass; successful tools can omit attempt details while retaining total `ms`.
+Tool times overlap across parallel workers and do not add up to wall time.
+
 Both commands print a `schema` version and the `command` that produced the report. The current version is 2: the config-file list was removed from both reports, and the off-PATH `extra` list was removed from `list`. The version goes up only when a field is removed or changes meaning; new fields don't change it. Each finding carries its `code` and its effective `severity`. A finding may also carry a `fix`: its `applicability` and a `message`. Applicability is `safe`, `unsafe` or `display-only`; display-only fixes are advice, printed as a `help:` line under the finding.

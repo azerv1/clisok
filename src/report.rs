@@ -60,8 +60,9 @@ pub struct ToolResult {
     /// The OS copy that runs instead of this one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hidden_by: Option<PathBuf>,
+    /// Attempts from the final pass, including when that pass was a retry.
     pub attempts: Vec<Attempt>,
-    /// Total time spent running this tool, kept even when `attempts` is dropped.
+    /// Total probe time across all passes, kept even when `attempts` is dropped.
     pub ms: u64,
 }
 

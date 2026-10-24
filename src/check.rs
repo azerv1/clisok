@@ -302,6 +302,12 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
     res
 }
 
+/// Keep the final retry outcome and include time spent in the first pass.
+fn apply_retry(previous: &mut ToolResult, mut retried: ToolResult) {
+    retried.ms = retried.ms.saturating_add(previous.ms);
+    *previous = retried;
+}
+
 /// Expected cost, lowest first: interpreted launchers start slowest, so they
 /// go first; skipped tools cost nothing and go last.
 fn cost_rank(p: &Prepared) -> u8 {
@@ -678,7 +684,7 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         });
         drop(progress);
         for (i, res) in timed_out.into_iter().zip(rechecked) {
-            tools[i] = res;
+            apply_retry(&mut tools[i], res);
         }
     }
 
@@ -721,6 +727,67 @@ mod tests {
 
     use super::*;
     use crate::discover::FileCopy;
+
+    #[test]
+    fn retries_keep_total_time_but_only_the_final_result_and_attempts() {
+        let result = |ms: u64, timed_out: bool| ToolResult {
+            name: "fixture".into(),
+            path: "fixture.exe".into(),
+            origin: Origin::Path,
+            kind: Kind::Exe,
+            verdict: if timed_out {
+                Verdict::ToolError
+            } else {
+                Verdict::Pass
+            },
+            reasons: vec![],
+            note: timed_out.then(|| format!("timed out after {ms}ms")),
+            code: timed_out.then_some(Code::Cli203),
+            shadowed: vec![],
+            hidden_by: None,
+            attempts: if timed_out {
+                vec![exec::Attempt {
+                    arg: "--version".into(),
+                    exit: None,
+                    signal: None,
+                    timed_out: true,
+                    output: String::new(),
+                    output_truncated: false,
+                    ms,
+                }]
+            } else {
+                vec![]
+            },
+            ms,
+        };
+        for timed_out in [false, true] {
+            let mut previous = result(30_000, true);
+            apply_retry(&mut previous, result(10_000, timed_out));
+            assert_eq!(previous.ms, 40_000);
+            assert_eq!(
+                previous.verdict,
+                if timed_out {
+                    Verdict::ToolError
+                } else {
+                    Verdict::Pass
+                }
+            );
+            assert_eq!(previous.code, timed_out.then_some(Code::Cli203));
+            assert_eq!(
+                previous.note,
+                timed_out.then(|| "timed out after 10000ms".to_string())
+            );
+            let json = serde_json::to_value(previous).unwrap();
+            assert_eq!(json["ms"], 40_000);
+            assert_eq!(
+                json["attempts"].as_array().unwrap().len(),
+                usize::from(timed_out)
+            );
+            if timed_out {
+                assert_eq!(json["attempts"][0]["ms"], 10_000);
+            }
+        }
+    }
 
     #[test]
     fn privilege_policy_requires_an_explicit_override_and_exempts_diff() {

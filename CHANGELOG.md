@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- Retried tools retain their cumulative probe time in JSON `ms`; final verdicts and attempt details still come from the retry.
+
 - Progress updates overwrite changed rows in place and refresh at most ten times per second, avoiding a full display clear for every tool.
 
 ### Added
