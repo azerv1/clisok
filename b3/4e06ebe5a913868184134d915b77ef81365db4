@@ -1,0 +1,44 @@
+src/progress.rs
+  s_952c14d9527d3b::t_0a9d3657d8569f 130-139,183-185,226-228,464-472,482-504
+  s_952c14d9527d3b::t_5a6030deb69b4b 10,45-49,53,63-67,70,80-84,127-129,173-182,186-190,224-225,238-242,246,506,508,521-522
+  s_447852b9e09c46::t_2cecb36f21a8fb 244
+  s_952c14d9527d3b::t_4ba349fada4732 461-463,505,507,509-520,523
+CHANGELOG.md
+  s_952c14d9527d3b::t_9e8ca907cb0730 11-12
+src/check.rs
+  s_952c14d9527d3b::t_5a6030deb69b4b 631,664
+docs/src/usage.md
+  s_bd1b616937c055::t_05c1576b250a91 8-13,15-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b34e06ebe5a913868184134d915b77ef81365db4",
+  "prompts": {},
+  "sessions": {
+    "s_447852b9e09c46": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_e930e1b06ffesB72zasejaAcOP",
+        "model": "unknown"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    },
+    "s_bd1b616937c055": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ad7402e-44c0-4295-b32c-b96d1676a8b8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
