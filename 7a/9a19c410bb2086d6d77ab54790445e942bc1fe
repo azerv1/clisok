@@ -1,0 +1,25 @@
+CHANGELOG.md
+  s_952c14d9527d3b::t_1b2e81c1ffb32e 9-12
+src/progress.rs
+  s_952c14d9527d3b::t_1b2e81c1ffb32e 637-638,649-651,664-682
+  s_952c14d9527d3b::t_9873c23ce4911d 639
+  s_952c14d9527d3b::t_fe6d64da961378 312-316,375-379,640-648,652-663
+  s_952c14d9527d3b::t_a9eab7c7a6f60b 8,16,272-274,288-292,295-296,299-311,317-324,334-335,337-341,357-359,380-381,394,397
+  s_952c14d9527d3b::t_96f41276ee96aa 293-294,297-298,336
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7a9a19c410bb2086d6d77ab54790445e942bc1fe",
+  "prompts": {},
+  "sessions": {
+    "s_952c14d9527d3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1690a-4cbb-7750-b9c6-e9d0ea5bd63e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
