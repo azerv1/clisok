@@ -5,10 +5,15 @@
 Checks PATH entries, then every tool on PATH: static checks first, then a test run for the tools that are safe to run: `--version`, falling back to `--help` and `-h` for tools that reject it. Installers, GUI programs, app execution aliases, plain scripts and the OS's own programs are never run.
 
 Interactive checks show progress on stderr for each recognized package-manager
-directory, plus an overall total. Groups are inferred from paths; ambiguous or
-unrecognized locations appear under Other. Percentages count completed tool
+directory, plus an overall total. Groups use file and symlink paths, and the
+interpreter path already extracted from Python launchers, so copied uv and pipx
+entry points in shared bin directories are recognized too. Supported layouts
+include Cargo, npm, pnpm, pip, pipx, uv, Scoop, Chocolatey, Homebrew, Go, Bun,
+.NET tools, WinGet and Conda. Ambiguous or unrecognized locations appear under
+Other. Percentages count completed tool
 checks, including skipped tools, rather than estimating time remaining. Timed-out
-tools have a separate retry pass. Narrow terminals use compact rows; short
+tools have a separate retry pass. Bars expand to the current terminal width and
+adjust on redraw after a resize. Narrow terminals use compact rows; short
 terminals show only the overall total. Redirected stderr has no progress display.
 
 Python scripts are run only when they match a generated pip/distlib or uv console

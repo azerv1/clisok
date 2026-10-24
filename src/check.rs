@@ -628,7 +628,7 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     let queue: Vec<_> = queue
         .into_iter()
         .map(|(i, p)| {
-            let group = progress::Group::for_path(&p.res.path);
+            let group = progress::Group::for_tool(&p.res.path, &p.res.kind);
             (i, p, group)
         })
         .collect();
@@ -661,7 +661,7 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         );
         let retry_queue: Vec<_> = timed_out
             .iter()
-            .map(|&i| (i, progress::Group::for_path(&tools[i].path)))
+            .map(|&i| (i, progress::Group::for_tool(&tools[i].path, &tools[i].kind)))
             .collect();
         let progress = progress::Progress::new(retry_queue.iter().map(|(_, group)| *group));
         let rechecked = pool::run_in_order(retry_queue, jobs, |(i, group)| {

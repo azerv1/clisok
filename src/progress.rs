@@ -7,6 +7,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 
+use crate::inspect::Kind;
 use crate::platform::cursor_visible;
 use crate::report::terminal_text;
 
@@ -41,10 +42,15 @@ pub enum Group {
     Scoop,
     Chocolatey,
     Homebrew,
+    Go,
+    Bun,
+    Dotnet,
+    Winget,
+    Conda,
     Other,
 }
 
-const GROUPS: [Group; 10] = [
+const GROUPS: [Group; 15] = [
     Group::Cargo,
     Group::Npm,
     Group::Pnpm,
@@ -54,9 +60,14 @@ const GROUPS: [Group; 10] = [
     Group::Scoop,
     Group::Chocolatey,
     Group::Homebrew,
+    Group::Go,
+    Group::Bun,
+    Group::Dotnet,
+    Group::Winget,
+    Group::Conda,
     Group::Other,
 ];
-const LABELS: [&str; 10] = [
+const LABELS: [&str; 15] = [
     "Cargo",
     "npm",
     "pnpm",
@@ -66,6 +77,11 @@ const LABELS: [&str; 10] = [
     "Scoop",
     "Chocolatey",
     "Homebrew",
+    "Go",
+    "Bun",
+    ".NET",
+    "WinGet",
+    "Conda",
     "Other",
 ];
 
@@ -108,6 +124,19 @@ impl Group {
                     || has(&["homebrew", "Cellar"])
                     || has(&["homebrew", "cellar"]),
             ),
+            (Self::Go, has(&["go", "bin"])),
+            (Self::Bun, has(&[".bun", "bin"])),
+            (Self::Dotnet, has(&[".dotnet", "tools"])),
+            (
+                Self::Winget,
+                has(&["microsoft", "winget", "links"]) || has(&["microsoft", "winget", "packages"]),
+            ),
+            (
+                Self::Conda,
+                parts.iter().any(|p| {
+                    matches!(*p, "miniconda3" | "anaconda3" | "miniforge3" | "mambaforge")
+                }),
+            ),
         ];
         let mut found = hints
             .into_iter()
@@ -138,6 +167,24 @@ impl Group {
             return path
                 .canonicalize()
                 .map_or(Self::Other, |p| Self::from_layout(&p));
+        }
+        Self::Other
+    }
+
+    pub fn for_tool(path: &Path, kind: &Kind) -> Self {
+        let group = Self::for_path(path);
+        if group != Self::Other {
+            return group;
+        }
+        // Copied Windows entry points in a shared bin are not symlinks. Static
+        // inspection already extracted their interpreter; do not run it again.
+        if let Kind::PyLauncher { python, .. } = kind {
+            return match Self::for_path(python) {
+                Self::Other => python
+                    .parent()
+                    .map_or(Self::Other, |dir| Self::for_path(&dir.join("Scripts"))),
+                manager => manager,
+            };
         }
         Self::Other
     }
@@ -174,11 +221,11 @@ impl Counts {
                 }
             }
         }
-        let mut total = row(
-            "Total",
-            self.done.iter().sum(),
-            self.totals.iter().sum(),
-            width,
+        let done: usize = self.done.iter().sum();
+        let total: usize = self.totals.iter().sum();
+        let mut total = format!(
+            "Total      {done}/{total} {:>3}%",
+            done * 100 / total.max(1)
         );
         let _ = write!(total, " {seconds}s {}", progress_name(name));
         rows.push(total.chars().take(width).collect());
@@ -188,12 +235,15 @@ impl Counts {
 
 fn row(label: &str, done: usize, total: usize, width: usize) -> String {
     let percent = done * 100 / total.max(1);
-    let text = if width >= 52 {
-        let filled = done * 10 / total.max(1);
+    let prefix = format!("{label:<10} [");
+    let suffix = format!("] {done:>4}/{total:<4} {percent:>3}%");
+    let bar_width = width.saturating_sub(prefix.len() + suffix.len());
+    let text = if bar_width >= 4 {
+        let filled = done * bar_width / total.max(1);
         format!(
-            "{label:<10} [{}{}] {done:>4}/{total:<4} {percent:>3}%",
+            "{prefix}{}{}{suffix}",
             "#".repeat(filled),
-            "-".repeat(10 - filled)
+            "-".repeat(bar_width - filled)
         )
     } else {
         format!("{label} {percent}% {done}/{total}")
@@ -408,12 +458,66 @@ mod tests {
             ("C:/programdata/chocolatey/bin/git.exe", Group::Chocolatey),
             ("/opt/homebrew/bin/git", Group::Homebrew),
             ("/usr/local/Cellar/git/2/bin/git", Group::Homebrew),
+            ("/home/u/go/bin/gopls", Group::Go),
+            ("/home/u/.bun/bin/bun", Group::Bun),
+            ("/home/u/.dotnet/tools/dotnet-format", Group::Dotnet),
+            (
+                "C:/users/u/appdata/local/microsoft/winget/links/tool.exe",
+                Group::Winget,
+            ),
+            (
+                "C:/users/u/appdata/local/microsoft/winget/packages/vendor.tool/bin/tool.exe",
+                Group::Winget,
+            ),
+            ("/home/u/miniconda3/envs/dev/bin/tool", Group::Conda),
             ("/home/u/.cargo/bin-backup/rg", Group::Other),
             ("/home/u/npm/tool", Group::Other),
             ("/home/u/.local/bin/tool", Group::Other),
             ("/home/u/.cargo/bin/scoop/shims/tool", Group::Other),
         ] {
             assert_eq!(Group::from_layout(Path::new(path)), expected, "{path}");
+        }
+    }
+
+    #[test]
+    fn copied_python_launchers_use_the_embedded_interpreter_location() {
+        let shared = Path::new("/users/u/.local/bin/tool.exe");
+        for (python, expected) in [
+            (
+                "/users/u/appdata/roaming/uv/tools/tool/Scripts/python.exe",
+                Group::Uv,
+            ),
+            (
+                "/users/u/.local/share/pipx/venvs/tool/bin/python",
+                Group::Pipx,
+            ),
+            (
+                "/users/u/appdata/local/python/pythoncore-3.14-64/python.exe",
+                Group::Pip,
+            ),
+            ("/users/u/miniconda3/envs/dev/python.exe", Group::Conda),
+            ("/unmanaged/environment/bin/python", Group::Other),
+        ] {
+            let kind = Kind::PyLauncher {
+                python: python.into(),
+                module: "tool".into(),
+            };
+            assert_eq!(Group::for_tool(shared, &kind), expected, "{python}");
+        }
+        assert_eq!(Group::for_tool(shared, &Kind::Exe), Group::Other);
+    }
+
+    #[test]
+    fn bars_fill_the_available_width_and_keep_counts_visible() {
+        let mut counts = Counts::new([Group::Uv, Group::Uv]);
+        counts.tick(Group::Uv);
+        for width in [79, 39, 159] {
+            let rows = counts.rows(width, 24, 3, "tool");
+            assert_eq!(rows[0].len(), width);
+            assert!(rows[0].contains("1/2"));
+            assert!(rows[0].ends_with("50%"));
+            assert!(rows[1].contains("1/2"));
+            assert!(rows[1].len() <= width);
         }
     }
 

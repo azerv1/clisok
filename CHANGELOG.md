@@ -8,6 +8,8 @@
 
 ### Added
 
+- Progress bars use the terminal width. Grouping recognizes copied uv/pipx launchers through their embedded interpreter paths and adds Go, Bun, .NET tools, WinGet and Conda layouts.
+
 - Interactive progress shows completed checks and percentages by inferred package manager, plus an overall total.
 
 - `check --static` inspects files without starting tools or interpreter probes.
