@@ -5,7 +5,7 @@ use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::inspect::Kind;
 use crate::platform::cursor_visible;
@@ -13,6 +13,7 @@ use crate::report::terminal_text;
 
 static DRAWN_LINES: AtomicUsize = AtomicUsize::new(0);
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+const REFRESH_INTERVAL: Duration = Duration::from_millis(100);
 #[cfg(windows)]
 static ORIGINAL_MODE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
 
@@ -268,7 +269,9 @@ fn progress_name(name: &str) -> String {
 
 struct State {
     counts: Counts,
-    lines: usize,
+    rows: Vec<String>,
+    width: usize,
+    last_draw: Instant,
     _terminal: Terminal,
 }
 
@@ -282,20 +285,60 @@ fn clear(out: &mut impl Write, lines: usize) -> io::Result<()> {
     write!(out, "\r\x1b[J")
 }
 
+fn refresh_due(last_draw: Instant, now: Instant, complete: bool) -> bool {
+    complete || now.saturating_duration_since(last_draw) >= REFRESH_INTERVAL
+}
+
+/// Overwrite changed rows in one write; do not blank the display between frames.
+fn redraw(previous: &[String], rows: &[String], resized: bool) -> Vec<u8> {
+    let mut frame = Vec::new();
+    if resized || previous.len() != rows.len() || previous.is_empty() {
+        // The number or width of rows changes only on terminal resize/startup.
+        let _ = clear(&mut frame, previous.len());
+        frame.extend_from_slice(rows.join("\r\n").as_bytes());
+        return frame;
+    }
+    let last = rows.len() - 1;
+    let mut cursor = last;
+    for (i, (old, new)) in previous.iter().zip(rows).enumerate() {
+        if old == new {
+            continue;
+        }
+        if i < cursor {
+            let _ = write!(frame, "\x1b[{}A", cursor - i);
+        } else if i > cursor {
+            let _ = write!(frame, "\x1b[{}B", i - cursor);
+        }
+        let _ = write!(
+            frame,
+            "\r{new}{}",
+            " ".repeat(old.len().saturating_sub(new.len()))
+        );
+        cursor = i;
+    }
+    if cursor < last {
+        let _ = write!(frame, "\x1b[{}B", last - cursor);
+    }
+    frame
+}
+
 impl State {
     fn draw(&mut self, out: &mut impl Write, seconds: u64, name: &str) -> io::Result<()> {
         if is_interrupted() {
             return Ok(());
         }
-        clear(out, self.lines)?;
         let (width, height) = terminal_size();
         let rows = self
             .counts
             .rows(width.saturating_sub(1), height, seconds, name);
-        self.lines = rows.len();
-        DRAWN_LINES.store(self.lines, Ordering::Relaxed);
-        write!(out, "{}", rows.join("\r\n"))?;
-        out.flush()
+        let frame = redraw(&self.rows, &rows, self.width != width);
+        DRAWN_LINES.store(rows.len(), Ordering::Relaxed);
+        out.write_all(&frame)?;
+        out.flush()?;
+        self.rows = rows;
+        self.width = width;
+        self.last_draw = Instant::now();
+        Ok(())
     }
 }
 
@@ -311,7 +354,9 @@ impl Progress {
             cursor_visible(false);
             let mut state = State {
                 counts,
-                lines: 0,
+                rows: Vec::new(),
+                width: 0,
+                last_draw: Instant::now(),
                 _terminal: terminal,
             };
             let _ = state.draw(&mut io::stderr().lock(), 0, "");
@@ -327,6 +372,13 @@ impl Progress {
         let Some(state) = &self.state else { return };
         let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
         state.counts.tick(group);
+        if !refresh_due(
+            state.last_draw,
+            Instant::now(),
+            state.counts.done == state.counts.totals,
+        ) {
+            return;
+        }
         let _ = state.draw(
             &mut io::stderr().lock(),
             self.start.elapsed().as_secs(),
@@ -339,10 +391,10 @@ impl Progress {
             let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
             let mut out = io::stderr().lock();
             if !is_interrupted() {
-                let _ = clear(&mut out, state.lines);
+                let _ = clear(&mut out, state.rows.len());
             }
             let _ = out.flush();
-            state.lines = 0;
+            state.rows.clear();
             DRAWN_LINES.store(0, Ordering::Relaxed);
             cursor_visible(true);
         }
@@ -580,6 +632,52 @@ mod tests {
         }
         assert_eq!(counts.rows(79, 4, 0, "").len(), 1);
         assert_eq!(Counts::default().rows(79, 24, 0, "").len(), 1);
+    }
+
+    #[test]
+    fn redraw_keeps_unchanged_rows_and_never_blanks_normal_updates() {
+        let previous: Vec<String> = vec![
+            "Cargo 0/1 0%".into(),
+            "uv 0/1 0%".into(),
+            "Total 0/2 very-long-name".into(),
+        ];
+        let next = vec![
+            "Cargo 1/1 100%".into(),
+            previous[1].clone(),
+            "Total 1/2 x".into(),
+        ];
+        let frame = String::from_utf8(redraw(&previous, &next, false)).unwrap();
+        assert!(frame.contains(&next[0]));
+        assert!(frame.contains(&next[2]));
+        assert!(
+            !frame.contains("uv"),
+            "an unchanged manager must not be repainted"
+        );
+        assert!(
+            !frame.contains("\x1b[J"),
+            "normal updates must not blank the screen"
+        );
+        assert!(
+            frame.ends_with(&" ".repeat(previous[2].len() - next[2].len())),
+            "a shorter name must overwrite the old tail"
+        );
+        assert!(redraw(&next, &next, false).is_empty());
+    }
+
+    #[test]
+    fn refreshes_are_bounded_but_completion_is_immediate() {
+        let start = Instant::now();
+        let mut last = start;
+        let mut redraws = 0;
+        for millisecond in 1..=1000 {
+            let now = start + Duration::from_millis(millisecond);
+            if refresh_due(last, now, false) {
+                redraws += 1;
+                last = now;
+            }
+        }
+        assert_eq!(redraws, 10, "fast completions must not redraw per tool");
+        assert!(refresh_due(last, last + Duration::from_millis(1), true));
     }
 
     #[test]

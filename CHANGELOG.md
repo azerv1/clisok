@@ -6,6 +6,10 @@
 - JSON report schema is now 2: remove `config` from both reports and `extra` from `list`.
 - Privileged probes require `check --allow-root`; `check --static` remains available without it.
 
+### Fixed
+
+- Progress updates overwrite changed rows in place and refresh at most ten times per second, avoiding a full display clear for every tool.
+
 ### Added
 
 - Progress bars use the terminal width. Grouping recognizes copied uv/pipx launchers through their embedded interpreter paths and adds Go, Bun, .NET tools, WinGet and Conda layouts.
