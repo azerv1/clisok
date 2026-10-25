@@ -1,0 +1,23 @@
+CHANGELOG.md
+  s_1087c25d528368::t_2d9ee53f7e219d 1,3,5-8,10,12-34,36,38-81,83,85-90,92-94,97-99,101-129
+Cargo.lock
+  s_1087c25d528368::t_8c457a4e627028 203
+Cargo.toml
+  s_1087c25d528368::t_dda6297703d857 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ff000a757a94bed19594924f229518d89cdee460",
+  "prompts": {},
+  "sessions": {
+    "s_1087c25d528368": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16f18-3aff-7610-8a05-47880f308ddf",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
