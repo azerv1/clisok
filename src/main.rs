@@ -4,8 +4,6 @@
 mod check;
 mod codes;
 mod discover;
-#[cfg(test)]
-mod docs;
 mod exec;
 mod fix;
 mod inspect;
@@ -111,15 +109,17 @@ mod tests {
     #[test]
     fn output_formats_are_per_command() {
         let parses = |args: &[&str]| Cli::try_parse_from([&["clisok"], args].concat()).is_ok();
-        for f in ["full", "concise", "json", "github", "sarif"] {
+        for f in ["full", "concise", "json", "csv", "github", "sarif"] {
             assert!(parses(&["check", "--output-format", f]), "{f}");
         }
         assert!(!parses(&["check", "--json"]));
         assert!(!parses(&["check", "--output-format", "text"]));
         assert!(parses(&["list", "--output-format", "json"]));
         assert!(!parses(&["list", "--output-format", "sarif"]));
+        assert!(!parses(&["list", "--output-format", "csv"]));
         assert!(parses(&["rule", "CLI001", "--output-format", "text"]));
         assert!(!parses(&["rule", "CLI001", "--output-format", "full"]));
+        assert!(!parses(&["rule", "CLI001", "--output-format", "csv"]));
     }
 
     #[test]

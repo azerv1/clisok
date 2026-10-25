@@ -16,11 +16,79 @@ clisok rule show CLI007 # explain a code
 `clisok check` exits 0 when everything is fine, nonzero when it finds problems.
 Every problem has a stable code like `CLI002`.
 
-**Docs:** [azerv1.github.io/clisok](https://azerv1.github.io/clisok/) —
-[usage](https://azerv1.github.io/clisok/usage.html),
-[fixes](https://azerv1.github.io/clisok/fixes.html),
-[error codes](https://azerv1.github.io/clisok/codes.html),
-[GitHub Action](https://azerv1.github.io/clisok/github-action.html).
+## What it checks
+
+`check` examines PATH entries and the tools they expose, including launchers,
+shims, DLLs/shared libraries, interpreters, and Python modules. It statically
+inspects everything, then runs `--version` or `--help` only for eligible
+headless tools. Installers, GUI programs, plain scripts, app execution aliases,
+and OS-owned programs are not run. Use `--static` to disable all child-process
+probes, or repeat `--skip NAME` to skip a tool.
+
+On Windows, `--registry` also checks the saved user PATH and App Paths. On all
+platforms, `--system` includes OS-owned folders for static inspection. `list`
+shows commands and shadowed copies without running them. Options are command-line
+only; clisok does not read configuration files.
+
+## Output and exit status
+
+`check` supports `--output-format full` (default), `concise`, `json`, `github`,
+`csv`, and `sarif`. Progress is written to stderr. `list` supports `full` and `json`.
+For text reports, use `--verbose` to include passing/skipped tools and shadowed copies, or
+`--statistics` to summarize findings by code. Exit status is 0 when no problems
+remain, 1 when findings remain, and 2 when clisok cannot run the requested check.
+
+```sh
+clisok check --output-format json > report.json
+clisok check --output-format sarif > report.sarif
+clisok check --output-format csv > findings.csv
+```
+
+Check JSON uses schema 3: `summary` contains tool counts by verdict, finding count,
+and applied-fix count; `findings` is a flat list of PATH, registry, and tool
+diagnostics; `tools` keeps every scanned tool with its name, path, kind, and verdict.
+Nonzero timings and explanatory notes are included when available. `fixed` lists
+applied repairs when present. Use `--verbose` to add available probe attempts and
+captured output, launcher details, and shadowed paths. Empty optional fields are
+omitted. This replaces schema 2's `path_problems`, `app_paths`, and nested tool
+`reasons`; list JSON remains at schema 2.
+
+CSV contains remaining findings only, one per row, with columns
+`code,severity,scope,tool,location,origin,message,fix_applicability,fix_message`.
+It uses UTF-8 and quotes fields containing commas, quotes, or newlines. Import it
+with a comma delimiter in your spreadsheet. A clean check writes just the header.
+SARIF includes only reported rules; `--verbose` adds their full explanations.
+`--statistics` produces a JSON envelope with `statistics`, or CSV columns
+`code,name,count,fixable`; combining statistics with SARIF is rejected.
+
+## Diagnostic codes
+
+Each finding has a stable code. Run `clisok rule list` to see every rule, or
+`clisok rule show CLI007` to read its severity, meaning, and repair guidance.
+`--ignore CODE` suppresses a finding code.
+
+## Repairs
+
+Plain `check` only reports proposed repairs. `--diff` previews changes without
+applying them. `--fix` applies safe repairs; `--unsafe-fixes` allows repairs
+that may change command resolution or remove entries that could return. Windows
+repairs affect only saved user settings, back up the previous values under
+`%LOCALAPPDATA%\clisok\backups\`, and never change the system PATH. There are
+no repairs on Unix. Use `--show-fixes` to list applied changes.
+
+## GitHub Action
+
+Use clisok after setup steps to check a runner's PATH. Pass the same CLI flags
+through `args`; `--output-format github` creates annotations.
+
+```yaml
+- uses: azerv1/clisok@0.3.1
+  with:
+    args: check --skip some-noisy-tool
+```
+
+The Action supports Linux and Windows runners. It downloads a release archive,
+verifies its checksum and version, then runs the executable by absolute path.
 
 ## Install
 
@@ -30,16 +98,6 @@ Windows x86_64 `.zip`, or a static Linux x86_64 `.tar.gz`.
 CI tests Windows Server 2025 and Ubuntu 24.04; other Windows/Linux versions are
 not exhaustively tested. macOS and FreeBSD remain on the [roadmap](PLAN.md).
 Report bugs and feature requests through GitHub issues.
-
-## GitHub Action
-
-```yaml
-- uses: azerv1/clisok@0.3.0
-  with:
-    args: check --skip some-noisy-tool
-```
-
-The step fails when `check` finds problems. Linux and Windows runners only.
 
 ## Development
 

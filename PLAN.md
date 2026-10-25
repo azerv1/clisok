@@ -36,8 +36,6 @@ Linux, macOS, and FreeBSD require separate dependency-resolution logic. The curr
 
 - **Settings** — command-line flags only; TOML configuration support was removed. Expected-tool rules are out of scope: that is pathlint's job.
 
-- **Docs** (done) — an mdBook site in `docs/`, deployed to GitHub Pages. The codes page is generated from the source; a test fails when it is stale. Settings are CLI flags only.
-
 - **Name and scope** (done) — renamed from pathsok, then binok, to clisok, since the tool checks the system's CLI tools, not only PATH. Codes moved from `PATHnnn` to `CLInnn` before any of them was released. PATH-entry checks and `list` stay even though pathlint and patholog also cover them: PATH entries are one input to the executables check.
 
 - **`clisok list [--system] [--output-format full|json]`** — enumerate every active command and all shadowed copies without executing tools. By default, omit commands that exist only in OS-owned directories, but list any command with at least one non-OS copy, including when the OS copy is the active one. `--system` lists everything. OS copies are always marked.

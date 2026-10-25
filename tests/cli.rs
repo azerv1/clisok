@@ -61,6 +61,7 @@ impl Fixture {
             "--allow-root",
             "--output-format",
             "json",
+            "--verbose",
             "--jobs",
             "1",
             "--timeout",
@@ -209,7 +210,7 @@ fn toml_support_is_removed_from_check_and_list() {
             String::from_utf8_lossy(&out.stderr)
         );
         let report: Value = serde_json::from_slice(&out.stdout).unwrap();
-        assert_eq!(report["schema"], 2);
+        assert_eq!(report["schema"], if subcommand == "check" { 3 } else { 2 });
         assert!(report.get("config").is_none());
         assert!(report.get("extra").is_none());
         if subcommand == "check" {
@@ -234,7 +235,7 @@ fn command_line_skip_and_ignore_remain_effective() {
     let env = [("PATH", path.as_os_str())];
     let report = fixture.check_with_env(&["--skip", "native-probe"], &env);
     assert!(
-        report["path_problems"]
+        report["findings"]
             .as_array()
             .unwrap()
             .iter()
@@ -243,7 +244,7 @@ fn command_line_skip_and_ignore_remain_effective() {
     let report = fixture.check_with_env(&["--skip", "native-probe", "--ignore", "CLI002"], &env);
     assert_tool(&report, "native-probe", "exe", "skip", 0);
     assert!(
-        !report["path_problems"]
+        !report["findings"]
             .as_array()
             .unwrap()
             .iter()
@@ -258,13 +259,13 @@ fn relative_path_entries_launch_against_the_invocation_directory() {
     fixture.native("native-probe");
     let report = fixture.check_with_env(&[], &[("PATH", OsStr::new("commands"))]);
     assert_tool(&report, "native-probe", "exe", "pass", 0);
-    let issue = report["path_problems"]
+    let issue = report["findings"]
         .as_array()
         .unwrap()
         .iter()
         .find(|p| p["code"] == "CLI010")
         .unwrap();
-    assert_eq!(issue["entry"]["raw"], "commands");
+    assert_eq!(issue["location"], "commands");
     assert_eq!(issue["severity"], "warn");
 }
 
@@ -327,10 +328,12 @@ fn assert_tool<'a>(
         .iter()
         .find(|t| t["name"] == name)
         .unwrap_or_else(|| panic!("missing tool {name}: {report}"));
-    assert_eq!(tool["kind"]["type"], kind, "{tool}");
+    assert_eq!(tool["kind"], kind, "{tool}");
     assert_eq!(tool["verdict"], verdict, "{tool}");
     assert_eq!(
-        tool["attempts"].as_array().unwrap().len(),
+        tool.get("attempts")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len),
         attempts,
         "{tool}"
     );
@@ -526,6 +529,68 @@ fn rules_and_path_listing_emit_valid_json() {
     assert!(listing.status.success());
     let report: serde_json::Value = serde_json::from_slice(&listing.stdout).unwrap();
     assert_eq!(report["command"], "list");
+}
+
+#[test]
+fn machine_exports_share_findings_and_preserve_stdout_format() {
+    let fixture = Fixture::new();
+    fixture.native("passing");
+    let missing = fixture.root.path().join("missing");
+    let path = std::env::join_paths([&fixture.commands, &missing]).unwrap();
+    let export = |format: &str, extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_clisok"))
+            .args(["check", "--static", "--output-format", format])
+            .args(extra)
+            .env("PATH", &path)
+            .current_dir(fixture.root.path())
+            .output()
+            .unwrap()
+    };
+    let json = export("json", &[]);
+    let report: Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(report["schema"], 3);
+    assert_eq!(report["summary"]["tools"], 1);
+    assert_eq!(report["findings"][0]["code"], "CLI002");
+    assert_eq!(report["tools"][0]["kind"], "exe");
+    assert!(report["tools"][0].get("attempts").is_none());
+    let csv = export("csv", &[]);
+    assert_eq!(csv.status.code(), json.status.code());
+    let text = String::from_utf8(csv.stdout).unwrap();
+    assert!(text.starts_with(
+        "code,severity,scope,tool,location,origin,message,fix_applicability,fix_message\r\n"
+    ));
+    assert!(text.contains("CLI002,error,path,,"));
+    let finding_count = report["findings"].as_array().unwrap().len();
+    assert_eq!(text.lines().count(), finding_count + 1);
+    assert!(!text.contains("passing"));
+    let ignored = export("csv", &["--ignore", "CLI002"]);
+    assert!(ignored.status.success());
+    let ignored = String::from_utf8(ignored.stdout).unwrap();
+    assert!(!ignored.contains("CLI002,"));
+    assert_eq!(ignored.lines().count(), finding_count);
+    let sarif: Value = serde_json::from_slice(&export("sarif", &[]).stdout).unwrap();
+    assert_eq!(
+        sarif["runs"][0]["results"].as_array().unwrap().len(),
+        finding_count
+    );
+    let stats: Value = serde_json::from_slice(&export("json", &["--statistics"]).stdout).unwrap();
+    assert!(
+        stats["statistics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["code"] == "CLI002" && s["count"] == 1)
+    );
+    assert!(
+        String::from_utf8(export("csv", &["--statistics"]).stdout)
+            .unwrap()
+            .starts_with("code,name,count,fixable\r\n")
+    );
+    let invalid = export("sarif", &["--statistics"]);
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(invalid.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&invalid.stderr).contains("checking"));
+    fixture.assert_not_run();
 }
 
 #[test]

@@ -1,9 +1,0 @@
-[book]
-title = "clisok"
-authors = ["azerv1"]
-language = "en"
-src = "src"
-
-[output.html]
-git-repository-url = "https://github.com/azerv1/clisok"
-edit-url-template = "https://github.com/azerv1/clisok/edit/main/docs/{path}"

@@ -85,16 +85,18 @@ def smoke(binary: Path, version: str) -> None:
         for subcommand in ("list", "check"):
             args = [subcommand, "--output-format", "json"]
             if subcommand == "check":
-                args.append("--allow-root")
+                args.extend(["--allow-root", "--verbose"])
             result = execute(binary, args, env, root)
             if result.returncode not in {0, 1}:
                 raise ValueError(f"artifact {subcommand} failed")
             report = json.loads(result.stdout)
             if report.get("command") != subcommand:
                 raise ValueError("unexpected artifact report")
+            if report.get("schema") != (3 if subcommand == "check" else 2):
+                raise ValueError("unexpected artifact report schema")
             if subcommand == "check":
                 fixtures = [t for t in report.get("tools", []) if Path(t["path"]).name == script.name]
-                if len(fixtures) != 1 or fixtures[0]["kind"]["type"] != "script" or fixtures[0]["attempts"]:
+                if len(fixtures) != 1 or fixtures[0]["kind"] != "script" or fixtures[0].get("attempts"):
                     raise ValueError("artifact did not statically skip the non-launcher fixture")
         result = execute(binary, ["check", "--diff"], env, root)
         if result.returncode not in {0, 1} or marker.exists():

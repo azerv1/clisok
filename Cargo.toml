@@ -7,7 +7,6 @@ description = "Check PATH entries, executable dependencies, launchers, and headl
 authors = ["azerv1"]
 license = "GPL-3.0-or-later"
 repository = "https://github.com/azerv1/clisok"
-documentation = "https://azerv1.github.io/clisok/"
 readme = "README.md"
 keywords = ["cli", "path", "diagnostics"]
 categories = ["command-line-utilities", "development-tools"]

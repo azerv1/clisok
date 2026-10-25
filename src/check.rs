@@ -48,7 +48,8 @@ pub struct CheckArgs {
     /// Print how many findings each code has instead of the findings
     #[arg(long)]
     statistics: bool,
-    /// Also list passing and skipped tools, and shadowed copies
+    /// Include passing/skipped tools and shadowed copies in text;
+    /// add available probe details to JSON and full rule help to SARIF
     #[arg(short, long)]
     verbose: bool,
     /// Don't run this tool (repeatable)
@@ -293,8 +294,7 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
     };
     if res.verdict == Verdict::Pass {
         if res.attempts.iter().any(|a| a.output_truncated) {
-            res.note =
-                Some("test output was truncated; retained output is included in the report".into());
+            res.note = Some("test output was truncated; use --verbose for retained output".into());
         } else if !keep_attempts {
             res.attempts.clear();
         }
@@ -546,11 +546,15 @@ fn probe_permission(
 }
 
 pub fn check(args: &CheckArgs) -> ExitCode {
+    let format = args.output_format.unwrap_or(OutputFormat::Full);
+    if args.statistics && format == OutputFormat::Sarif {
+        eprintln!("clisok: --statistics cannot be combined with --output-format sarif");
+        return ExitCode::from(2);
+    }
     if let Err(error) = probe_permission(args, platform::is_privileged) {
         eprintln!("clisok: {error}");
         return ExitCode::from(2);
     }
-    let format = args.output_format.unwrap_or(OutputFormat::Full);
 
     platform::init();
     // Ctrl+C: stop every running tool and give the cursor back before exiting.
@@ -701,13 +705,17 @@ pub fn check(args: &CheckArgs) -> ExitCode {
         tools,
     };
     let out = match (format, args.statistics) {
-        (OutputFormat::Json, true) => to_json(&report.statistics()),
+        (OutputFormat::Json, true) => to_json(&output::statistics_json(&report)),
+        (OutputFormat::Csv, true) => Ok(output::statistics_csv(&report.statistics())),
         (_, true) => Ok(statistics_text(&report.statistics())),
         (OutputFormat::Full, false) => Ok(report.to_text(args.verbose, args.show_fixes)),
         (OutputFormat::Concise, false) => Ok(output::concise(&report)),
-        (OutputFormat::Json, false) => to_json(&report),
+        (OutputFormat::Json, false) => output::check_json(&report, args.verbose)
+            .map_err(|e| e.to_string())
+            .and_then(|value| to_json(&value)),
+        (OutputFormat::Csv, false) => Ok(output::csv(&report)),
         (OutputFormat::Github, false) => Ok(output::github(&report)),
-        (OutputFormat::Sarif, false) => to_json(&output::sarif(&report)),
+        (OutputFormat::Sarif, false) => to_json(&output::sarif(&report, args.verbose)),
     };
     match out {
         Ok(text) => print_stdout(&text),
