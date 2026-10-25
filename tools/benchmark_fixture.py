@@ -1,4 +1,4 @@
-"""Benchmark isolated command fixtures; never scan the caller's PATH or perform repairs."""
+"""Benchmark isolated command fixtures, static and probed; never scan the caller's PATH or perform repairs."""
 
 import argparse
 import json

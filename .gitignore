@@ -1,6 +1,7 @@
 /target
 /docs/book
 /.claude/
+/review/
 
 # Local tools, evidence and secrets
 /.venv/
