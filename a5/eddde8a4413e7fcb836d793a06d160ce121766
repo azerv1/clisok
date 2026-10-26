@@ -1,0 +1,20 @@
+tools/github_setup.py
+  s_0ed5400a1f3d4a::t_54b4c14ceef4c2 1
+  s_0ed5400a1f3d4a::t_5fea517590153b 42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a5eddde8a4413e7fcb836d793a06d160ce121766",
+  "prompts": {},
+  "sessions": {
+    "s_0ed5400a1f3d4a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "27f63395-f6a1-4247-872d-90d89a0591be",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
