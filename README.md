@@ -82,7 +82,7 @@ Use clisok after setup steps to check a runner's PATH. Pass the same CLI flags
 through `args`; `--output-format github` creates annotations.
 
 ```yaml
-- uses: azerv1/clisok@0.3.1
+- uses: azerv1/clisok@0.1.1
   with:
     args: check --skip some-noisy-tool
 ```
