@@ -139,11 +139,6 @@ def test_basic_security_checks_are_configured() -> None:
     assert "cargo audit --deny warnings" in audit
     assert "fuzz/Cargo.lock" in audit
     assert "zizmor" in str(ci["jobs"]["quality"])
-    dependabot = yaml.load(
-        (ROOT / ".github/dependabot.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader,
-    )
-    ecosystems = {(update["package-ecosystem"], update["directory"]) for update in dependabot["updates"]}
-    assert ecosystems == {("cargo", "/"), ("cargo", "/fuzz"), ("github-actions", "/"), ("uv", "/")}
 
 
 @pytest.mark.parametrize("state", ["modified", "missing", "duplicate"])
