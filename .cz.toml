@@ -4,6 +4,7 @@ tag_format = "$version"
 annotated_tag = true
 version_scheme = "semver2"
 version_provider = "cargo"
+version_files = ["README.md:azerv1/clisok@"]
 update_changelog_on_bump = true
 major_version_zero = true
 pre_bump_hooks = ["uv run --no-project python tools/bump_hook.py"]
