@@ -1,0 +1,20 @@
+README.md
+  s_0ed5400a1f3d4a::t_9e82e4ddfbaa71 75-85
+  s_0ed5400a1f3d4a::t_77ad1b53efd446 3-5,27,37,53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8db9c90af80dbbc96fec53c0e2fe158592ddf8d2",
+  "prompts": {},
+  "sessions": {
+    "s_0ed5400a1f3d4a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "27f63395-f6a1-4247-872d-90d89a0591be",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
