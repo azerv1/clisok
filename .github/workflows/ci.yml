@@ -54,7 +54,7 @@ jobs:
           extra=()
           if [ "${ACT:-}" = true ]; then extra+=(--allow-dirty); fi
           cargo package --locked --no-verify "${extra[@]}"
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # zizmor: ignore[cache-poisoning] -- tag guard disables release cache reads; CI publishes no binaries
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # zizmor: ignore[cache-poisoning] -- tag guard disables release cache reads; CI publishes no binaries
         with:
           enable-cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           cache-dependency-glob: uv.lock
