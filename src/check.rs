@@ -484,11 +484,35 @@ fn print_diff(
         out.push_str(&fix::app_paths_diff(&keys));
     }
     if out.is_empty() {
-        eprintln!("clisok: nothing to fix");
+        eprintln!(
+            "clisok: {}",
+            nothing_to_fix(path_problems, app_paths, unsafe_fixes)
+        );
         return ExitCode::SUCCESS;
     }
     print_stdout(&out);
     ExitCode::from(1)
+}
+
+/// An empty `--diff` still points at the fixes that need `--unsafe-fixes`.
+fn nothing_to_fix(
+    path_problems: &[EntryIssue],
+    app_paths: &[AppPathIssue],
+    unsafe_fixes: bool,
+) -> String {
+    let count = |unsafe_fixes| {
+        fixable_problems(path_problems, unsafe_fixes).len()
+            + app_paths
+                .iter()
+                .filter(|a| a.fix.applies(unsafe_fixes))
+                .count()
+    };
+    match count(true) - count(false) {
+        more if more > 0 && !unsafe_fixes => {
+            format!("no safe fixes ({more} more with --unsafe-fixes)")
+        }
+        _ => "nothing to fix".into(),
+    }
 }
 
 /// Apply the reported fixes that `--fix` may apply. A code turned off is not
@@ -1032,6 +1056,36 @@ mod tests {
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].problem, EntryProblem::Missing);
         assert_eq!(apps.len(), 1);
+    }
+
+    #[test]
+    fn empty_diff_points_at_unsafe_fixes() {
+        let sev = Severities::default();
+        // Advice only: a missing saved PATH directory.
+        let missing = PathEntry {
+            raw: "C:\\gone".into(),
+            dir: "C:\\gone".into(),
+            origin: pathenv::PathOrigin::User,
+        };
+        let issues: Vec<_> = EntryIssue::new(missing, EntryProblem::Missing, &sev)
+            .into_iter()
+            .collect();
+        assert_eq!(nothing_to_fix(&issues, &[], false), "nothing to fix");
+        // Unsafe: deleting a user App Paths key whose target is gone.
+        let apps: Vec<_> = AppPathIssue::new(
+            platform::AppPath {
+                key: "HKCU\\test\\tool.exe".into(),
+                target: "C:\\gone\\tool.exe".into(),
+            },
+            &sev,
+        )
+        .into_iter()
+        .collect();
+        assert_eq!(
+            nothing_to_fix(&issues, &apps, false),
+            "no safe fixes (1 more with --unsafe-fixes)"
+        );
+        assert_eq!(nothing_to_fix(&issues, &apps, true), "nothing to fix");
     }
 
     #[test]
