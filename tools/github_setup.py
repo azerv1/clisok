@@ -1,9 +1,8 @@
-"""Apply the solo-maintainer CI gate, protect release tags and enable secret scanning."""
+"""Protect release tags and enable secret scanning."""
 
 import json
 import shutil
 import subprocess
-from pathlib import Path
 from typing import Any
 
 
@@ -25,8 +24,6 @@ def main() -> None:
         raise RuntimeError("gh is required")
     repo = subprocess.run([gh, "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
                           capture_output=True, text=True, check=True).stdout.strip()
-    protection = json.loads(Path(".github/branch-protection.json").read_text(encoding="utf-8"))
-    api("-X", "PUT", f"repos/{repo}/branches/main/protection", payload=protection)
     name = "release tags"
     ruleset = {
         "name": name, "target": "tag", "enforcement": "active",
@@ -42,7 +39,7 @@ def main() -> None:
         "secret_scanning_push_protection": {"status": "enabled"},
     }})
     api("-X", "PUT", f"repos/{repo}/private-vulnerability-reporting")
-    print("Configured ci-ok, protected release tags, secret scanning and private vulnerability reporting.")
+    print("Protected release tags; enabled secret scanning and private vulnerability reporting.")
 
 
 if __name__ == "__main__":

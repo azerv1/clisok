@@ -96,9 +96,6 @@ def test_release_publishes_only_after_ci_and_smoke_tests() -> None:
     assert ci["concurrency"]["group"].startswith("ci-")
     assert "tags" in ci["on"]["push"]
     assert set(ci["jobs"]["ci-ok"]["needs"]) == {"quality", "test", "audit"}
-    protection = json.loads((ROOT / ".github/branch-protection.json").read_text())
-    assert protection["required_pull_request_reviews"] is None
-    assert protection["required_status_checks"]["contexts"] == ["ci-ok"]
 
 
 def test_only_current_release_platforms_are_claimed() -> None:
