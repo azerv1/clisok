@@ -1,7 +1,5 @@
 name: Background assurance
 on:
-  schedule:
-    - cron: "11 2 * * *"
   workflow_dispatch:
 permissions: {}
 jobs:

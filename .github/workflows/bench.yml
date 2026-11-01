@@ -1,7 +1,5 @@
 name: Benchmarks
 on:
-  schedule:
-    - cron: "29 3 * * 0"
   workflow_dispatch:
 permissions: {}
 jobs:

@@ -1,7 +1,5 @@
 name: Fuzz
 on:
-  schedule:
-    - cron: "41 2 * * *"
   workflow_dispatch:
     inputs:
       seconds:
