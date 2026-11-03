@@ -8,6 +8,8 @@ mod exec;
 mod fix;
 mod inspect;
 mod list;
+#[cfg(feature = "mcp")]
+mod mcp;
 mod output;
 mod pathenv;
 mod platform;
@@ -38,6 +40,9 @@ enum Command {
     List(list::ListArgs),
     /// List rules or explain a code, its default severity and its fix
     Rule(rule::RuleArgs),
+    /// Serve the checks to AI clients as Model Context Protocol tools over stdio
+    #[cfg(feature = "mcp")]
+    Mcp(mcp::McpArgs),
 }
 
 fn main() -> ExitCode {
@@ -46,6 +51,8 @@ fn main() -> ExitCode {
         Some(Command::Check(args)) => check::check(&args),
         Some(Command::List(args)) => list::list(&args),
         Some(Command::Rule(args)) => rule::rule(&args),
+        #[cfg(feature = "mcp")]
+        Some(Command::Mcp(args)) => mcp::mcp(&args),
         // Nothing to do yet: say what there is to do, and succeed.
         None => {
             let _ = Cli::command().print_help();
