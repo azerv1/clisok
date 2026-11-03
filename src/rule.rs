@@ -58,7 +58,7 @@ pub enum RuleFormat {
 }
 
 #[derive(Serialize)]
-struct Rule {
+pub struct Rule {
     code: Code,
     title: &'static str,
     default: &'static str,
@@ -79,6 +79,14 @@ impl Rule {
             fix_safety,
             explanation: c.help,
         }
+    }
+}
+
+/// One code's rule, or every rule.
+pub fn rules(code: Option<Code>) -> Vec<Rule> {
+    match code {
+        Some(c) => vec![Rule::new(c.info())],
+        None => CODES.iter().map(Rule::new).collect(),
     }
 }
 
@@ -123,7 +131,7 @@ fn render(args: &RuleArgs) -> Result<String, serde_json::Error> {
         None => CODES.iter().collect(),
     };
     if output_format == RuleFormat::Json {
-        let rules: Vec<Rule> = infos.into_iter().map(Rule::new).collect();
+        let rules = rules(code);
         let json = if code.is_none() {
             serde_json::to_string_pretty(&rules)
         } else {

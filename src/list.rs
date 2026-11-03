@@ -36,19 +36,30 @@ fn sort_by_name(commands: &mut [PathCommand]) {
         .sort_by(|a, b| (a.name.to_lowercase(), &a.name).cmp(&(b.name.to_lowercase(), &b.name)));
 }
 
-pub fn list(args: &ListArgs) -> ExitCode {
+/// Every command on PATH, sorted by name. With `system`, also the commands
+/// found only in the OS folders.
+pub fn run_list(system: bool) -> Result<ListReport, String> {
     let entries = pathenv::process_path();
     if entries.is_empty() {
-        eprintln!("clisok: PATH is empty");
-        return ExitCode::from(2);
+        return Err("PATH is empty".into());
     }
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
-    let mut commands = discover::inventory(&entries, &PathIndex::build(&dirs), args.system);
+    let mut commands = discover::inventory(&entries, &PathIndex::build(&dirs), system);
     sort_by_name(&mut commands);
-    let report = ListReport {
+    Ok(ListReport {
         schema: SCHEMA_VERSION,
         command: "list",
         commands,
+    })
+}
+
+pub fn list(args: &ListArgs) -> ExitCode {
+    let report = match run_list(args.system) {
+        Ok(report) => report,
+        Err(e) => {
+            eprintln!("clisok: {e}");
+            return ExitCode::from(2);
+        }
     };
     if args.output_format == ListFormat::Json {
         match serde_json::to_string_pretty(&report) {
