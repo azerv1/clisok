@@ -32,6 +32,11 @@ pub fn is_interrupted() -> bool {
     INTERRUPTED.load(Ordering::Relaxed)
 }
 
+/// A new run in the same process starts uninterrupted.
+pub fn reset_interrupt() {
+    INTERRUPTED.store(false, Ordering::Relaxed);
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Group {
     Cargo,

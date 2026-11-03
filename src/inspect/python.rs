@@ -114,6 +114,14 @@ pub fn probe_module(
     (result, attempt)
 }
 
+/// Forget earlier answers: a module installed since the last run must be found.
+pub fn clear_probe_cache() {
+    PROBE_CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

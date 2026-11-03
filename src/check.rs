@@ -581,6 +581,9 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     }
 
     platform::init();
+    // A run must not inherit an earlier run's state in the same process.
+    progress::reset_interrupt();
+    python::clear_probe_cache();
     // Ctrl+C: stop every running tool and give the cursor back before exiting.
     let _ = ctrlc::set_handler(|| {
         progress::interrupt();
