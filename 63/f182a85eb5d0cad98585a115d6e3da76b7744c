@@ -1,0 +1,26 @@
+src/check.rs
+  s_d356c346c91f33::t_4c2e679104aef5 584,587,590-593,596
+  s_d356c346c91f33::t_ce43f4e00ddef6 608-625,627-691,693-696,698-701,706,711-714,719-720,727-728,733,799,802,806-876,878
+  s_d356c346c91f33::t_d98d22412fce16 995
+  s_d356c346c91f33::t_07babc10f4e902 94-140
+  s_d356c346c91f33::t_63de487916fbbc 505-506,511,514-517,527
+  s_d356c346c91f33::t_d7ccdaac10fe87 369-370,373,378-379
+  s_d356c346c91f33::t_5ca959a90a2071 552-553,559,562,571
+  s_d356c346c91f33::t_2a97e049403511 879-881,976,983,994,998,1174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "63f182a85eb5d0cad98585a115d6e3da76b7744c",
+  "prompts": {},
+  "sessions": {
+    "s_d356c346c91f33": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55d1c3c6-bafa-4f57-93f1-a151f49a667d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
