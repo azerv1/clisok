@@ -1,0 +1,21 @@
+src/list.rs
+  s_d356c346c91f33::t_b9afe28bb06c9d 39-41,44,47,49,53-62
+src/rule.rs
+  s_d356c346c91f33::t_ca048230bded23 61,85-92,134
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "38d661703e50840a5330c9edd74ee30d8927a8c0",
+  "prompts": {},
+  "sessions": {
+    "s_d356c346c91f33": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55d1c3c6-bafa-4f57-93f1-a151f49a667d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "azerv1 <asterioszer@gmail.com>"
+    }
+  }
+}
