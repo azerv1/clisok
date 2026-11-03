@@ -91,6 +91,53 @@ pub struct CheckArgs {
     timeout: Option<u64>,
 }
 
+/// What a check run needs, independent of how its report is printed.
+pub struct CheckOptions {
+    /// Also check the saved PATH and App Paths (Windows only).
+    #[cfg(windows)]
+    pub registry: bool,
+    pub system: bool,
+    pub skip: Vec<String>,
+    pub ignore: Vec<Code>,
+    pub static_only: bool,
+    pub allow_root: bool,
+    pub jobs: Option<usize>,
+    /// Seconds before a test run is killed; `None` is the default.
+    pub timeout: Option<u64>,
+}
+
+/// What `--fix` / `--diff` need. Fixes act on saved settings only.
+pub struct FixOptions {
+    pub ignore: Vec<Code>,
+    pub unsafe_fixes: bool,
+    /// Change saved settings; otherwise only report the diff.
+    pub apply: bool,
+}
+
+impl CheckArgs {
+    pub fn to_options(&self) -> CheckOptions {
+        CheckOptions {
+            #[cfg(windows)]
+            registry: self.registry || self.fix || self.diff,
+            system: self.system,
+            skip: self.skip.clone(),
+            ignore: self.ignore.clone(),
+            static_only: self.static_only,
+            allow_root: self.allow_root,
+            jobs: self.jobs,
+            timeout: self.timeout,
+        }
+    }
+
+    fn fix_options(&self) -> FixOptions {
+        FixOptions {
+            ignore: self.ignore.clone(),
+            unsafe_fixes: self.unsafe_fixes,
+            apply: self.fix,
+        }
+    }
+}
+
 const DEFAULT_TIMEOUT: u64 = 30;
 
 /// Workers per core. The tools being run are CPU-heavy (interpreter
@@ -319,17 +366,17 @@ fn cost_rank(p: &Prepared) -> u8 {
 }
 
 #[cfg(windows)]
-fn check_registry(args: &CheckArgs) -> bool {
-    args.registry || args.fix || args.diff
+fn check_registry(opts: &CheckOptions) -> bool {
+    opts.registry
 }
 #[cfg(unix)]
-fn check_registry(_: &CheckArgs) -> bool {
+fn check_registry(_: &CheckOptions) -> bool {
     false
 }
 
 /// Suppress findings selected by `--ignore`.
-fn severities(args: &CheckArgs) -> Severities {
-    Severities(args.ignore.iter().map(|&c| (c, Severity::Off)).collect())
+fn severities(ignore: &[Code]) -> Severities {
+    Severities(ignore.iter().map(|&c| (c, Severity::Off)).collect())
 }
 
 /// For each command, the copy that runs. OS copies only with --system, and
@@ -455,25 +502,19 @@ fn fixable_problems(
         .collect()
 }
 
-/// `--diff`: print what `apply_fixes` would change. Exit 1 when there is
-/// something, like Ruff.
-fn print_diff(
+/// `--diff`: what `apply_fixes` would change; empty when nothing.
+fn diff_text(
     saved: &platform::SavedPaths,
     path_problems: &[EntryIssue],
     app_paths: &[AppPathIssue],
     unsafe_fixes: bool,
-) -> ExitCode {
+) -> Result<String, String> {
     let fixable = fixable_problems(path_problems, unsafe_fixes);
     let mut out = String::new();
-    if !fixable.is_empty() {
-        match platform::preview_user_path(saved, &fixable) {
-            Ok(Some((raw, edits))) => out.push_str(&fix::path_diff(&raw, &edits)),
-            Ok(None) => {}
-            Err(e) => {
-                eprintln!("clisok: {e}");
-                return ExitCode::from(2);
-            }
-        }
+    if !fixable.is_empty()
+        && let Some((raw, edits)) = platform::preview_user_path(saved, &fixable)?
+    {
+        out.push_str(&fix::path_diff(&raw, &edits));
     }
     let keys: Vec<&str> = app_paths
         .iter()
@@ -483,15 +524,7 @@ fn print_diff(
     if !keys.is_empty() {
         out.push_str(&fix::app_paths_diff(&keys));
     }
-    if out.is_empty() {
-        eprintln!(
-            "clisok: {}",
-            nothing_to_fix(path_problems, app_paths, unsafe_fixes)
-        );
-        return ExitCode::SUCCESS;
-    }
-    print_stdout(&out);
-    ExitCode::from(1)
+    Ok(out)
 }
 
 /// An empty `--diff` still points at the fixes that need `--unsafe-fixes`.
@@ -516,16 +549,17 @@ fn nothing_to_fix(
 }
 
 /// Apply the reported fixes that `--fix` may apply. A code turned off is not
-/// reported, so it is never fixed. A fix that fails is reported on stderr and
-/// its finding stays in the report.
+/// reported, so it is never fixed. A fix that fails is returned in the errors
+/// and its finding stays in the report.
 fn apply_fixes(
     saved: &platform::SavedPaths,
     path_problems: &[EntryIssue],
     app_paths: &[AppPathIssue],
     unsafe_fixes: bool,
-) -> Vec<Applied> {
+) -> (Vec<Applied>, Vec<String>) {
     let fixable = fixable_problems(path_problems, unsafe_fixes);
     let mut applied = Vec::new();
+    let mut errors = Vec::new();
     let path_fix = if fixable.is_empty() {
         Ok(None)
     } else {
@@ -534,7 +568,7 @@ fn apply_fixes(
     match path_fix {
         Ok(Some(repair)) => applied.extend(fix::applied_path(repair)),
         Ok(None) => {}
-        Err(e) => eprintln!("clisok: {e}"),
+        Err(e) => errors.push(e),
     }
     for a in app_paths.iter().filter(|a| a.fix.applies(unsafe_fixes)) {
         match platform::delete_app_path(&a.app_path.key) {
@@ -547,17 +581,19 @@ fn apply_fixes(
                     backup,
                 });
             }
-            Err(e) => eprintln!("clisok: {e}"),
+            Err(e) => errors.push(e),
         }
     }
-    applied
+    (applied, errors)
 }
 
-fn probe_permission(
-    args: &CheckArgs,
+/// Refuse probes as root/elevated unless allowed. `run_check` leaves this to
+/// its caller, so the CLI can refuse before `--fix` changes anything.
+pub fn probe_permission(
+    opts: &CheckOptions,
     privileged: impl FnOnce() -> std::io::Result<bool>,
 ) -> Result<(), String> {
-    if args.diff || args.static_only || args.allow_root {
+    if opts.static_only || opts.allow_root {
         return Ok(());
     }
     match privileged() {
@@ -569,92 +605,132 @@ fn probe_permission(
     }
 }
 
-pub fn check(args: &CheckArgs) -> ExitCode {
-    let format = args.output_format.unwrap_or(OutputFormat::Full);
-    if args.statistics && format == OutputFormat::Sarif {
-        eprintln!("clisok: --statistics cannot be combined with --output-format sarif");
-        return ExitCode::from(2);
-    }
-    if let Err(error) = probe_permission(args, platform::is_privileged) {
-        eprintln!("clisok: {error}");
-        return ExitCode::from(2);
-    }
+/// What `run_fix` found or changed.
+pub struct FixOutcome {
+    /// Dry run: what applying would change, as a diff; empty when nothing.
+    pub diff: String,
+    /// Dry run with an empty diff: why, and whether unsafe fixes would do more.
+    pub nothing_to_fix: Option<String>,
+    /// Fixes that failed; their findings stay in `report`.
+    pub errors: Vec<String>,
+    /// Saved-settings findings after any change, with `fixed` listing the
+    /// changes. Fixes need no tool run, so `tools` is empty.
+    pub report: Report,
+}
 
+/// PATH entries in this process, and only those.
+fn path_entries() -> Result<Vec<PathEntry>, String> {
+    let entries = pathenv::process_path();
+    if entries.is_empty() {
+        return Err("PATH is empty".into());
+    }
+    Ok(entries)
+}
+
+/// The PATH and saved-settings findings.
+fn settings_findings(
+    entries: &[PathEntry],
+    registry: bool,
+    severities: &Severities,
+) -> (platform::SavedPaths, Vec<EntryIssue>, Vec<AppPathIssue>) {
+    let saved = platform::saved_paths();
+    let registrations = if registry {
+        platform::broken_app_paths()
+    } else {
+        Vec::new()
+    };
+    let (issues, apps) = path_findings(
+        entries,
+        &saved.entries,
+        &saved.cut,
+        &registrations,
+        registry,
+        severities,
+    );
+    (saved, issues, apps)
+}
+
+/// `--diff` (`apply: false`) or `--fix` (`apply: true`), without checking tools.
+pub fn run_fix(opts: &FixOptions) -> Result<FixOutcome, String> {
+    let entries = path_entries()?;
+    let severities = severities(&opts.ignore);
+    // Fixes act on saved settings, so they always read them.
+    let registry = cfg!(windows);
+    let (saved, mut path_problems, mut app_paths) =
+        settings_findings(&entries, registry, &severities);
+    let mut outcome = FixOutcome {
+        diff: String::new(),
+        nothing_to_fix: None,
+        errors: Vec::new(),
+        report: Report {
+            schema: SCHEMA_VERSION,
+            command: "fix",
+            fixed: Vec::new(),
+            path_problems: Vec::new(),
+            app_paths: Vec::new(),
+            tools: Vec::new(),
+        },
+    };
+    if opts.apply {
+        let (fixed, errors) = apply_fixes(&saved, &path_problems, &app_paths, opts.unsafe_fixes);
+        if !fixed.is_empty() {
+            // Fixes change saved settings only, not this process's PATH, so only
+            // the saved-settings findings can have changed.
+            (_, path_problems, app_paths) = settings_findings(&entries, registry, &severities);
+        }
+        outcome.report.fixed = fixed;
+        outcome.errors = errors;
+    } else {
+        outcome.diff = diff_text(&saved, &path_problems, &app_paths, opts.unsafe_fixes)?;
+        if outcome.diff.is_empty() {
+            outcome.nothing_to_fix = Some(nothing_to_fix(
+                &path_problems,
+                &app_paths,
+                opts.unsafe_fixes,
+            ));
+        }
+    }
+    outcome.report.path_problems = path_problems;
+    outcome.report.app_paths = app_paths;
+    Ok(outcome)
+}
+
+/// Check PATH entries and every tool on PATH. Nothing is printed to stdout and
+/// the process is never exited; progress goes to stderr. Callers check
+/// `probe_permission` first and, after Ctrl+C, `progress::is_interrupted`.
+pub fn run_check(opts: &CheckOptions) -> Result<Report, String> {
     platform::init();
     // A run must not inherit an earlier run's state in the same process.
     progress::reset_interrupt();
     python::clear_probe_cache();
-    // Ctrl+C: stop every running tool and give the cursor back before exiting.
-    let _ = ctrlc::set_handler(|| {
-        progress::interrupt();
-        platform::kill_children();
-        platform::cleanup();
-        std::process::exit(130);
-    });
-    let jobs = args
+    let jobs = opts
         .jobs
         .unwrap_or_else(|| pool::default_jobs(JOBS_PER_CORE, MAX_JOBS))
         .max(1);
 
-    let entries = pathenv::process_path();
-    if entries.is_empty() {
-        eprintln!("clisok: PATH is empty");
-        return ExitCode::from(2);
-    }
-
-    let severities = severities(args);
-    let registry = check_registry(args);
-    let findings = || {
-        let saved = platform::saved_paths();
-        let registrations = if registry {
-            platform::broken_app_paths()
-        } else {
-            Vec::new()
-        };
-        let (issues, apps) = path_findings(
-            &entries,
-            &saved.entries,
-            &saved.cut,
-            &registrations,
-            registry,
-            &severities,
-        );
-        (saved, issues, apps)
-    };
-    let (saved, mut path_problems, mut app_paths) = findings();
-    let unsafe_fixes = args.unsafe_fixes;
-    if args.diff {
-        return print_diff(&saved, &path_problems, &app_paths, unsafe_fixes);
-    }
-    let fixed = if args.fix {
-        apply_fixes(&saved, &path_problems, &app_paths, unsafe_fixes)
-    } else {
-        Vec::new()
-    };
-    if !fixed.is_empty() {
-        // Fixes change saved settings only, not this process's PATH, so only
-        // the saved-settings findings can have changed.
-        (_, path_problems, app_paths) = findings();
-    }
+    let entries = path_entries()?;
+    let severities = severities(&opts.ignore);
+    let (_, path_problems, app_paths) =
+        settings_findings(&entries, check_registry(opts), &severities);
 
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
     let index = PathIndex::build(&dirs);
     let tools = tools_to_check(
-        &discover::inventory(&entries, &index, args.system),
-        args.system,
+        &discover::inventory(&entries, &index, opts.system),
+        opts.system,
     );
     eprintln!("clisok: checking {} tools...", tools.len());
 
     let ctx = Ctx {
         index: &index,
         dirs: &dirs,
-        skip: args.skip.iter().map(|s| s.to_lowercase()).collect(),
-        timeout: Duration::from_secs(args.timeout.unwrap_or(DEFAULT_TIMEOUT)),
+        skip: opts.skip.iter().map(|s| s.to_lowercase()).collect(),
+        timeout: Duration::from_secs(opts.timeout.unwrap_or(DEFAULT_TIMEOUT)),
         severities,
     };
     let prepared = pool::run_in_order(tools, jobs, |t| {
         let mut prepared = prepare(t, &ctx);
-        if args.static_only {
+        if opts.static_only {
             prepared.skip_why = prepared.skip_why.or(Some("not run: --static"));
         }
         prepared
@@ -720,17 +796,89 @@ pub fn check(args: &CheckArgs) -> ExitCode {
     }
 
     platform::cleanup();
-    if progress::is_interrupted() {
-        return ExitCode::from(130);
-    }
-    let report = Report {
+    Ok(Report {
         schema: SCHEMA_VERSION,
         command: "check",
-        fixed,
+        fixed: Vec::new(),
         path_problems,
         app_paths,
         tools,
+    })
+}
+
+/// `--diff`: print what `--fix` would change. Exit 1 when there is something,
+/// like Ruff.
+fn print_diff(args: &CheckArgs) -> ExitCode {
+    match run_fix(&args.fix_options()) {
+        Ok(outcome) if outcome.diff.is_empty() => {
+            if let Some(why) = outcome.nothing_to_fix {
+                eprintln!("clisok: {why}");
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(outcome) => {
+            print_stdout(&outcome.diff);
+            ExitCode::from(1)
+        }
+        Err(e) => {
+            eprintln!("clisok: {e}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+pub fn check(args: &CheckArgs) -> ExitCode {
+    let format = args.output_format.unwrap_or(OutputFormat::Full);
+    if args.statistics && format == OutputFormat::Sarif {
+        eprintln!("clisok: --statistics cannot be combined with --output-format sarif");
+        return ExitCode::from(2);
+    }
+    let opts = args.to_options();
+    if !args.diff
+        && let Err(error) = probe_permission(&opts, platform::is_privileged)
+    {
+        eprintln!("clisok: {error}");
+        return ExitCode::from(2);
+    }
+
+    // Ctrl+C: stop every running tool and give the cursor back before exiting.
+    let _ = ctrlc::set_handler(|| {
+        progress::interrupt();
+        platform::kill_children();
+        platform::cleanup();
+        std::process::exit(130);
+    });
+    if args.diff {
+        return print_diff(args);
+    }
+    let fixed = if args.fix {
+        match run_fix(&args.fix_options()) {
+            Ok(outcome) => {
+                for e in &outcome.errors {
+                    eprintln!("clisok: {e}");
+                }
+                outcome.report.fixed
+            }
+            Err(e) => {
+                eprintln!("clisok: {e}");
+                return ExitCode::from(2);
+            }
+        }
+    } else {
+        Vec::new()
     };
+
+    let mut report = match run_check(&opts) {
+        Ok(report) => report,
+        Err(e) => {
+            eprintln!("clisok: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    if progress::is_interrupted() {
+        return ExitCode::from(130);
+    }
+    report.fixed = fixed;
     let out = match (format, args.statistics) {
         (OutputFormat::Json, true) => to_json(&output::statistics_json(&report)),
         (OutputFormat::Csv, true) => Ok(output::statistics_csv(&report.statistics())),
@@ -825,14 +973,14 @@ mod tests {
     }
 
     #[test]
-    fn privilege_policy_requires_an_explicit_override_and_exempts_diff() {
+    fn privilege_policy_requires_an_explicit_override() {
         use clap::Parser;
         let args = |flags: &[&str]| {
             let cli = crate::Cli::try_parse_from([&["clisok", "check"], flags].concat()).unwrap();
             let Some(crate::Command::Check(args)) = cli.command else {
                 panic!("expected check")
             };
-            args
+            args.to_options()
         };
         assert!(
             probe_permission(&args(&[]), || Ok(true))
@@ -843,10 +991,11 @@ mod tests {
         assert!(
             probe_permission(&args(&[]), || Err(std::io::Error::other("query failed"))).is_err()
         );
-        for flags in [&["--allow-root"][..], &["--diff"][..], &["--static"][..]] {
+        // `--diff` runs no probes: `check` never calls this for it.
+        for flags in [&["--allow-root"][..], &["--static"][..]] {
             assert!(
                 probe_permission(&args(flags), || panic!(
-                    "override/diff must not query privileges"
+                    "an override must not query privileges"
                 ))
                 .is_ok()
             );
@@ -1022,7 +1171,7 @@ mod tests {
             let Some(crate::Command::Check(args)) = cli.command else {
                 panic!("expected check")
             };
-            assert_eq!(check_registry(&args), expected, "{flags:?}");
+            assert_eq!(check_registry(&args.to_options()), expected, "{flags:?}");
         }
     }
 
