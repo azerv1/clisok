@@ -22,10 +22,10 @@ mod unix;
 pub use unix::*;
 
 use std::io;
-use std::path::Path;
-use std::sync::OnceLock;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
-static WORK_DIR: OnceLock<Result<tempfile::TempDir, String>> = OnceLock::new();
+static WORK_DIR: Mutex<Option<tempfile::TempDir>> = Mutex::new(None);
 
 fn new_work_dir(root: &Path) -> io::Result<tempfile::TempDir> {
     let mut builder = tempfile::Builder::new();
@@ -38,21 +38,25 @@ fn new_work_dir(root: &Path) -> io::Result<tempfile::TempDir> {
     builder.tempdir_in(root)
 }
 
-/// One randomly named, exclusively created directory per clisok process.
-fn work_dir() -> io::Result<&'static Path> {
-    WORK_DIR
-        .get_or_init(|| new_work_dir(&std::env::temp_dir()).map_err(|e| e.to_string()))
-        .as_ref()
-        .map(|dir| dir.path())
-        .map_err(|e| io::Error::other(format!("can't create probe work directory: {e}")))
+/// One randomly named, exclusively created directory per check run;
+/// `cleanup` removes it and the next run gets a new one.
+fn work_dir() -> io::Result<PathBuf> {
+    let mut slot = WORK_DIR.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = match &mut *slot {
+        Some(dir) => dir,
+        empty => empty
+            .insert(new_work_dir(&std::env::temp_dir()).map_err(|e| {
+                io::Error::other(format!("can't create probe work directory: {e}"))
+            })?),
+    };
+    Ok(dir.path().to_path_buf())
 }
 
 pub fn cleanup() {
     #[cfg(unix)]
     cleanup_children();
-    if let Some(Ok(dir)) = WORK_DIR.get() {
-        let _ = std::fs::remove_dir_all(dir.path());
-    }
+    // Dropping the TempDir removes the directory.
+    drop(WORK_DIR.lock().unwrap_or_else(|e| e.into_inner()).take());
 }
 
 #[cfg(test)]
@@ -102,6 +106,40 @@ mod tests {
                 ("AZURE_CLISOK_FIXTURE", "synthetic"),
                 ("ACTIONS_CLISOK_FIXTURE", "synthetic"),
                 ("CI", "1"),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn repeated_runs_child() {
+        if !std::env::args().any(|a| a == "clisok-repeated-runs") {
+            return;
+        }
+        let first = work_dir().unwrap();
+        cleanup();
+        assert!(!first.exists(), "cleanup must remove the work directory");
+        let second = work_dir().unwrap();
+        assert_ne!(first, second);
+        assert!(second.is_dir(), "the next run needs a live work directory");
+        cleanup();
+    }
+
+    #[test]
+    fn a_second_run_gets_a_new_work_directory() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "platform::tests::repeated_runs_child",
+                "--nocapture",
+                "--skip",
+                "clisok-repeated-runs",
             ])
             .output()
             .unwrap();
