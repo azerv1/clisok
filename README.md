@@ -67,6 +67,27 @@ through `args`; `--output-format github` creates annotations.
     args: check --skip some-noisy-tool
 ```
 
+## MCP server
+
+`clisok mcp` serves the checks to AI clients over the Model Context Protocol
+(stdio). Release binaries include it; a source build needs `--features mcp`.
+
+```json
+{
+  "mcpServers": {
+    "clisok": { "command": "clisok", "args": ["mcp"] }
+  }
+}
+```
+
+Tools: `check` (mode `static` by default; `probe` also test-runs tools),
+`list`, `rules`, and `fix`. `fix` only previews a diff unless the server is
+started with `--allow-fix`; unsafe fixes also need `--allow-unsafe-fixes`, and
+probes as root or elevated need `--allow-root`. The client cannot turn these on.
+
+The server checks the PATH it was started with, which may differ from your
+shell's. On Windows, the `registry` option also checks the saved PATH.
+
 ## Install
 
 Download a binary from [Releases](https://github.com/azerv1/clisok/releases):
@@ -81,7 +102,7 @@ cd clisok
 cargo install --path . --locked
 ```
 
-This puts `clisok` in `~/.cargo/bin`.
+This puts `clisok` in `~/.cargo/bin`. Add `--features mcp` for `clisok mcp`.
 
 CI tests Windows Server 2025 and Ubuntu 24.04; other Windows/Linux versions are
 not exhaustively tested. macOS and FreeBSD remain on the [roadmap](PLAN.md).
@@ -94,7 +115,9 @@ Rust 1.98.1 is pinned; CI also tests Rust 1.88 as the minimum supported compiler
 ```sh
 cargo fmt --all --check
 cargo clippy --all-targets --locked -- -D warnings
+cargo clippy --all-targets --locked --features mcp -- -D warnings
 cargo test --locked
+cargo test --locked --features mcp
 cargo audit                    # cargo install cargo-audit@0.22.2
 cargo audit --file fuzz/Cargo.lock
 cargo doc --no-deps --locked

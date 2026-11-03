@@ -1,3 +1,8 @@
+## Unreleased
+
+- `clisok mcp` serves `check`, `list`, `rules` and `fix` as Model Context Protocol tools over stdio. It is built with `--features mcp`, which release binaries include. `check` reads files only unless asked to probe. `fix` previews unless the server is started with `--allow-fix`, and `--allow-unsafe-fixes` and `--allow-root` are server flags too, so a client cannot turn them on.
+- Fixed: a second check in the same process ran its probes from a deleted work directory, and could reuse stale Python module lookups.
+
 ## 0.1.1 (2026-10-26)
 
 First public release, for Windows x86_64 and Linux x86_64 (static musl).
