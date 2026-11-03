@@ -45,7 +45,8 @@ def main() -> None:
             env = {**os.environ, "SOURCE_DATE_EPOCH": epoch, "CARGO_INCREMENTAL": "0",
                    "CARGO_TARGET_DIR": str(build / "target"),
                    "RUSTFLAGS": f"--remap-path-prefix={build}=/source"}
-            run("cargo", "build", "--release", "--locked", "--target", TARGET, cwd=build, env=env)
+            run("cargo", "build", "--release", "--locked", "--features", "mcp", "--target", TARGET,
+                cwd=build, env=env)
             hashes.append(hashlib.sha256((build / "target" / TARGET / "release/clisok").read_bytes()).hexdigest())
     record = {"check": "repro", "commit": os.environ.get("GITHUB_SHA", "local"),
               "run_attempt": int(os.environ.get("GITHUB_RUN_ATTEMPT", "1")),

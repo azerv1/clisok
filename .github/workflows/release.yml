@@ -67,7 +67,7 @@ jobs:
       - name: Build once from the locked inputs
         env:
           TARGET: ${{ matrix.target }}
-        run: cargo build --release --locked --target "$TARGET"
+        run: cargo build --release --locked --features mcp --target "$TARGET"
       - name: Package exact binaries with licenses and checksums
         env:
           TAG: ${{ needs.plan.outputs.tag }}

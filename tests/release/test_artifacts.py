@@ -67,7 +67,8 @@ def test_reproducibility_builds_the_shipped_musl_target(
         commands.append(args)
         assert cwd is not None and env is not None
         target = "x86_64-unknown-linux-musl"
-        assert args == ("cargo", "build", "--release", "--locked", "--target", target)
+        assert args == ("cargo", "build", "--release", "--locked", "--features", "mcp",
+                        "--target", target)
         binary = cwd / "target" / target / "release" / "clisok"
         binary.parent.mkdir(parents=True)
         binary.write_bytes(b"same build")
@@ -79,6 +80,12 @@ def test_reproducibility_builds_the_shipped_musl_target(
     record = json.loads((tmp_path / "evidence/repro.json").read_text(encoding="utf-8"))
     assert record["target"] == "x86_64-unknown-linux-musl"
     assert record["result"] == "success"
+
+
+def test_released_binaries_include_the_mcp_server() -> None:
+    build = workflow("release.yml")["jobs"]["build"]["steps"]
+    commands = [step["run"] for step in build if "run" in step]
+    assert 'cargo build --release --locked --features mcp --target "$TARGET"' in commands
 
 
 def test_release_publishes_only_after_ci_and_smoke_tests() -> None:
@@ -118,6 +125,7 @@ def test_native_tests_select_the_matrix_compiler_explicitly() -> None:
     commands = {step["run"] for step in job["steps"] if "run" in step}
     assert "rustc +${{ matrix.toolchain }} -V" in commands
     assert "cargo +${{ matrix.toolchain }} test --locked" in commands
+    assert "cargo +${{ matrix.toolchain }} test --locked --features mcp" in commands
 
 
 def test_no_hosted_analysis_or_approval_requirement() -> None:
