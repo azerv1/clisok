@@ -405,6 +405,45 @@ fn shell_redirections_and_inline_code_are_never_run() {
     fixture.assert_not_run();
 }
 
+#[cfg(unix)]
+#[test]
+fn static_mode_checks_literal_shell_forwarding_targets() {
+    let fixture = Fixture::new();
+    let target = fixture.root.path().join("missing tool");
+    fixture.script(
+        "missing-path",
+        &format!("#!/bin/sh\n\"{}\" \"$@\"\n", target.display()),
+    );
+    fixture.script("missing-command", "#!/bin/sh\nexec absent-command \"$@\"\n");
+    fixture.native("native-probe");
+    fixture.script("present-command", "#!/bin/sh\nexec native-probe \"$@\"\n");
+    fixture.script("shell-builtin", "#!/bin/sh\nprintf \"$@\"\n");
+    fixture.script(
+        "overrides-path",
+        "#!/bin/sh\nPATH=/another/bin\nexec external-tool \"$@\"\n",
+    );
+    fixture.script(
+        "dynamic-target",
+        "#!/bin/sh\nexec \"$(dirname \"$0\")/sibling\" \"$@\"\n",
+    );
+
+    let report = fixture.check(&["--static"]);
+    assert_tool(&report, "missing-path", "shim", "broken", 0);
+    assert_tool(&report, "missing-command", "shim", "broken", 0);
+    for name in [
+        "present-command",
+        "shell-builtin",
+        "overrides-path",
+        "dynamic-target",
+    ] {
+        assert_tool(&report, name, "shim", "skip", 0);
+    }
+    let findings = report["findings"].as_array().unwrap();
+    assert_eq!(findings.len(), 2, "{findings:?}");
+    assert!(findings.iter().any(|f| f["code"] == "CLI101"));
+    assert!(findings.iter().any(|f| f["code"] == "CLI105"));
+}
+
 #[cfg(windows)]
 #[test]
 fn batch_scripts_cannot_claim_to_be_shims_by_mentioning_node_modules() {

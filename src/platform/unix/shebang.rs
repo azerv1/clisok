@@ -246,24 +246,35 @@ fn command_word(line: &str) -> Option<(String, &str)> {
     (quote.is_none() && !escaped && !word.is_empty()).then_some((word, ""))
 }
 
-fn forwards_arguments(line: &str) -> bool {
-    let line = without_location_substitutions(line);
-    let Some(prefix) = line.strip_suffix(r#""$@""#) else {
-        return false;
-    };
+struct ForwardingCommand<'a> {
+    program: String,
+    args: &'a str,
+    explicit_exec: bool,
+}
+
+fn forwarding_command(line: &str) -> Option<ForwardingCommand<'_>> {
+    let prefix = line.strip_suffix(r#""$@""#)?;
     // The argument expansion must be a separate, final word.
     if !prefix.ends_with(char::is_whitespace) {
-        return false;
+        return None;
     }
-    let Some((mut program, mut args)) = command_word(prefix.trim()) else {
+    let (mut program, mut args) = command_word(prefix.trim())?;
+    let explicit_exec = program == "exec";
+    if explicit_exec {
+        (program, args) = command_word(args)?;
+    }
+    Some(ForwardingCommand {
+        program,
+        args,
+        explicit_exec,
+    })
+}
+
+fn forwards_arguments(line: &str) -> bool {
+    let line = without_location_substitutions(line);
+    let Some(ForwardingCommand { program, args, .. }) = forwarding_command(&line) else {
         return false;
     };
-    if program == "exec" {
-        let Some(command) = command_word(args) else {
-            return false;
-        };
-        (program, args) = command;
-    }
     let name = program.rsplit('/').next().unwrap_or_default();
     if name.is_empty()
         || name.starts_with('-')
@@ -320,18 +331,35 @@ fn forwards_arguments(line: &str) -> bool {
     !interpreter || args.is_empty()
 }
 
-/// True for scripts that only start another program with the caller's
-/// arguments, which makes a test run safe: environment setup, then one
-/// last line that forwards `"$@"`. Any other command might act.
-pub fn is_launcher(path: &Path, text: &str) -> bool {
+/// Check a launcher target and return whether the script is eligible for probes.
+pub fn inspect_launcher(
+    path: &Path,
+    text: &str,
+    index: &PathIndex,
+    reasons: &mut Vec<Reason>,
+) -> bool {
     // npm/pnpm/bun install a package's own entry script, symlinked from bin.
     let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let program = launcher_program(text);
     if program == Some("node") && real.components().any(|c| c.as_os_str() == "node_modules") {
         return true;
     }
-    if !matches!(program, Some("sh" | "bash" | "dash" | "zsh" | "ksh")) {
+    let Some((line, no_setup)) = shell_forwarding_line(text) else {
         return false;
+    };
+    // Setup can change how the shell resolves the command.
+    if no_setup {
+        reasons.extend(shell_target_problem(line, index));
+    }
+    forwards_arguments(line)
+}
+
+fn shell_forwarding_line(text: &str) -> Option<(&str, bool)> {
+    if !matches!(
+        launcher_program(text),
+        Some("sh" | "bash" | "dash" | "zsh" | "ksh")
+    ) {
+        return None;
     }
     let lines: Vec<&str> = text
         .lines()
@@ -339,15 +367,42 @@ pub fn is_launcher(path: &Path, text: &str) -> bool {
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .collect();
-    let Some((last, setup)) = lines.split_last() else {
-        return false;
-    };
-    lines.len() <= 10
+    let (last, setup) = lines.split_last()?;
+    (lines.len() <= 10
         && setup
             .iter()
             .all(|l| one_command(l) && (SETUP.is_match(l) || ASSIGN.is_match(l)))
-        && one_command(last)
-        && forwards_arguments(last)
+        && one_command(last))
+    .then_some((last, setup.is_empty()))
+}
+
+/// Statically resolve a single literal call that forwards its arguments.
+fn shell_target_problem(line: &str, index: &PathIndex) -> Option<Reason> {
+    if line.contains('\\') {
+        return None;
+    }
+    let ForwardingCommand {
+        program,
+        explicit_exec,
+        ..
+    } = forwarding_command(line)?;
+    if program.is_empty()
+        || program.starts_with(['-', '#'])
+        || program.contains(['$', '~', '*', '?', '[', ']', '{', '}', '(', ')'])
+    {
+        return None;
+    }
+    let path = Path::new(&program);
+    if path.is_absolute() && path.try_exists().is_ok_and(|exists| !exists) {
+        Some(Reason::MissingTarget {
+            path: path.to_path_buf(),
+        })
+    } else if explicit_exec && !program.contains('/') && index.lookup(&program).is_empty() {
+        // An explicit exec needs a PATH entry. Bare calls may use shell builtins.
+        Some(Reason::UnresolvedCommand { name: program })
+    } else {
+        None
+    }
 }
 
 /// A single command: no `;`, pipes, `&&`/`&`, backticks, or command
@@ -360,6 +415,10 @@ fn one_command(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn is_launcher(path: &Path, text: &str) -> bool {
+        inspect_launcher(path, text, &PathIndex::build(&[]), &mut Vec::new())
+    }
 
     fn index_with(dir: &Path) -> PathIndex {
         PathIndex::build(&[dir.to_path_buf()])

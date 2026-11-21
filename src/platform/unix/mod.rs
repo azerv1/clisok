@@ -248,7 +248,7 @@ pub fn inspect(path: &Path, index: &PathIndex, _path_dirs: &[PathBuf], insp: &mu
             insp.kind = Kind::Script;
         }
     } else {
-        insp.kind = if shebang::is_launcher(path, &script.text) {
+        insp.kind = if shebang::inspect_launcher(path, &script.text, index, &mut insp.reasons) {
             Kind::Shim
         } else {
             Kind::Script
