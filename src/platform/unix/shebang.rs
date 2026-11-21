@@ -15,18 +15,34 @@ pub struct Script {
     pub text: String,
 }
 
-/// The parsed `#!` line and the script text, or None for anything else.
-pub fn read(path: &Path) -> io::Result<Option<Script>> {
-    // Native binaries need no script read. Inspect only the shebang prefix first.
+pub enum Source {
+    Shebang(Script),
+    PlainText,
+    Other,
+}
+
+/// Read a script while leaving native binaries to the executable inspector.
+pub fn read(path: &Path) -> io::Result<Source> {
     use std::io::Read;
-    let mut prefix = [0u8; 2];
-    if std::fs::File::open(path)?.read(&mut prefix)? != 2 || prefix != *b"#!" {
-        return Ok(None);
+    let mut prefix = Vec::new();
+    std::fs::File::open(path)?
+        .take(256)
+        .read_to_end(&mut prefix)?;
+    if !prefix.starts_with(b"#!") {
+        // execvp can run a shebangless text file through /bin/sh on ENOEXEC.
+        // Check the prefix only, allowing a UTF-8 character at its boundary.
+        let utf8 = std::str::from_utf8(&prefix);
+        let text = utf8.is_ok() || utf8.is_err_and(|e| e.error_len().is_none());
+        return Ok(if text && !prefix.contains(&0) {
+            Source::PlainText
+        } else {
+            Source::Other
+        });
     }
     let bytes = read_script(path)?;
     let text =
         std::str::from_utf8(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    Ok(parse(text))
+    Ok(parse(text).map_or(Source::PlainText, Source::Shebang))
 }
 
 fn parse(text: &str) -> Option<Script> {
@@ -295,6 +311,9 @@ fn forwards_arguments(line: &str) -> bool {
             | "nice"
             | "timeout"
             | "xargs"
+            | "ssh"
+            | "uv"
+            | "wsl.exe"
     ) || name.starts_with("python")
         || name.starts_with("pypy")
         || name.starts_with("lua");
@@ -464,6 +483,9 @@ mod tests {
             "exec $PROGRAM/tool -c 'touch marker' \"$@\"",
             "exec \"$PROGRAM\" cleanup.py \"$@\"",
             "exec /opt/tool \"$@\" ignored",
+            "ssh example.invalid \"$@\"",
+            "uv run task.py \"$@\"",
+            "wsl.exe -d Ubuntu -- task \"$@\"",
         ] {
             assert!(
                 !is_launcher(Path::new("/tmp/tool"), &format!("#!/bin/sh\n{line}\n")),

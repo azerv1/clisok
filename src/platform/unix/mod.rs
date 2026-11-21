@@ -207,7 +207,16 @@ pub fn cursor_visible(visible: bool) {
 /// Unix-specific static checks, after the shared symlink check.
 pub fn inspect(path: &Path, index: &PathIndex, _path_dirs: &[PathBuf], insp: &mut Inspection) {
     let script = match shebang::read(path) {
-        Ok(script) => script,
+        Ok(shebang::Source::Shebang(script)) => script,
+        Ok(shebang::Source::PlainText) => {
+            insp.kind = Kind::Script;
+            return;
+        }
+        Ok(shebang::Source::Other) => {
+            let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+            insp.reasons.extend(elf::missing_libraries(&real));
+            return;
+        }
         Err(e) => {
             insp.kind = Kind::Partial {
                 detail: format!("script could not be inspected: {e}"),
@@ -215,42 +224,36 @@ pub fn inspect(path: &Path, index: &PathIndex, _path_dirs: &[PathBuf], insp: &mu
             return;
         }
     };
-    if let Some(script) = script {
-        let interpreter = match shebang::resolve(&script, index) {
-            Ok(i) => i,
-            Err(reason) => {
-                insp.reasons.push(reason);
-                insp.kind = Kind::Script;
-                return;
-            }
-        };
-        let is_python = interpreter
-            .file_name()
-            .is_some_and(|n| n.to_string_lossy().starts_with("python"));
-        if is_python {
-            if let Some(module) = shebang::launcher_program(&script.text)
-                .and_then(|_| python::entry_module(&script.text))
-            {
-                python::check_entry_point(&interpreter, &module, &mut insp.reasons);
-                insp.kind = Kind::PyLauncher {
-                    python: interpreter,
-                    module,
-                };
-            } else {
-                insp.kind = Kind::Script;
-            }
-        } else {
-            insp.kind = if shebang::is_launcher(path, &script.text) {
-                Kind::Shim
-            } else {
-                Kind::Script
-            };
+    let interpreter = match shebang::resolve(&script, index) {
+        Ok(i) => i,
+        Err(reason) => {
+            insp.reasons.push(reason);
+            insp.kind = Kind::Script;
+            return;
         }
-        return;
+    };
+    let is_python = interpreter
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().starts_with("python"));
+    if is_python {
+        if let Some(module) =
+            shebang::launcher_program(&script.text).and_then(|_| python::entry_module(&script.text))
+        {
+            python::check_entry_point(&interpreter, &module, &mut insp.reasons);
+            insp.kind = Kind::PyLauncher {
+                python: interpreter,
+                module,
+            };
+        } else {
+            insp.kind = Kind::Script;
+        }
+    } else {
+        insp.kind = if shebang::is_launcher(path, &script.text) {
+            Kind::Shim
+        } else {
+            Kind::Script
+        };
     }
-
-    let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    insp.reasons.extend(elf::missing_libraries(&real));
 }
 
 #[cfg(test)]

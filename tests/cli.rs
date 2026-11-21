@@ -348,10 +348,14 @@ fn json_fixture_checks_native_tools_and_never_runs_plain_scripts() {
     #[cfg(unix)]
     let text = "#!/bin/sh\necho ran > \"$CLISOK_TEST_MARKER\"\n";
     fixture.script("must-not-run", text);
+    #[cfg(unix)]
+    fixture.script("no-shebang", "echo ran > \"$CLISOK_TEST_MARKER\"\n");
     fixture.native("native-probe");
 
     let report = fixture.check(&[]);
     assert_tool(&report, "must-not-run", "script", "skip", 0);
+    #[cfg(unix)]
+    assert_tool(&report, "no-shebang", "script", "skip", 0);
     assert_tool(&report, "native-probe", "exe", "pass", 0);
     fixture.assert_not_run();
 
