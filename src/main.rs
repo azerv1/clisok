@@ -4,6 +4,8 @@
 mod check;
 mod codes;
 mod discover;
+#[cfg(test)]
+mod docs;
 mod exec;
 mod fix;
 mod inspect;
