@@ -8,6 +8,7 @@ tool that is safe to run. Runs on Windows and Linux.
 
 ```
 clisok check            # check PATH entries and every tool on PATH
+clisok check --path ./bin --static  # inspect executables in ./bin
 clisok check --output-format json  # same, as JSON on stdout
 clisok check --registry --fix   # also apply safe fixes to the saved user PATH (Windows)
 clisok list             # list every command and the copies it shadows; runs nothing
@@ -25,6 +26,11 @@ shims, DLLs/shared libraries, interpreters, and Python modules. It statically
 inspects everything, then runs `--version` or `--help` only for eligible
 headless tools. Installers, GUI programs, plain scripts, app execution aliases,
 and OS-owned programs are not run.
+
+Use `--path DIR` with `check` or `list` to scan only the specified directory.
+Repeat the flag to scan multiple directories in order. `check --path` uses the
+process PATH to resolve tool dependencies. The flag conflicts with `--fix`,
+`--diff`, and Windows `--registry`.
 
 On Windows, `--registry` also checks the saved user PATH and App Paths. On all
 platforms, `--system` includes OS-owned folders for static inspection. `list`

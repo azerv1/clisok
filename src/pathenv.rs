@@ -142,6 +142,33 @@ pub fn process_path() -> Vec<PathEntry> {
     entries
 }
 
+/// Directories supplied on the command line, or the process PATH by default.
+pub fn scan_entries(paths: &[PathBuf]) -> Result<Vec<PathEntry>, String> {
+    if paths.is_empty() {
+        let entries = process_path();
+        if entries.is_empty() {
+            return Err("PATH is empty".into());
+        }
+        return Ok(entries);
+    }
+
+    let mut entries = Vec::new();
+    let mut seen = HashSet::new();
+    for path in paths {
+        let path_error = |e| format!("--path {path:?}: {e}");
+        let dir = std::path::absolute(path).map_err(path_error)?;
+        if seen.insert(platform::path_key(&dir)) {
+            fs::read_dir(&dir).map_err(path_error)?;
+            entries.push(PathEntry {
+                raw: path.display().to_string(),
+                dir,
+                origin: PathOrigin::Process,
+            });
+        }
+    }
+    Ok(entries)
+}
+
 #[cfg(test)]
 pub fn check_entries(entries: &[PathEntry]) -> Vec<(PathEntry, EntryProblem)> {
     indexed_problems(entries)

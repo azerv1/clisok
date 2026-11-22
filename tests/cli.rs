@@ -125,6 +125,82 @@ fn redirected_progress_keeps_stderr_plain_and_stdout_json() {
 }
 
 #[test]
+fn explicit_paths_limit_discovery_and_preserve_directory_order() {
+    let mut fixture = Fixture::new();
+    fixture.native("ambient-only");
+    let ambient = std::env::join_paths([
+        fixture.commands.clone(),
+        fixture.root.path().join("missing PATH entry"),
+    ])
+    .unwrap();
+    let directories = ["first bin", "second bin"];
+    for directory in directories {
+        fixture.commands = fixture.root.path().join(directory);
+        fs::create_dir(&fixture.commands).unwrap();
+        #[cfg(windows)]
+        fixture.script("selected", "@echo off\r\necho selected\r\n");
+        #[cfg(unix)]
+        fixture.script("selected", "#!/bin/sh\nexec ambient-only \"$@\"\n");
+    }
+    let selected = ["--path", directories[0], "--path", directories[1]];
+    let check_args = [&selected[..], &["--static"]].concat();
+    let report = fixture.check_with_env(&check_args, &[("PATH", ambient.as_os_str())]);
+    let tools = report["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0]["name"], "selected");
+    assert_eq!(tools[0]["verdict"], "skip", "{}", tools[0]);
+    assert_eq!(report["findings"], serde_json::json!([]));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_clisok"))
+        .args(["list", "--output-format", "json"])
+        .args(selected)
+        .env("PATH", ambient)
+        .current_dir(fixture.root.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let commands = report["commands"].as_array().unwrap();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0]["name"], "selected");
+    let copies = commands[0]["copies"].as_array().unwrap();
+    assert_eq!(copies.len(), 2);
+    for (copy, directory) in copies.iter().zip(directories) {
+        let path = PathBuf::from(copy["path"].as_str().unwrap());
+        assert_eq!(path.parent().unwrap().file_name().unwrap(), directory);
+    }
+    assert_eq!(tools[0]["path"], copies[0]["path"]);
+}
+
+#[test]
+fn explicit_paths_reject_invalid_directories_and_saved_path_operations() {
+    let fixture = Fixture::new();
+    let file = fixture.script("a-file", "");
+    for subcommand in ["check", "list"] {
+        for path in ["missing-dir", file.to_str().unwrap()] {
+            let args = if subcommand == "check" {
+                vec!["--path", path, "--static"]
+            } else {
+                vec!["--path", path]
+            };
+            let output = fixture.isolated(subcommand, &args);
+            assert_eq!(output.status.code(), Some(2));
+            assert!(String::from_utf8_lossy(&output.stderr).contains(&format!("--path {path:?}:")));
+        }
+    }
+    for operation in [
+        "--fix",
+        "--diff",
+        #[cfg(windows)]
+        "--registry",
+    ] {
+        let output = fixture.isolated("check", &["--path", ".", operation]);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("cannot be used with"));
+    }
+}
+
+#[test]
 fn static_mode_skips_native_probes_and_keeps_specific_skip_reasons() {
     let fixture = Fixture::new();
     fixture.native("native-probe");

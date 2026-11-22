@@ -15,6 +15,9 @@ pub enum ListFormat {
 
 #[derive(clap::Args)]
 pub struct ListArgs {
+    /// Limit discovery to this directory (repeatable)
+    #[arg(long = "path", value_name = "DIR")]
+    paths: Vec<PathBuf>,
     #[cfg_attr(
         windows,
         doc = "Also list commands found only in Windows' own folder (%SystemRoot%)"
@@ -36,15 +39,15 @@ fn sort_by_name(commands: &mut [PathCommand]) {
         .sort_by(|a, b| (a.name.to_lowercase(), &a.name).cmp(&(b.name.to_lowercase(), &b.name)));
 }
 
-/// Every command on PATH, sorted by name. With `system`, also the commands
-/// found only in the OS folders.
-pub fn run_list(system: bool) -> Result<ListReport, String> {
-    let entries = pathenv::process_path();
-    if entries.is_empty() {
-        return Err("PATH is empty".into());
-    }
+/// Commands in the selected directories, sorted by name.
+pub fn run_list(paths: &[PathBuf], system: bool) -> Result<ListReport, String> {
+    let entries = pathenv::scan_entries(paths)?;
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
-    let mut commands = discover::inventory(&entries, &PathIndex::build(&dirs), system);
+    let mut commands = discover::inventory(
+        &entries,
+        &PathIndex::build(&dirs),
+        system || !paths.is_empty(),
+    );
     sort_by_name(&mut commands);
     Ok(ListReport {
         schema: SCHEMA_VERSION,
@@ -54,7 +57,7 @@ pub fn run_list(system: bool) -> Result<ListReport, String> {
 }
 
 pub fn list(args: &ListArgs) -> ExitCode {
-    let report = match run_list(args.system) {
+    let report = match run_list(&args.paths, args.system) {
         Ok(report) => report,
         Err(e) => {
             eprintln!("clisok: {e}");

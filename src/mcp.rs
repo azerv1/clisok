@@ -213,6 +213,7 @@ impl Server {
             ));
         }
         let opts = CheckOptions {
+            paths: Vec::new(),
             #[cfg(windows)]
             registry: p.registry,
             system: p.system,
@@ -245,7 +246,7 @@ impl Server {
         &self,
         Parameters(p): Parameters<ListParams>,
     ) -> Result<CallToolResult, McpError> {
-        match self.blocking(move || list::run_list(p.system)).await? {
+        match self.blocking(move || list::run_list(&[], p.system)).await? {
             Ok(report) => Ok(CallToolResult::structured(
                 serde_json::to_value(report).map_err(internal)?,
             )),

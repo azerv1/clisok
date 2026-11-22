@@ -30,6 +30,10 @@ static INSTALLER_NAME: LazyLock<Regex> =
 #[derive(clap::Args)]
 #[command(group(clap::ArgGroup::new("fix_mode").multiple(true).args(["fix", "diff"])))]
 pub struct CheckArgs {
+    /// Limit discovery to this directory (repeatable)
+    #[arg(long = "path", value_name = "DIR", conflicts_with = "fix_mode")]
+    #[cfg_attr(windows, arg(conflicts_with = "registry"))]
+    paths: Vec<PathBuf>,
     /// Also check the saved (registry) PATH and App Paths registrations
     #[cfg(windows)]
     #[arg(long)]
@@ -93,6 +97,7 @@ pub struct CheckArgs {
 
 /// What a check run needs, independent of how its report is printed.
 pub struct CheckOptions {
+    pub paths: Vec<PathBuf>,
     /// Also check the saved PATH and App Paths (Windows only).
     #[cfg(windows)]
     pub registry: bool,
@@ -117,6 +122,7 @@ pub struct FixOptions {
 impl CheckArgs {
     pub fn to_options(&self) -> CheckOptions {
         CheckOptions {
+            paths: self.paths.clone(),
             #[cfg(windows)]
             registry: self.registry || self.fix || self.diff,
             system: self.system,
@@ -618,15 +624,6 @@ pub struct FixOutcome {
     pub report: Report,
 }
 
-/// PATH entries in this process, and only those.
-fn path_entries() -> Result<Vec<PathEntry>, String> {
-    let entries = pathenv::process_path();
-    if entries.is_empty() {
-        return Err("PATH is empty".into());
-    }
-    Ok(entries)
-}
-
 /// The PATH and saved-settings findings.
 fn settings_findings(
     entries: &[PathEntry],
@@ -652,7 +649,7 @@ fn settings_findings(
 
 /// `--diff` (`apply: false`) or `--fix` (`apply: true`), without checking tools.
 pub fn run_fix(opts: &FixOptions) -> Result<FixOutcome, String> {
-    let entries = path_entries()?;
+    let entries = pathenv::scan_entries(&[])?;
     let severities = severities(&opts.ignore);
     // Fixes act on saved settings, so they always read them.
     let registry = cfg!(windows);
@@ -699,6 +696,7 @@ pub fn run_fix(opts: &FixOptions) -> Result<FixOutcome, String> {
 /// the process is never exited; progress goes to stderr. Callers check
 /// `probe_permission` first and, after Ctrl+C, `progress::is_interrupted`.
 pub fn run_check(opts: &CheckOptions) -> Result<Report, String> {
+    let entries = pathenv::scan_entries(&opts.paths)?;
     platform::init();
     // A run must not inherit an earlier run's state in the same process.
     progress::reset_interrupt();
@@ -708,22 +706,35 @@ pub fn run_check(opts: &CheckOptions) -> Result<Report, String> {
         .unwrap_or_else(|| pool::default_jobs(JOBS_PER_CORE, MAX_JOBS))
         .max(1);
 
-    let entries = path_entries()?;
     let severities = severities(&opts.ignore);
-    let (_, path_problems, app_paths) =
-        settings_findings(&entries, check_registry(opts), &severities);
+    let explicit_paths = !opts.paths.is_empty();
+    let (path_problems, app_paths) = if explicit_paths {
+        (Vec::new(), Vec::new())
+    } else {
+        let (_, problems, apps) = settings_findings(&entries, check_registry(opts), &severities);
+        (problems, apps)
+    };
 
     let dirs: Vec<PathBuf> = entries.iter().map(|e| e.dir.clone()).collect();
     let index = PathIndex::build(&dirs);
+    let include_system = opts.system || explicit_paths;
     let tools = tools_to_check(
-        &discover::inventory(&entries, &index, opts.system),
-        opts.system,
+        &discover::inventory(&entries, &index, include_system),
+        include_system,
     );
     eprintln!("clisok: checking {} tools...", tools.len());
 
+    // Explicit directories limit discovery. Dependencies still resolve as they
+    // would when the probes run with the inherited PATH.
+    let lookup = explicit_paths.then(|| {
+        let dirs: Vec<_> = pathenv::process_path().into_iter().map(|e| e.dir).collect();
+        let index = PathIndex::build(&dirs);
+        (dirs, index)
+    });
+    let (dirs, index) = lookup.as_ref().map_or((&dirs, &index), |(d, i)| (d, i));
     let ctx = Ctx {
-        index: &index,
-        dirs: &dirs,
+        index,
+        dirs,
         skip: opts.skip.iter().map(|s| s.to_lowercase()).collect(),
         timeout: Duration::from_secs(opts.timeout.unwrap_or(DEFAULT_TIMEOUT)),
         severities,
