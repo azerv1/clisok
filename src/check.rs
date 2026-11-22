@@ -166,6 +166,8 @@ struct Ctx<'a> {
 struct Prepared {
     res: ToolResult,
     skip_why: Option<&'static str>,
+    #[cfg(unix)]
+    shell_parser: Option<&'static std::path::Path>,
 }
 
 /// Static checks only: cheap, and decides whether a test run is safe.
@@ -209,14 +211,26 @@ fn prepare(tool: Tool, ctx: &Ctx) -> Prepared {
         Some(
             "not run: static inspection was incomplete (oversized, unreadable or unsupported input)",
         )
-    } else if matches!(res.kind, Kind::Script) {
-        Some("not run: script, not a launcher")
     } else if matches!(res.kind, Kind::Missing) {
         Some("not run: target is missing")
     } else {
-        platform::probe_unavailable()
+        None
     };
-    Prepared { res, skip_why }
+    #[cfg(unix)]
+    let shell_parser = insp.shell_parser.filter(|_| skip_why.is_none());
+    let skip_why = skip_why.or_else(|| {
+        if matches!(res.kind, Kind::Script) {
+            Some("not run: script, not a launcher")
+        } else {
+            platform::probe_unavailable()
+        }
+    });
+    Prepared {
+        res,
+        skip_why,
+        #[cfg(unix)]
+        shell_parser,
+    }
 }
 
 /// A finding reported as the tool's note (hidden copy, tool error): its
@@ -273,7 +287,27 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
         return res;
     }
     let mut keep_attempts = false;
-    let outcome = match p.skip_why {
+    #[cfg(unix)]
+    let syntax = p.shell_parser.and_then(|parser| {
+        let start = std::time::Instant::now();
+        let checked = platform::check_shell_syntax(parser, &res.path, ctx.timeout);
+        res.ms += start.elapsed().as_millis() as u64;
+        match checked {
+            Ok(Some(reason)) => {
+                res.reasons.extend(Finding::new(reason, &ctx.severities));
+                Some(Outcome::Skip("shell syntax error".into()))
+            }
+            Ok(None) => p
+                .skip_why
+                .map(|_| Outcome::Skip("shell syntax OK (parse only)".into())),
+            Err(_) => p
+                .skip_why
+                .map(|_| Outcome::Skip("shell syntax check unavailable".into())),
+        }
+    });
+    #[cfg(not(unix))]
+    let syntax: Option<Outcome> = None;
+    let outcome = syntax.unwrap_or_else(|| match p.skip_why {
         Some(why) => Outcome::Skip(skipped_note(&res.kind, why)),
         None => {
             let mut module_error = None;
@@ -309,7 +343,7 @@ fn run(p: Prepared, ctx: &Ctx) -> ToolResult {
                 outcome
             })
         }
-    };
+    });
 
     let run_verdict = match outcome {
         Outcome::Broken(r) => {
@@ -361,8 +395,8 @@ fn apply_retry(previous: &mut ToolResult, mut retried: ToolResult) {
     *previous = retried;
 }
 
-/// Expected cost, lowest first: interpreted launchers start slowest, so they
-/// go first; skipped tools cost nothing and go last.
+/// Interpreted launchers start slowest, so they go first. Scripts without
+/// startup probes go last.
 fn cost_rank(p: &Prepared) -> u8 {
     match (&p.skip_why, &p.res.kind) {
         (Some(_), _) => 2,
@@ -743,6 +777,10 @@ pub fn run_check(opts: &CheckOptions) -> Result<Report, String> {
         let mut prepared = prepare(t, &ctx);
         if opts.static_only {
             prepared.skip_why = prepared.skip_why.or(Some("not run: --static"));
+            #[cfg(unix)]
+            {
+                prepared.shell_parser = None;
+            }
         }
         prepared
     });
@@ -1306,6 +1344,8 @@ mod tests {
                 Prepared {
                     res,
                     skip_why: Some(why),
+                    #[cfg(unix)]
+                    shell_parser: None,
                 },
                 &ctx,
             );
@@ -1388,6 +1428,8 @@ mod tests {
             Prepared {
                 res,
                 skip_why: Some("not run: target is missing"),
+                #[cfg(unix)]
+                shell_parser: None,
             },
             &ctx,
         );

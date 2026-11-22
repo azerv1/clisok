@@ -27,6 +27,11 @@ inspects everything, then runs `--version` or `--help` only for eligible
 headless tools. Installers, GUI programs, plain scripts, app execution aliases,
 and OS-owned programs are not run.
 
+On Unix, `check` asks the system `sh`, `bash`, or `dash` to parse scripts with
+a matching shebang and no shell options. Syntax errors are reported as `CLI109`.
+The parser runs with an empty environment and leaves the script body unevaluated.
+`--static` skips the parser along with other subprocesses.
+
 Use `--path DIR` with `check` or `list` to scan only the specified directory.
 Repeat the flag to scan multiple directories in order. `check --path` uses the
 process PATH to resolve tool dependencies. The flag conflicts with `--fix`,

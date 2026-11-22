@@ -219,6 +219,18 @@ pub fn launcher_program(text: &str) -> Option<&str> {
     words.next().is_none().then_some(program)
 }
 
+/// Use the system shell for parsing only when it matches the resolved interpreter.
+pub fn shell_parser(script: &Script, interpreter: &Path) -> Option<&'static Path> {
+    let parser = match launcher_program(&script.text)?.rsplit('/').next()? {
+        "bash" => Path::new("/bin/bash"),
+        "dash" => Path::new("/bin/dash"),
+        "sh" => Path::new("/bin/sh"),
+        _ => return None,
+    };
+    (std::fs::canonicalize(interpreter).ok()? == std::fs::canonicalize(parser).ok()?)
+        .then_some(parser)
+}
+
 /// Read just the command word, after substitutions have been constrained.
 fn command_word(line: &str) -> Option<(String, &str)> {
     let mut word = String::new();

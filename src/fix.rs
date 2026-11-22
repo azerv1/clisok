@@ -170,6 +170,8 @@ pub fn for_reason(reason: &Reason) -> Option<Fix> {
         Reason::UnresolvedCommand { name } => {
             format!("install {name}, or give the launcher a full path")
         }
+        #[cfg(unix)]
+        Reason::ShellSyntax { .. } => "correct the shell syntax at the reported line".into(),
         Reason::AppNotInstalled { .. } => {
             "turn the alias off in Settings › Apps › Advanced app settings › App execution aliases"
                 .into()

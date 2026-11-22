@@ -14,10 +14,29 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::Serialize;
 
-use crate::inspect::{Inspection, Kind, python};
+use crate::inspect::{Inspection, Kind, Reason, python};
 use crate::pathenv::{EntryEdit, EntryProblem, PathEntry, PathIndex, PathRepair};
 
 pub use spawn::{cleanup_children, init, kill_children, probe_unavailable, run as run_headless};
+
+pub fn check_shell_syntax(
+    shell: &Path,
+    script: &Path,
+    timeout: std::time::Duration,
+) -> std::io::Result<Option<Reason>> {
+    let out = spawn::parse_shell(shell, script, timeout)?;
+    match (out.exit, out.truncated, out.signal) {
+        (Some(0), false, None) => Ok(None),
+        (Some(2), false, None) => {
+            let diagnostic = String::from_utf8_lossy(&out.output);
+            let line = diagnostic.lines().next().unwrap_or("invalid syntax");
+            Ok(Some(Reason::ShellSyntax {
+                line: crate::exec::clip(line, 512),
+            }))
+        }
+        _ => Err(std::io::Error::other("shell syntax check did not complete")),
+    }
+}
 
 pub const PATH_SEPARATOR: char = ':';
 
@@ -232,6 +251,7 @@ pub fn inspect(path: &Path, index: &PathIndex, _path_dirs: &[PathBuf], insp: &mu
             return;
         }
     };
+    insp.shell_parser = shebang::shell_parser(&script, &interpreter);
     let is_python = interpreter
         .file_name()
         .is_some_and(|n| n.to_string_lossy().starts_with("python"));

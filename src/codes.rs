@@ -89,6 +89,8 @@ codes! {
         "Typing the name runs the operating system's own copy, which comes earlier in PATH, so this copy never runs. Move its folder ahead of the OS folder in PATH, or call it by full path.";
     Cli108 = 108, Warn, "script calls a file that does not exist",
         "A script that does more than forward to one program calls a file that isn't there. The script may still work, since the call may be a side step such as cleanup, so clisok can't tell whether it is the script's main job. Restore the file, or remove the call from the script.";
+    Cli109 = 109, Error, "shell syntax error",
+        "The shell rejected the script during a syntax-only check. Correct the syntax at the reported line.";
     Cli201 = 201, Error, "failed to start",
         "The operating system refused to start the program: not a valid executable, wrong architecture, or no permission. Reinstall it.";
     Cli202 = 202, Error, "error output when run",

@@ -65,6 +65,10 @@ pub enum Reason {
     UnresolvedCommand {
         name: String,
     },
+    #[cfg(unix)]
+    ShellSyntax {
+        line: String,
+    },
     #[cfg_attr(not(windows), allow(dead_code))]
     AppNotInstalled {
         package: String,
@@ -89,6 +93,8 @@ impl Reason {
             Reason::MissingInterpreter { .. } => Code::Cli103,
             Reason::MissingModule { .. } => Code::Cli104,
             Reason::UnresolvedCommand { .. } => Code::Cli105,
+            #[cfg(unix)]
+            Reason::ShellSyntax { .. } => Code::Cli109,
             Reason::AppNotInstalled { .. } => Code::Cli106,
             Reason::FailedToStart { .. } => Code::Cli201,
             Reason::Output { .. } => Code::Cli202,
@@ -126,6 +132,8 @@ impl fmt::Display for Reason {
             Reason::UnresolvedCommand { name } => {
                 write!(f, "'{name}' does not resolve through PATH")
             }
+            #[cfg(unix)]
+            Reason::ShellSyntax { line } => write!(f, "shell syntax error: {line}"),
             Reason::AppNotInstalled { package } => {
                 write!(
                     f,
@@ -163,6 +171,8 @@ pub struct Inspection {
     pub kind: Kind,
     pub gui: bool,
     pub reasons: Vec<Reason>,
+    #[cfg(unix)]
+    pub shell_parser: Option<&'static Path>,
 }
 
 pub fn inspect(path: &Path, index: &PathIndex, path_dirs: &[PathBuf]) -> Inspection {
@@ -170,6 +180,8 @@ pub fn inspect(path: &Path, index: &PathIndex, path_dirs: &[PathBuf]) -> Inspect
         kind: Kind::Exe,
         gui: false,
         reasons: Vec::new(),
+        #[cfg(unix)]
+        shell_parser: None,
     };
 
     // Symlinks must point somewhere real.

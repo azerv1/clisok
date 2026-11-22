@@ -170,23 +170,12 @@ fn child_path(raw: &OsStr, cwd: &Path) -> io::Result<OsString> {
 }
 
 pub fn run(program: &Path, args: &[&str], timeout: Duration) -> io::Result<Output> {
-    run_with_wait(program, args, timeout, Child::try_wait)
+    run_with_wait(probe_command(program, args)?, timeout, Child::try_wait)
 }
 
-fn run_with_wait(
-    program: &Path,
-    args: &[&str],
-    timeout: Duration,
-    mut try_wait: impl FnMut(&mut Child) -> io::Result<Option<ExitStatus>>,
-) -> io::Result<Output> {
-    subreaper()?;
-    let (reader, writer) = io::pipe()?;
+fn probe_command(program: &Path, args: &[&str]) -> io::Result<Command> {
     let mut cmd = Command::new(program);
-    cmd.args(args)
-        .current_dir(work_dir()?)
-        .stdin(Stdio::null())
-        .stdout(writer.try_clone()?)
-        .stderr(writer);
+    cmd.args(args).current_dir(work_dir()?).stdin(Stdio::null());
     cmd.env_clear()
         .envs(std::env::vars_os().filter(|(k, _)| keep_probe_env(k)));
     for (k, v) in HEADLESS_ENV {
@@ -197,6 +186,27 @@ fn run_with_wait(
     if let Some(path) = std::env::var_os("PATH") {
         cmd.env("PATH", child_path(&path, &std::env::current_dir()?)?);
     }
+    Ok(cmd)
+}
+
+pub fn parse_shell(shell: &Path, script: &Path, timeout: Duration) -> io::Result<Output> {
+    let mut cmd = Command::new(shell);
+    // Read commands without evaluating them. An empty environment also excludes
+    // startup hooks (such as BASH_ENV), imported functions, and loader overrides.
+    cmd.arg("-n")
+        .env_clear()
+        .stdin(std::fs::File::open(script)?);
+    run_with_wait(cmd, timeout, Child::try_wait)
+}
+
+fn run_with_wait(
+    mut cmd: Command,
+    timeout: Duration,
+    mut try_wait: impl FnMut(&mut Child) -> io::Result<Option<ExitStatus>>,
+) -> io::Result<Output> {
+    subreaper()?;
+    let (reader, writer) = io::pipe()?;
+    cmd.stdout(writer.try_clone()?).stderr(writer);
     // SAFETY: setsid is async-signal-safe and touches nothing in the parent.
     unsafe {
         cmd.pre_exec(|| {
@@ -268,8 +278,7 @@ mod tests {
     fn wait_failure_kills_reaps_and_untracks_the_child() {
         let mut pid = 0;
         let result = run_with_wait(
-            Path::new("/bin/sleep"),
-            &["30"],
+            probe_command(Path::new("/bin/sleep"), &["30"]).unwrap(),
             Duration::from_secs(3),
             |child| {
                 pid = child.id() as i32;

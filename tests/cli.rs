@@ -483,6 +483,51 @@ fn shell_redirections_and_inline_code_are_never_run() {
 
 #[cfg(unix)]
 #[test]
+fn explicit_directory_reports_shell_syntax_without_executing_script_bodies() {
+    let fixture = Fixture::new();
+    fixture.script("broken.sh", "#!/bin/sh\nif true; then\n");
+    fixture.script(
+        "valid.sh",
+        &format!("#!/bin/bash\ntouch '{}'\n", fixture.marker.display()),
+    );
+    fixture.script(
+        "bash",
+        &format!("#!/bin/sh\ntouch '{}'\n", fixture.marker.display()),
+    );
+    fixture.script("custom-shell.sh", "#!/usr/bin/env bash\nif true; then\n");
+
+    let hook = fixture.root.path().join("bash-startup");
+    fs::write(&hook, format!("> '{}'\n", fixture.marker.display())).unwrap();
+    let env = [("BASH_ENV", hook.as_os_str())];
+    let dir = fixture.commands.to_str().unwrap();
+    let report = fixture.check_with_env(&["--path", dir], &env);
+    assert_tool(&report, "broken.sh", "script", "broken", 0);
+    let valid = assert_tool(&report, "valid.sh", "script", "skip", 0);
+    assert_eq!(valid["note"], "shell syntax OK (parse only)");
+    let custom = assert_tool(&report, "custom-shell.sh", "script", "skip", 0);
+    assert_eq!(custom["note"], "not run: script, not a launcher");
+    let findings = report["findings"].as_array().unwrap();
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert_eq!(findings[0]["code"], "CLI109");
+
+    for flags in [&["--static"][..], &["--skip", "broken.sh"]] {
+        let args = [&["--path", dir][..], flags].concat();
+        let report = fixture.check_with_env(&args, &env);
+        assert_tool(&report, "broken.sh", "script", "skip", 0);
+        assert_eq!(report["findings"], serde_json::json!([]));
+    }
+    let out = fixture.isolated("check", &["--path", "."]);
+    assert_eq!(out.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("broken.sh") && stdout.contains("CLI109"),
+        "{stdout}"
+    );
+    fixture.assert_not_run();
+}
+
+#[cfg(unix)]
+#[test]
 fn static_mode_checks_literal_shell_forwarding_targets() {
     let fixture = Fixture::new();
     let target = fixture.root.path().join("missing tool");
